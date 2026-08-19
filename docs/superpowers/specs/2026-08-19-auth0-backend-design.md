@@ -73,6 +73,21 @@ Requires an active local session and returns safe local-user profile data,
 Developer Mode status, and environment metadata. It never returns Auth0 token
 claims or provider tokens.
 
+## OpenAPI documentation
+
+Publish the authentication contract in `openapi/openapi.yaml` using OpenAPI
+3.0.3. The document must describe `/auth/login`, `/auth/callback`,
+`/auth/logout`, and `/auth/me`, including redirect behavior, cookie security,
+success responses, sanitized error responses, and the `UserProfile` and
+`ErrorResponse` schemas. `/auth/me` must declare the local session cookie
+security scheme; Auth0 access, refresh, ID, state, nonce, and PKCE values must
+not appear as public request or response fields.
+
+The OpenAPI document is validated in automated tests and the examples must
+match the handler status codes and JSON fields. The API documentation must
+explicitly label the flow as sandbox authentication and distinguish the local
+KailoPay session from developer `pk_test_` API keys.
+
 ## Local session policy
 
 - Generate at least 256 bits using `crypto/rand`.
