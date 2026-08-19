@@ -1,0 +1,121 @@
+openapi: 3.0.3
+info:
+  title: KailoPay Backend API
+  version: 0.1.0
+  description: Sandbox/testnet payment API with Auth0 email login and KailoPay-owned sessions.
+servers:
+  - url: http://localhost:8080
+    description: Local development
+paths:
+  /auth/login:
+    get:
+      summary: Start email login
+      description: Redirects the browser to Auth0 Universal Login using the configured email connection.
+      responses:
+        '302':
+          description: Redirect to Auth0
+          headers:
+            Location:
+              schema:
+                type: string
+                format: uri
+        '503':
+          description: Authentication provider unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /auth/callback:
+    get:
+      summary: Complete email login
+      description: Consumes the Auth0 authorization callback and redirects to the frontend with a local session cookie.
+      responses:
+        '302':
+          description: Redirect to the configured frontend success URL
+          headers:
+            Location:
+              schema:
+                type: string
+                format: uri
+            Set-Cookie:
+              schema:
+                type: string
+                description: HttpOnly, SameSite=Lax local session cookie.
+        '400':
+          description: Invalid or replayed authentication callback
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /auth/logout:
+    post:
+      summary: End the local session
+      description: Revokes the KailoPay session represented by the browser cookie and clears that cookie.
+      responses:
+        '204':
+          description: Session ended or was already absent
+        '500':
+          description: Session revocation failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /auth/me:
+    get:
+      summary: Get the authenticated local user
+      security:
+        - kailoSession: []
+      responses:
+        '200':
+          description: Authenticated user profile
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [user]
+                properties:
+                  user:
+                    $ref: '#/components/schemas/UserProfile'
+        '401':
+          description: Missing, expired, revoked, or invalid local session
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+components:
+  securitySchemes:
+    kailoSession:
+      type: apiKey
+      in: cookie
+      name: kailopay_session
+      description: Opaque KailoPay-owned session cookie. Auth0 tokens are never returned to the browser.
+  schemas:
+    UserProfile:
+      type: object
+      required: [id, displayName, email, emailVerified, developerEnabled]
+      properties:
+        id:
+          type: string
+          format: uuid
+        displayName:
+          type: string
+        email:
+          type: string
+          format: email
+        emailVerified:
+          type: boolean
+        developerEnabled:
+          type: boolean
+    EnvironmentMetadata:
+      type: object
+      required: [environment]
+      properties:
+        environment:
+          type: string
+          enum: [local, test, sandbox, production]
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string

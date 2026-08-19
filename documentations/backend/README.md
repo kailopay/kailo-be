@@ -10,7 +10,7 @@
 | Logging | Standard-library `log/slog` |
 | External environments | Auth0 tenant, one payment gateway sandbox, and Stellar testnet |
 | Architecture | Modular monolith with asynchronous workers and transactional outbox |
-| Status | Implementation design for review |
+| Status | Auth0 backend authentication slice implemented; payment/order slices remain staged |
 
 ## Purpose
 
@@ -21,7 +21,9 @@ The documents describe intended behavior and boundaries. The checked-in OpenAPI 
 ## Go implementation notes
 
 - `cmd/api` is the HTTP composition root; `cmd/worker` is the background-process composition root when workers are enabled.
-- `internal/service/<capability>` owns narrow interfaces required by each use case.
+- `internal/usecase` owns application workflows and the narrow interfaces each
+  use case consumes. Name capability files explicitly, such as
+  `auth_usecase.go`.
 - `internal/repository` contains concrete GORM persistence models and repositories; those models do not cross into entities or handler DTOs.
 - `internal/platform` contains configuration, database lifecycle, and structured logging setup; it contains no business policy.
 - `internal/adapter/<provider>` contains external payment and Stellar adapters; provider SDK types do not cross the adapter boundary.
@@ -108,3 +110,14 @@ Material design changes require an ADR and synchronized updates to affected docu
 - Configure the selected Auth0 OIDC tenant and the minimum developer-session mechanism used to create and revoke test API keys.
 
 Until those decisions are resolved, payment-provider classes, URLs, and secret names remain adapter/configuration concerns rather than embedded domain logic.
+
+## Implemented Auth0 backend slice
+
+The backend now implements the Auth0 email-login BFF flow:
+
+- `GET /auth/login` redirects to Auth0 Universal Login using the configured email connection.
+- `GET /auth/callback` validates the one-time transaction and OIDC identity, then creates a local session.
+- `POST /auth/logout` revokes and clears the local session.
+- `GET /auth/me` returns the authenticated local user and requires the `kailopay_session` cookie.
+
+Auth0 tokens never reach the browser. Local sessions are opaque, HTTP-only, SameSite=Lax cookies backed by PostgreSQL. Configure `.env` using [.env.example](../../.env.example); the checked-in contract is [openapi/openapi.yaml](../../openapi/openapi.yaml). Run `go run ./cmd/automigrate` in local/test environments after setting the database and Auth0 configuration.

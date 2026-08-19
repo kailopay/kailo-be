@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -9,9 +10,14 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
+	"github.com/febry3/kailopay-be/internal/adapter/auth0"
 	httpapi "github.com/febry3/kailopay-be/internal/handler/http"
+	"github.com/febry3/kailopay-be/internal/handler/middleware"
 	"github.com/febry3/kailopay-be/internal/platform"
+	"github.com/febry3/kailopay-be/internal/repository"
+	auth "github.com/febry3/kailopay-be/internal/usecase"
 )
 
 func main() {
@@ -61,7 +67,32 @@ func run(ctx context.Context) error {
 		appLogger,
 	)
 	health.MarkStarted()
-	router, err := httpapi.NewRouter(appLogger, health)
+	encryptionKey, err := base64.StdEncoding.DecodeString(cfg.Auth.TransactionEncryptionKey)
+	if err != nil {
+		return fmt.Errorf("decoding auth transaction key: %w", err)
+	}
+	sessionHMACKey, err := base64.StdEncoding.DecodeString(cfg.Auth.SessionHMACKey)
+	if err != nil {
+		return fmt.Errorf("decoding auth session key: %w", err)
+	}
+	authProvider, err := auth0.NewClient(ctx, cfg.Auth, &http.Client{Timeout: 10 * time.Second})
+	if err != nil {
+		return fmt.Errorf("creating Auth0 client: %w", err)
+	}
+	authRepository := repository.NewAuthRepository(db, cfg.Auth.SessionIdleLifetime)
+	authService, err := auth.NewAuthUsecase(authProvider, authRepository, authRepository, nil, auth.Config{
+		TransactionEncryptionKey: encryptionKey,
+		SessionHMACKey:           sessionHMACKey,
+		SessionAbsoluteLifetime:  cfg.Auth.SessionAbsoluteLifetime,
+		SessionIdleLifetime:      cfg.Auth.SessionIdleLifetime,
+		TransactionLifetime:      cfg.Auth.TransactionLifetime,
+	})
+	if err != nil {
+		return fmt.Errorf("creating auth service: %w", err)
+	}
+	authHandler := httpapi.NewAuthHandler(authService, cfg.Auth)
+	sessionMiddleware := middleware.RequireSessionWithCookie(authService, cfg.Auth.CookieName)
+	router, err := httpapi.NewRouter(appLogger, health, authHandler, sessionMiddleware)
 	if err != nil {
 		return fmt.Errorf("creating http router: %w", err)
 	}

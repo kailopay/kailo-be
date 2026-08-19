@@ -8,9 +8,12 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func NewRouter(logger *slog.Logger, health *HealthHandler) (*gin.Engine, error) {
+func NewRouter(logger *slog.Logger, health *HealthHandler, authHandler *AuthHandler, requireSession gin.HandlerFunc) (*gin.Engine, error) {
 	if health == nil {
 		return nil, errors.New("health handler is required")
+	}
+	if authHandler == nil || requireSession == nil {
+		return nil, errors.New("auth handler and session middleware are required")
 	}
 	if logger == nil {
 		logger = slog.Default()
@@ -30,5 +33,11 @@ func NewRouter(logger *slog.Logger, health *HealthHandler) (*gin.Engine, error) 
 	router.GET("/health", health.Health)
 	router.GET("/healthz", health.Liveness)
 	router.GET("/ready", health.Ready)
+	router.GET("/auth/login", authHandler.Login)
+	router.GET("/auth/callback", authHandler.Callback)
+	router.POST("/auth/logout", authHandler.Logout)
+	authRoutes := router.Group("/auth")
+	authRoutes.Use(requireSession)
+	authRoutes.GET("/me", authHandler.Me)
 	return router, nil
 }

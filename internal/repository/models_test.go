@@ -22,6 +22,7 @@ func TestMigrationModelsAreExplicitlyRegistered(t *testing.T) {
 
 	for _, table := range []string{
 		"users",
+		"auth_transactions",
 		"retail_sessions",
 		"user_identities",
 		"api_clients",
@@ -45,6 +46,7 @@ func TestIdentityModelsHaveExpectedTableNames(t *testing.T) {
 		want  string
 	}{
 		{model: User{}, want: "users"},
+		{model: AuthTransaction{}, want: "auth_transactions"},
 		{model: RetailSession{}, want: "retail_sessions"},
 		{model: UserIdentity{}, want: "user_identities"},
 	}
@@ -56,6 +58,15 @@ func TestIdentityModelsHaveExpectedTableNames(t *testing.T) {
 				t.Fatalf("TableName() = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestAuthTransactionHasOneTimeCallbackFields(t *testing.T) {
+	typeOf := reflect.TypeOf(AuthTransaction{})
+	for _, field := range []string{"StateHash", "NonceHash", "CodeVerifierCiphertext", "ExpiresAt", "ConsumedAt"} {
+		if _, ok := typeOf.FieldByName(field); !ok {
+			t.Errorf("AuthTransaction is missing %q", field)
+		}
 	}
 }
 

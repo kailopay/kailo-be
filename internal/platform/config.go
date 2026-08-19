@@ -1,8 +1,10 @@
 package platform
 
 import (
+	"encoding/base64"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -16,6 +18,7 @@ type Config struct {
 	Health   HealthConfig
 	Database DatabaseConfig
 	Logging  LoggingConfig
+	Auth     AuthConfig
 }
 
 type AppConfig struct {
@@ -48,6 +51,22 @@ type DatabaseConfig struct {
 type LoggingConfig struct {
 	Level  string
 	Format string
+}
+
+type AuthConfig struct {
+	IssuerURL                string
+	ClientID                 string
+	ClientSecret             string
+	RedirectURL              string
+	EmailConnection          string
+	SuccessRedirectURL       string
+	TransactionEncryptionKey string
+	SessionHMACKey           string
+	SessionAbsoluteLifetime  time.Duration
+	SessionIdleLifetime      time.Duration
+	TransactionLifetime      time.Duration
+	CookieName               string
+	CookieSecure             bool
 }
 
 func Load() (Config, error) {
@@ -88,6 +107,21 @@ func Load() (Config, error) {
 		Logging: LoggingConfig{
 			Level:  strings.ToLower(strings.TrimSpace(v.GetString("logging.level"))),
 			Format: strings.ToLower(strings.TrimSpace(v.GetString("logging.format"))),
+		},
+		Auth: AuthConfig{
+			IssuerURL:                strings.TrimRight(strings.TrimSpace(v.GetString("auth0.issuer_url")), "/"),
+			ClientID:                 strings.TrimSpace(v.GetString("auth0.client_id")),
+			ClientSecret:             strings.TrimSpace(v.GetString("auth0.client_secret")),
+			RedirectURL:              strings.TrimSpace(v.GetString("auth0.redirect_url")),
+			EmailConnection:          strings.TrimSpace(v.GetString("auth0.email_connection")),
+			SuccessRedirectURL:       strings.TrimSpace(v.GetString("auth.success_redirect_url")),
+			TransactionEncryptionKey: strings.TrimSpace(v.GetString("auth.transaction_encryption_key")),
+			SessionHMACKey:           strings.TrimSpace(v.GetString("auth.session_hmac_key")),
+			SessionAbsoluteLifetime:  v.GetDuration("auth.session_absolute_lifetime"),
+			SessionIdleLifetime:      v.GetDuration("auth.session_idle_lifetime"),
+			TransactionLifetime:      v.GetDuration("auth.transaction_lifetime"),
+			CookieName:               strings.TrimSpace(v.GetString("auth.cookie_name")),
+			CookieSecure:             v.GetBool("auth.cookie_secure"),
 		},
 	}
 
@@ -132,6 +166,64 @@ func (c Config) Validate() error {
 	if c.Logging.Format != "json" && c.Logging.Format != "text" {
 		return fmt.Errorf("unsupported log format %q", c.Logging.Format)
 	}
+	if err := c.Auth.Validate(c.App.Environment); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (c AuthConfig) Validate(environment string) error {
+	if strings.TrimSpace(c.IssuerURL) == "" || strings.TrimSpace(c.ClientID) == "" ||
+		strings.TrimSpace(c.ClientSecret) == "" {
+		return errors.New("auth0 issuer and client credentials are required")
+	}
+	if strings.TrimSpace(c.EmailConnection) == "" {
+		return errors.New("auth0 email connection is required")
+	}
+	for name, rawURL := range map[string]string{
+		"auth0 issuer URL":          c.IssuerURL,
+		"auth0 redirect URL":        c.RedirectURL,
+		"auth success redirect URL": c.SuccessRedirectURL,
+	} {
+		if err := validateAuthURL(name, rawURL, environment); err != nil {
+			return err
+		}
+	}
+	if err := validateKey("auth transaction encryption key", c.TransactionEncryptionKey); err != nil {
+		return err
+	}
+	if err := validateKey("auth session HMAC key", c.SessionHMACKey); err != nil {
+		return err
+	}
+	if c.SessionAbsoluteLifetime <= 0 || c.SessionIdleLifetime <= 0 || c.TransactionLifetime <= 0 {
+		return errors.New("auth durations must be positive")
+	}
+	if c.SessionIdleLifetime > c.SessionAbsoluteLifetime {
+		return errors.New("auth session idle lifetime cannot exceed absolute lifetime")
+	}
+	if strings.TrimSpace(c.CookieName) == "" {
+		return errors.New("auth cookie name is required")
+	}
+	if !strings.EqualFold(environment, "local") && !c.CookieSecure {
+		return errors.New("auth cookie must be secure outside local")
+	}
+	return nil
+}
+
+func validateAuthURL(name, rawURL, environment string) error {
+	parsed, err := url.Parse(rawURL)
+	if err != nil || parsed.IsAbs() == false || parsed.Host == "" ||
+		(parsed.Scheme != "https" && !(strings.EqualFold(environment, "local") && parsed.Scheme == "http")) {
+		return fmt.Errorf("%s must be an absolute URL using HTTPS outside local", name)
+	}
+	return nil
+}
+
+func validateKey(name, encoded string) error {
+	decoded, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil || len(decoded) != 32 {
+		return fmt.Errorf("%s must be base64-encoded 32 bytes", name)
+	}
 	return nil
 }
 
@@ -152,6 +244,11 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("database.ping_timeout", 3*time.Second)
 	v.SetDefault("logging.level", "info")
 	v.SetDefault("logging.format", "json")
+	v.SetDefault("auth.session_absolute_lifetime", 8*time.Hour)
+	v.SetDefault("auth.session_idle_lifetime", 30*time.Minute)
+	v.SetDefault("auth.transaction_lifetime", 10*time.Minute)
+	v.SetDefault("auth.cookie_name", "kailopay_session")
+	v.SetDefault("auth.cookie_secure", false)
 }
 
 func bindEnvironment(v *viper.Viper) {
@@ -164,23 +261,36 @@ func bindEnvironment(v *viper.Viper) {
 
 func environmentBindings() map[string]string {
 	return map[string]string{
-		"app.environment":             "APP_ENV",
-		"app.version":                 "APP_VERSION",
-		"http.address":                "HTTP_ADDRESS",
-		"http.read_header_timeout":    "HTTP_READ_HEADER_TIMEOUT",
-		"http.read_timeout":           "HTTP_READ_TIMEOUT",
-		"http.write_timeout":          "HTTP_WRITE_TIMEOUT",
-		"http.idle_timeout":           "HTTP_IDLE_TIMEOUT",
-		"http.shutdown_timeout":       "HTTP_SHUTDOWN_TIMEOUT",
-		"health.check_timeout":        "HEALTH_CHECK_TIMEOUT",
-		"database.dsn":                "DATABASE_DSN",
-		"database.max_open_conns":     "DATABASE_MAX_OPEN_CONNS",
-		"database.max_idle_conns":     "DATABASE_MAX_IDLE_CONNS",
-		"database.conn_max_lifetime":  "DATABASE_CONN_MAX_LIFETIME",
-		"database.conn_max_idle_time": "DATABASE_CONN_MAX_IDLE_TIME",
-		"database.ping_timeout":       "DATABASE_PING_TIMEOUT",
-		"logging.level":               "LOG_LEVEL",
-		"logging.format":              "LOG_FORMAT",
+		"app.environment":                 "APP_ENV",
+		"app.version":                     "APP_VERSION",
+		"http.address":                    "HTTP_ADDRESS",
+		"http.read_header_timeout":        "HTTP_READ_HEADER_TIMEOUT",
+		"http.read_timeout":               "HTTP_READ_TIMEOUT",
+		"http.write_timeout":              "HTTP_WRITE_TIMEOUT",
+		"http.idle_timeout":               "HTTP_IDLE_TIMEOUT",
+		"http.shutdown_timeout":           "HTTP_SHUTDOWN_TIMEOUT",
+		"health.check_timeout":            "HEALTH_CHECK_TIMEOUT",
+		"database.dsn":                    "DATABASE_DSN",
+		"database.max_open_conns":         "DATABASE_MAX_OPEN_CONNS",
+		"database.max_idle_conns":         "DATABASE_MAX_IDLE_CONNS",
+		"database.conn_max_lifetime":      "DATABASE_CONN_MAX_LIFETIME",
+		"database.conn_max_idle_time":     "DATABASE_CONN_MAX_IDLE_TIME",
+		"database.ping_timeout":           "DATABASE_PING_TIMEOUT",
+		"logging.level":                   "LOG_LEVEL",
+		"logging.format":                  "LOG_FORMAT",
+		"auth0.issuer_url":                "AUTH0_ISSUER_URL",
+		"auth0.client_id":                 "AUTH0_CLIENT_ID",
+		"auth0.client_secret":             "AUTH0_CLIENT_SECRET",
+		"auth0.redirect_url":              "AUTH0_REDIRECT_URL",
+		"auth0.email_connection":          "AUTH0_EMAIL_CONNECTION",
+		"auth.success_redirect_url":       "AUTH_SUCCESS_REDIRECT_URL",
+		"auth.transaction_encryption_key": "AUTH_TRANSACTION_ENCRYPTION_KEY",
+		"auth.session_hmac_key":           "AUTH_SESSION_HMAC_KEY",
+		"auth.session_absolute_lifetime":  "AUTH_SESSION_ABSOLUTE_LIFETIME",
+		"auth.session_idle_lifetime":      "AUTH_SESSION_IDLE_LIFETIME",
+		"auth.transaction_lifetime":       "AUTH_TRANSACTION_LIFETIME",
+		"auth.cookie_name":                "AUTH_COOKIE_NAME",
+		"auth.cookie_secure":              "AUTH_COOKIE_SECURE",
 	}
 }
 

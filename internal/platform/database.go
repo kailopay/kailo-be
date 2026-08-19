@@ -92,20 +92,27 @@ func (l *gormSlogLogger) LogMode(level gormlogger.LogLevel) gormlogger.Interface
 
 func (l *gormSlogLogger) Info(ctx context.Context, msg string, data ...interface{}) {
 	if l.level >= gormlogger.Info {
-		l.logger.InfoContext(ctx, msg, data...)
+		l.logger.InfoContext(ctx, formatGORMMessage(msg, data...))
 	}
 }
 
 func (l *gormSlogLogger) Warn(ctx context.Context, msg string, data ...interface{}) {
 	if l.level >= gormlogger.Warn {
-		l.logger.WarnContext(ctx, msg, data...)
+		l.logger.WarnContext(ctx, formatGORMMessage(msg, data...))
 	}
 }
 
 func (l *gormSlogLogger) Error(ctx context.Context, msg string, data ...interface{}) {
 	if l.level >= gormlogger.Error {
-		l.logger.ErrorContext(ctx, msg, data...)
+		l.logger.ErrorContext(ctx, formatGORMMessage(msg, data...))
 	}
+}
+
+func formatGORMMessage(msg string, data ...interface{}) string {
+	if len(data) == 0 {
+		return msg
+	}
+	return fmt.Sprintf(msg, data...)
 }
 
 func (l *gormSlogLogger) Trace(

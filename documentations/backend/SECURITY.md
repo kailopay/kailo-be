@@ -61,6 +61,9 @@ Recommended format: `pk_test_<public_id>_<random_secret>`.
 - Provider subjects are stored in `user_identities` with a unique `(provider, subject)` constraint; email is not used as the authentication key.
 - Every API order and webhook endpoint query is scoped by API-client ownership; every developer-management query is scoped through the client owner; every retail order query is scoped by user/session ownership.
 - Retail session tokens are high entropy, stored only as hashes, sent only through secure HTTP-only cookies, expired and revocable, and protected against CSRF for browser mutations.
+- The Auth0 callback uses Authorization Code + PKCE, validates issuer, audience, signature, expiry, subject, and nonce, and consumes a database-backed state transaction once. PKCE verifiers are encrypted at rest; state, nonce, and local session lookup values are HMAC-SHA-256 digests.
+- The browser receives only the KailoPay local session cookie. Auth0 access, refresh, and ID tokens remain inside the backend callback exchange and are discarded.
+- Local sessions use an eight-hour absolute lifetime, thirty-minute idle timeout, logout revocation, disabled-user checks, `SameSite=Lax`, `HttpOnly`, and `Secure` outside local development.
 - Developer Mode and direct `owner_user_id` checks are enforced before developer-session configuration actions.
 - Developer-session endpoints use CSRF/session protections appropriate to the selected frontend auth approach.
 - There is no public endpoint that accepts an arbitrary `client_id` as authorization.

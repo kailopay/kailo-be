@@ -18,7 +18,7 @@ Testing must prove both business outcomes and failure safety:
 | Unit | Domain value objects, transition policies, mapping, signature functions | None | Fast exhaustive invariant and edge-case checks |
 | Repository integration | PostgreSQL migrations, constraints, repositories, transactions, leases | Ephemeral PostgreSQL | Persistence and concurrency correctness |
 | Adapter contract | Payment/Stellar adapters against sanitized fixtures/fakes and optional sandbox | Controlled fake plus provider test environment | Provider mapping and error classification |
-| API integration | HTTP middleware, auth, validation, idempotency, application services | App + ephemeral PostgreSQL, fake external ports | Public contract and security behavior |
+| API integration | HTTP middleware, auth, validation, idempotency, application usecases | App + ephemeral PostgreSQL, fake external ports | Public contract and security behavior |
 | Worker integration | Outbox, leases, retries, reconciliation | App + PostgreSQL + fakes | Asynchronous correctness |
 | Contract | OpenAPI and webhook schemas/examples | Running release candidate | Detect drift between docs and behavior |
 | SDK contract | TypeScript client against OpenAPI and a running Go API | Node.js test matrix + release candidate | Detect SDK/API/type/serialization drift |

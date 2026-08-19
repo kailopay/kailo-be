@@ -19,7 +19,7 @@ cmd/automigrate         guarded local/test GORM schema bootstrap
 internal/entity         domain entities and invariants
 internal/handler/http    HTTP transport and router
 internal/handler/middleware HTTP middleware
-internal/service         business workflows / use cases
+internal/usecase         business workflows / use cases
 internal/repository      persistence adapters and GORM models
 internal/adapter         external payment/Stellar adapters
 internal/platform        config, database lifecycle, and logging
@@ -34,7 +34,7 @@ bukan membuat seluruh kemungkinan folder di hari pertama.
 `internal` melindungi seluruh kode aplikasi. `internal/platform` mengelompokkan
 runtime mechanics yang dipakai lintas capability: membaca config, membuat
 connection pool, dan menyiapkan `slog`. Platform bukan tempat business rule;
-`cmd/*` menyusun platform, repository, adapter, handler, dan service melalui
+`cmd/*` menyusun platform, repository, adapter, handler, dan usecase melalui
 constructor injection.
 
 Bedakan dua tanggung jawab database:
@@ -45,13 +45,12 @@ Bedakan dua tanggung jawab database:
 
 ## Di mana use case?
 
-Use case berada di `internal/service/<capability>`. Folder itu sekarang
-memiliki [README boundary](internal/service/README.md); package seperti
-`internal/service/order` dibuat ketika workflow order mulai diimplementasikan.
-Scaffold tidak membuat service kosong hanya untuk memenuhi diagram folder.
+Use case berada di `internal/usecase`. Setiap capability memakai file yang
+jelas, misalnya `auth_usecase.go` atau `order_usecase.go`; tidak perlu membuat
+subfolder capability hanya untuk memenuhi diagram folder.
 
-The dependency direction is inward: handlers and adapters depend on services,
-and services depend on entities. Interfaces belong to the package that
+The dependency direction is inward: handlers and adapters depend on usecases,
+and usecases depend on entities. Interfaces belong to the package that
 consumes them. GORM models stay in `internal/repository` and do
 not become domain entities or use-case contracts.
 
@@ -73,6 +72,15 @@ not become domain entities or use-case contracts.
 
    Health endpoints are available at `/livez`, `/readyz`, and `/startupz`.
    `/health`, `/healthz`, and `/ready` remain compatibility aliases.
+
+   For live reload during development, run Air instead:
+
+   ```powershell
+   air
+   ```
+
+   The repository-level `.air.toml` builds `./cmd/api` into the ignored
+   `tmp/api.exe` and reloads when Go source or `.env` changes.
 
 `cmd/automigrate` refuses environments other than `local` and `test`. Do not
 use GORM `AutoMigrate` as a production/shared-database migration mechanism;

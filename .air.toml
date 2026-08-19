@@ -1,0 +1,42 @@
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  cmd = "$env:GOCACHE = Join-Path (Get-Location) 'tmp/gocache'; go build -mod=readonly -o ./tmp/api.exe ./cmd/api"
+  bin = "./tmp/api.exe"
+  delay = 1000
+  exclude_dir = ["tmp", "vendor", "testdata", ".gocache", "docs", "documentations"]
+  exclude_regex = ["_test\\.go$"]
+  exclude_unchanged = false
+  follow_symlink = false
+  include_ext = ["go"]
+  include_file = [".env"]
+  kill_delay = "500ms"
+  log = "build-errors.log"
+  poll = false
+  poll_interval = 0
+  post_cmd = []
+  pre_cmd = []
+  rerun = false
+  rerun_delay = 500
+  send_interrupt = false
+  stop_on_error = true
+
+[log]
+  main_only = false
+  silent = false
+  time = false
+
+[color]
+  app = ""
+  build = "yellow"
+  main = "magenta"
+  runner = "green"
+  watcher = "cyan"
+
+[misc]
+  clean_on_exit = true
+
+[screen]
+  clear_on_rebuild = true
+  keep_scroll = true

@@ -49,7 +49,7 @@ The web frontend is a separate deliverable and communicates only through public/
 | `orders` | Quotes, orders, state transitions, order event history, orchestration commands | Payment and Stellar ports, outbox, persistence |
 | `payments` | Gateway checkout, callback normalization/verification, payout request and reconciliation | Selected provider adapter, orders port |
 | `stellar` | Testnet accounts, asset transfer/issuance, deposit verification, retirement, transaction reconciliation | Stellar SDK adapter, orders port |
-| `anchor` | SEP-24 interactive deposit/withdrawal, KYC stub, `stellar.toml`, federation | Orders application services |
+| `anchor` | SEP-24 interactive deposit/withdrawal, KYC stub, `stellar.toml`, federation | Orders application usecases |
 | `developer_webhooks` | Endpoint registration, event envelope, signing, attempts, retries | Outbox, orders event feed |
 | `evidence` | Test/evidence references and sanitized export helpers | Read-only access to order/integration metadata |
 | `platform` | Configuration, database, logging, metrics, clock, IDs, and crypto plumbing | External libraries only |
@@ -67,7 +67,7 @@ internal/
   entity/
   handler/http/
   handler/middleware/
-  service/<capability>/
+  usecase/
   repository/
   adapter/<provider>/
   platform/
@@ -90,22 +90,22 @@ Do not create generic `utils` or `services` dumping grounds. Shared code must ha
 
 The current master of [`bxcodec/go-clean-arch`](https://github.com/bxcodec/go-clean-arch)
 is useful as a Go-specific reference because it evolved toward consumer-owned
-interfaces, `internal` packages, and service-focused feature packages. KailoPay
+interfaces, `internal` packages, and usecase-focused capability files. KailoPay
 adopts those principles while keeping names that match this product's agreed
 Clean Architecture vocabulary:
 
 | Reference concept | KailoPay layout | Reason |
 |---|---|---|
 | `domain` | `internal/entity` | Business entities are private to this application, not a public library. |
-| Feature `service.go` | `internal/service/<capability>` | Each capability owns its workflow and the small ports it consumes. |
+| Feature usecase file | `internal/usecase/<capability>_usecase.go` | Each capability owns its workflow and the small ports it consumes without an extra capability folder. |
 | `internal/rest` | `internal/handler/http` | HTTP transport is explicit and can coexist with worker delivery. |
 | `internal/repository/mysql` | `internal/repository` | The repository layer is kept compact until multiple persistence adapters justify deeper folders. |
 | Runtime plumbing | `internal/platform` | Config, database lifecycle, and logging are shared mechanics, not business policy. |
 | `internal/workers` | `cmd/worker` or `internal/handler/worker` | Background delivery is added only when the first worker workflow exists. |
 | `app/main.go` | `cmd/api`, `cmd/automigrate` | Multiple deployable processes need separate composition roots. |
 
-Feature-specific repositories and services are preferred over one global
-repository or service package. GORM models live alongside the PostgreSQL
+Feature-specific repositories and usecases are preferred over one global
+repository package. GORM models live alongside the PostgreSQL
 adapter and never cross into entities or use-case contracts.
 
 ## 6. Request and command flow
@@ -114,7 +114,7 @@ adapter and never cross into entities or use-case contracts.
 
 1. HTTP middleware assigns `request_id`, authenticates API key if required, applies limits, and parses input.
 2. Controller maps transport input to an application command.
-3. Application service loads domain state, invokes domain behavior, and persists state plus domain events in one transaction.
+3. Application usecase loads domain state, invokes domain behavior, and persists state plus domain events in one transaction.
 4. Domain events are written to the outbox in the same transaction.
 5. Controller maps application result to the public response envelope.
 
@@ -123,7 +123,7 @@ adapter and never cross into entities or use-case contracts.
 1. Worker leases an unprocessed outbox/job row.
 2. Adapter sends the external request with a stable provider idempotency/correlation key when supported.
 3. Worker persists external reference and outcome.
-4. Application service applies the legal state transition and writes the next outbox event.
+4. Application usecase applies the legal state transition and writes the next outbox event.
 5. Reconciliation jobs resolve timeout/unknown outcomes before any retry that could move value twice.
 
 ## 7. Consistency model
@@ -146,7 +146,7 @@ The system provides **effectively-once business outcomes under retries**, not gl
 HTTP / workers / provider adapters
               |
               v
-       application services
+       application usecases
               |
               v
         domain model/ports

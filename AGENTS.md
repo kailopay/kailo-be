@@ -49,7 +49,7 @@ internal/
   handler/
     http/                      HTTP handlers, router, and DTOs
     middleware/                HTTP middleware
-  service/                     Application workflows and consumer-owned ports
+  usecase/                     Application workflows and consumer-owned ports
   repository/                  Database and external persistence adapters
   adapter/                     External payment/Stellar adapters
   platform/
@@ -75,7 +75,7 @@ cmd -> all layers only for construction and lifecycle management
 
 - `entity` imports no delivery, database, SDK, logging, configuration, or
   framework packages.
-- `service` may import `entity` and the standard library. It must not import
+- `usecase` may import `entity` and the standard library. It must not import
   PostgreSQL, payment-provider, Stellar, or HTTP implementations.
 - `repository` implements persistence ports owned by consumers.
 - Keep GORM models and query details inside `repository`; GORM is an
@@ -83,7 +83,7 @@ cmd -> all layers only for construction and lifecycle management
 - Use `db.WithContext(ctx)` for repository operations and keep transactions
   explicit at the application boundary. Do not expose `*gorm.DB` to entities,
   use cases, or delivery packages.
-- `handler/*` translates protocols into service input and maps results and
+- `handler/*` translates protocols into usecase input and maps results and
   errors back to the protocol. It contains no business rules.
 - `platform/*` provides reusable runtime mechanics, not domain policy.
 - `cmd/*/main.go` parses configuration, constructs dependencies, starts the
@@ -94,7 +94,7 @@ cmd -> all layers only for construction and lifecycle management
 ## Interfaces and dependency inversion
 
 Declare an interface in the package that consumes it, normally under
-`internal/service/<capability>`. Do not declare provider-owned interfaces merely
+`internal/usecase`. Do not declare provider-owned interfaces merely
 to mirror concrete implementations.
 
 For example, if an order use case must create an order and read a user, define
@@ -134,10 +134,10 @@ Follow these rules:
 
 - Package names are short, lowercase, singular, and meaningful.
 - Avoid packages named `util`, `common`, `helper`, `model`, `types`, or
-  `interfaces`. The `service` directory is a layer; capability packages inside
-  it should still have a concrete name such as `order` or `payment`.
-- Avoid package-name stutter: prefer `order.Service` to
-  `order.OrderService`.
+  `interfaces`. The `usecase` directory is the application workflow layer;
+  name files by capability, such as `auth_usecase.go` or `payment_usecase.go`.
+- Avoid package-name stutter in capability-specific types; use names such as
+  `AuthUsecase` rather than repeating the capability name unnecessarily.
 - Keep related declarations and their tests together. Split files by cohesive
   responsibility, not by arbitrary line count.
 - Co-locate tests as `*_test.go`. Put fixtures in `testdata/`.

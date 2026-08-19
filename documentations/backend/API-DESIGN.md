@@ -19,6 +19,8 @@ KailoPay has one user identity model with separate authentication mechanisms by 
 
 The web application redirects the user to Auth0 Universal Login and receives the authorization callback through the KailoPay backend. KailoPay maps the provider subject to a local user, then creates a short-lived retail session represented by an opaque, secure, HTTP-only cookie. Retail order reads and mutations require that session and are restricted to its own orders. Auth0 access and refresh tokens are not browser session credentials. Session creation, expiry, revocation, and CSRF protection for browser mutations must be documented in the deployed web contract.
 
+The implemented backend endpoints are `GET /auth/login`, `GET /auth/callback`, `POST /auth/logout`, and protected `GET /auth/me`. The callback consumes a ten-minute one-time transaction; the local session uses an eight-hour absolute lifetime and thirty-minute idle timeout. The executable OpenAPI contract is [`openapi/openapi.yaml`](../../openapi/openapi.yaml).
+
 ### Developer API key
 
 Sandbox integration endpoints use:

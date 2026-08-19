@@ -26,6 +26,18 @@ type UserIdentity struct {
 
 func (UserIdentity) TableName() string { return "user_identities" }
 
+type AuthTransaction struct {
+	ID                     string     `gorm:"type:uuid;primaryKey"`
+	StateHash              []byte     `gorm:"type:bytea;not null;uniqueIndex"`
+	NonceHash              []byte     `gorm:"type:bytea;not null"`
+	CodeVerifierCiphertext []byte     `gorm:"type:bytea;not null"`
+	ExpiresAt              time.Time  `gorm:"not null;index"`
+	ConsumedAt             *time.Time `gorm:"index"`
+	CreatedAt              time.Time  `gorm:"not null"`
+}
+
+func (AuthTransaction) TableName() string { return "auth_transactions" }
+
 type RetailSession struct {
 	ID         string     `gorm:"type:uuid;primaryKey"`
 	UserID     string     `gorm:"type:uuid;not null;index"`
@@ -250,6 +262,7 @@ func MigrationModels() []any {
 	return []any{
 		&User{},
 		&UserIdentity{},
+		&AuthTransaction{},
 		&RetailSession{},
 		&APIClient{},
 		&APIKey{},
