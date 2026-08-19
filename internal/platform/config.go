@@ -20,6 +20,7 @@ type Config struct {
 	Logging       LoggingConfig
 	Auth          AuthConfig
 	ObjectStorage ObjectStorageConfig
+	Week1         Week1Config
 }
 
 type AppConfig struct {
@@ -145,6 +146,44 @@ func Load() (Config, error) {
 			Region:    strings.TrimSpace(v.GetString("minio.region")),
 			UseSSL:    v.GetBool("minio.use_ssl"),
 		},
+		Week1: Week1Config{
+			APIKeyPepper: v.GetString("api_key.pepper"),
+			Onramp: OnrampConfig{
+				QuoteTTL:       v.GetDuration("onramp.quote_ttl"),
+				QuoteMaxAge:    v.GetDuration("onramp.quote_max_age"),
+				QuoteSpreadBPS: v.GetInt("onramp.quote_spread_bps"),
+				MinIDR:         v.GetInt64("onramp.min_idr"),
+				MaxIDR:         v.GetInt64("onramp.max_idr"),
+			},
+			CoinMarketCap: CoinMarketCapConfig{
+				BaseURL: strings.TrimRight(v.GetString("coinmarketcap.base_url"), "/"),
+				APIKey:  v.GetString("coinmarketcap.api_key"),
+				Timeout: v.GetDuration("coinmarketcap.timeout"),
+			},
+			Xendit: XenditConfig{
+				BaseURL:       strings.TrimRight(v.GetString("xendit.base_url"), "/"),
+				SecretKey:     v.GetString("xendit.secret_key"),
+				CallbackToken: v.GetString("xendit.callback_token"),
+				APIVersion:    v.GetString("xendit.api_version"),
+				QRISChannel:   v.GetString("xendit.qris_channel"),
+				VAChannel:     v.GetString("xendit.va_channel"),
+				Timeout:       v.GetDuration("xendit.timeout"),
+			},
+			Stellar: StellarConfig{
+				HorizonURL:             strings.TrimRight(v.GetString("stellar.horizon_url"), "/"),
+				NetworkPassphrase:      v.GetString("stellar.network_passphrase"),
+				TreasuryAccount:        v.GetString("stellar.treasury_account"),
+				TreasurySecret:         v.GetString("stellar.treasury_secret"),
+				OperatingBufferStroops: v.GetInt64("stellar.operating_buffer_stroops"),
+				Timeout:                v.GetDuration("stellar.timeout"),
+			},
+			Worker: WorkerConfig{
+				PollInterval:  v.GetDuration("worker.poll_interval"),
+				LeaseDuration: v.GetDuration("worker.lease_duration"),
+				RetryDelay:    v.GetDuration("worker.retry_delay"),
+				MaxAttempts:   v.GetInt("worker.max_attempts"),
+			},
+		},
 	}
 
 	if err := cfg.Validate(); err != nil {
@@ -192,6 +231,9 @@ func (c Config) Validate() error {
 		return err
 	}
 	if err := c.ObjectStorage.Validate(c.App.Environment); err != nil {
+		return err
+	}
+	if err := c.Week1.Validate(); err != nil {
 		return err
 	}
 	return nil
@@ -308,6 +350,26 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("minio.bucket", "kailopay-profile")
 	v.SetDefault("minio.region", "us-east-1")
 	v.SetDefault("minio.use_ssl", false)
+	v.SetDefault("onramp.quote_ttl", 5*time.Minute)
+	v.SetDefault("onramp.quote_max_age", 2*time.Minute)
+	v.SetDefault("onramp.quote_spread_bps", 0)
+	v.SetDefault("onramp.min_idr", int64(10_000))
+	v.SetDefault("onramp.max_idr", int64(10_000_000))
+	v.SetDefault("coinmarketcap.base_url", "https://pro-api.coinmarketcap.com")
+	v.SetDefault("coinmarketcap.timeout", 5*time.Second)
+	v.SetDefault("xendit.base_url", "https://api.xendit.co")
+	v.SetDefault("xendit.api_version", "2024-11-11")
+	v.SetDefault("xendit.qris_channel", "QRIS")
+	v.SetDefault("xendit.va_channel", "BRI_VIRTUAL_ACCOUNT")
+	v.SetDefault("xendit.timeout", 10*time.Second)
+	v.SetDefault("stellar.horizon_url", "https://horizon-testnet.stellar.org")
+	v.SetDefault("stellar.network_passphrase", StellarTestnetPassphrase)
+	v.SetDefault("stellar.operating_buffer_stroops", int64(10_000_000))
+	v.SetDefault("stellar.timeout", 10*time.Second)
+	v.SetDefault("worker.poll_interval", time.Second)
+	v.SetDefault("worker.lease_duration", 30*time.Second)
+	v.SetDefault("worker.retry_delay", 5*time.Second)
+	v.SetDefault("worker.max_attempts", 5)
 }
 
 func bindEnvironment(v *viper.Viper) {
@@ -358,6 +420,32 @@ func environmentBindings() map[string]string {
 		"minio.bucket":                       "MINIO_BUCKET",
 		"minio.region":                       "MINIO_REGION",
 		"minio.use_ssl":                      "MINIO_USE_SSL",
+		"api_key.pepper":                     "API_KEY_PEPPER",
+		"onramp.quote_ttl":                   "QUOTE_TTL",
+		"onramp.quote_max_age":               "QUOTE_MAX_AGE",
+		"onramp.quote_spread_bps":            "QUOTE_SPREAD_BPS",
+		"onramp.min_idr":                     "ORDER_MIN_IDR",
+		"onramp.max_idr":                     "ORDER_MAX_IDR",
+		"coinmarketcap.base_url":             "COINMARKETCAP_BASE_URL",
+		"coinmarketcap.api_key":              "COINMARKETCAP_API_KEY",
+		"coinmarketcap.timeout":              "COINMARKETCAP_TIMEOUT",
+		"xendit.base_url":                    "XENDIT_BASE_URL",
+		"xendit.secret_key":                  "XENDIT_SECRET_KEY",
+		"xendit.callback_token":              "XENDIT_CALLBACK_TOKEN",
+		"xendit.api_version":                 "XENDIT_API_VERSION",
+		"xendit.qris_channel":                "XENDIT_QRIS_CHANNEL",
+		"xendit.va_channel":                  "XENDIT_VA_CHANNEL",
+		"xendit.timeout":                     "XENDIT_TIMEOUT",
+		"stellar.horizon_url":                "STELLAR_HORIZON_URL",
+		"stellar.network_passphrase":         "STELLAR_NETWORK_PASSPHRASE",
+		"stellar.treasury_account":           "STELLAR_TREASURY_ACCOUNT",
+		"stellar.treasury_secret":            "STELLAR_TREASURY_SECRET",
+		"stellar.operating_buffer_stroops":   "STELLAR_OPERATING_BUFFER_STROOPS",
+		"stellar.timeout":                    "STELLAR_TIMEOUT",
+		"worker.poll_interval":               "WORKER_POLL_INTERVAL",
+		"worker.lease_duration":              "WORKER_LEASE_DURATION",
+		"worker.retry_delay":                 "WORKER_RETRY_DELAY",
+		"worker.max_attempts":                "WORKER_MAX_ATTEMPTS",
 	}
 }
 

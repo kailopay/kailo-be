@@ -58,6 +58,16 @@ func setValidAuthEnv(t *testing.T) {
 	t.Setenv("MINIO_SECRET_KEY", "secret-key")
 	t.Setenv("MINIO_BUCKET", "kailopay-profile")
 	t.Setenv("MINIO_USE_SSL", "true")
+	setValidWeek1Env(t)
+}
+
+func setValidWeek1Env(t *testing.T) {
+	t.Helper()
+	t.Setenv("API_KEY_PEPPER", "01234567890123456789012345678901")
+	t.Setenv("COINMARKETCAP_API_KEY", "test-market-data-key")
+	t.Setenv("XENDIT_SECRET_KEY", "xnd_development_test")
+	t.Setenv("XENDIT_CALLBACK_TOKEN", "01234567890123456789012345678901")
+	t.Setenv("STELLAR_TREASURY_ACCOUNT", "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF")
 }
 
 func TestLoadUsesEnvironmentOverrides(t *testing.T) {
@@ -194,6 +204,7 @@ func TestAuthConfigValidateRejectsInvalidSettings(t *testing.T) {
 }
 
 func TestLoadReadsAuthEnvironmentOverrides(t *testing.T) {
+	setValidWeek1Env(t)
 	key := base64.StdEncoding.EncodeToString(make([]byte, 32))
 	t.Setenv("APP_ENV", "local")
 	t.Setenv("DATABASE_DSN", "host=test-db user=tester password=secret dbname=test port=5432")
