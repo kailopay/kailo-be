@@ -36,8 +36,14 @@ func NewRouter(logger *slog.Logger, health *HealthHandler, authHandler *AuthHand
 	router.GET("/auth/login", authHandler.Login)
 	router.GET("/auth/callback", authHandler.Callback)
 	router.POST("/auth/logout", authHandler.Logout)
+	router.POST("/auth/password/forgot", authHandler.ForgotPassword)
+	router.POST("/internal/auth/password-reset-completed", authHandler.PasswordResetCompleted)
 	authRoutes := router.Group("/auth")
 	authRoutes.Use(requireSession)
 	authRoutes.GET("/me", authHandler.Me)
+	authRoutes.PATCH("/me", authHandler.UpdateProfile)
+	authRoutes.PUT("/me/avatar", authHandler.UpdateAvatar)
+	authRoutes.GET("/me/avatar", authHandler.Avatar)
+	authRoutes.DELETE("/me/avatar", authHandler.DeleteAvatar)
 	return router, nil
 }

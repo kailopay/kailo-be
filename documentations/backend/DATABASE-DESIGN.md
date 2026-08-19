@@ -42,6 +42,7 @@ erDiagram
 | `status` | `text` | `active`, `disabled` |
 | `display_name` | `text` | Required display value |
 | `email` | `text` | Nullable profile/contact value; never the identity key |
+| `avatar_object_key` | `text` | Nullable private MinIO object key; never a public URL or image bytes |
 | `email_verified_at` | `timestamptz` | Nullable; copied from the identity provider after verified login |
 | `developer_enabled_at` | `timestamptz` | Nullable opt-in timestamp for developer-management access |
 | `created_at`, `updated_at` | `timestamptz` | UTC |

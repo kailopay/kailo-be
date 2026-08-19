@@ -9,10 +9,12 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/febry3/kailopay-be/internal/adapter/auth0"
+	"github.com/febry3/kailopay-be/internal/adapter/objectstorage"
 	httpapi "github.com/febry3/kailopay-be/internal/handler/http"
 	"github.com/febry3/kailopay-be/internal/handler/middleware"
 	"github.com/febry3/kailopay-be/internal/platform"
@@ -59,14 +61,23 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("getting sql database: %w", err)
 	}
-	health := httpapi.NewHealthHandler(
-		func(checkCtx context.Context) error {
-			return sqlDB.PingContext(checkCtx)
-		},
-		cfg.Health.CheckTimeout,
-		appLogger,
-	)
-	health.MarkStarted()
+	avatarStore, err := objectstorage.New(cfg.ObjectStorage)
+	if err != nil {
+		return fmt.Errorf("creating avatar storage: %w", err)
+	}
+	bucketCtx, cancelBucketCheck := context.WithTimeout(ctx, 10*time.Second)
+	allowBucketCreate := strings.EqualFold(cfg.App.Environment, "local") || strings.EqualFold(cfg.App.Environment, "test")
+	if err := avatarStore.EnsureBucket(bucketCtx, allowBucketCreate); err != nil {
+		cancelBucketCheck()
+		return fmt.Errorf("initializing avatar storage: %w", err)
+	}
+	cancelBucketCheck()
+	health := httpapi.NewHealthHandler(func(checkCtx context.Context) error {
+		if err := sqlDB.PingContext(checkCtx); err != nil {
+			return err
+		}
+		return avatarStore.EnsureBucket(checkCtx, false)
+	}, cfg.Health.CheckTimeout, appLogger)
 	encryptionKey, err := base64.StdEncoding.DecodeString(cfg.Auth.TransactionEncryptionKey)
 	if err != nil {
 		return fmt.Errorf("decoding auth transaction key: %w", err)
@@ -80,22 +91,32 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("creating Auth0 client: %w", err)
 	}
 	authRepository := repository.NewAuthRepository(db, cfg.Auth.SessionIdleLifetime)
-	authService, err := auth.NewAuthUsecase(authProvider, authRepository, authRepository, nil, auth.Config{
+	authService, err := auth.NewAuthUsecase(auth.Dependencies{
+		Provider:       authProvider,
+		PasswordReset:  authProvider,
+		Transactions:   authRepository,
+		Sessions:       authRepository,
+		Profiles:       authRepository,
+		SessionRevoker: authRepository,
+		Avatars:        avatarStore,
+	}, nil, auth.Config{
 		TransactionEncryptionKey: encryptionKey,
 		SessionHMACKey:           sessionHMACKey,
 		SessionAbsoluteLifetime:  cfg.Auth.SessionAbsoluteLifetime,
 		SessionIdleLifetime:      cfg.Auth.SessionIdleLifetime,
 		TransactionLifetime:      cfg.Auth.TransactionLifetime,
+		AvatarMaxBytes:           cfg.Auth.AvatarMaxBytes,
 	})
 	if err != nil {
 		return fmt.Errorf("creating auth service: %w", err)
 	}
-	authHandler := httpapi.NewAuthHandler(authService, cfg.Auth)
+	authHandler := httpapi.NewAuthHandler(authService, cfg.Auth, appLogger)
 	sessionMiddleware := middleware.RequireSessionWithCookie(authService, cfg.Auth.CookieName)
 	router, err := httpapi.NewRouter(appLogger, health, authHandler, sessionMiddleware)
 	if err != nil {
 		return fmt.Errorf("creating http router: %w", err)
 	}
+	health.MarkStarted()
 
 	server := &http.Server{
 		Addr:              cfg.HTTP.Address,

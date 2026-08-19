@@ -230,10 +230,113 @@ func (r *AuthRepository) FindActiveSession(ctx context.Context, tokenHash []byte
 	return auth.AuthenticatedUser{User: userProfile(user), SessionID: session.ID, LastUsedAt: lastUsedAt}, nil
 }
 
+func (r *AuthRepository) UpdateDisplayName(ctx context.Context, userID, displayName string) (auth.UserProfile, error) {
+	var profile auth.UserProfile
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var user User
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id = ? AND status = ?", userID, activeUserStatus).
+			First(&user).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return auth.ErrInvalidSession
+			}
+			return fmt.Errorf("finding profile user: %w", err)
+		}
+		user.DisplayName = displayName
+		user.UpdatedAt = time.Now().UTC()
+		if err := tx.Save(&user).Error; err != nil {
+			return fmt.Errorf("updating profile user: %w", err)
+		}
+		profile = userProfile(user)
+		return nil
+	})
+	if err != nil {
+		return auth.UserProfile{}, err
+	}
+	return profile, nil
+}
+
+func (r *AuthRepository) FindProfile(ctx context.Context, userID string) (auth.UserProfile, error) {
+	var user User
+	if err := r.db.WithContext(ctx).
+		Where("id = ? AND status = ?", userID, activeUserStatus).
+		First(&user).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return auth.UserProfile{}, auth.ErrInvalidSession
+		}
+		return auth.UserProfile{}, fmt.Errorf("finding profile: %w", err)
+	}
+	return userProfile(user), nil
+}
+
+func (r *AuthRepository) ReplaceAvatarObjectKey(ctx context.Context, userID, objectKey string) (auth.UserProfile, string, error) {
+	return r.updateAvatarObjectKey(ctx, userID, &objectKey)
+}
+
+func (r *AuthRepository) ClearAvatarObjectKey(ctx context.Context, userID string) (auth.UserProfile, string, error) {
+	return r.updateAvatarObjectKey(ctx, userID, nil)
+}
+
+func (r *AuthRepository) updateAvatarObjectKey(ctx context.Context, userID string, objectKey *string) (auth.UserProfile, string, error) {
+	var profile auth.UserProfile
+	var previousKey string
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var user User
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id = ? AND status = ?", userID, activeUserStatus).
+			First(&user).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return auth.ErrInvalidSession
+			}
+			return fmt.Errorf("finding avatar profile: %w", err)
+		}
+		if user.AvatarObjectKey != nil {
+			previousKey = *user.AvatarObjectKey
+		}
+		now := time.Now().UTC()
+		if err := tx.Model(&User{}).Where("id = ?", user.ID).Updates(map[string]any{
+			"avatar_object_key": objectKey,
+			"updated_at":        now,
+		}).Error; err != nil {
+			return fmt.Errorf("updating avatar object key: %w", err)
+		}
+		user.AvatarObjectKey = objectKey
+		user.UpdatedAt = now
+		profile = userProfile(user)
+		return nil
+	})
+	if err != nil {
+		return auth.UserProfile{}, "", err
+	}
+	return profile, previousKey, nil
+}
+
+func (r *AuthRepository) RevokeSessionsForIdentity(ctx context.Context, provider, subject string, now time.Time) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var identity UserIdentity
+		if err := tx.Where("provider = ? AND subject = ?", provider, subject).First(&identity).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil
+			}
+			return fmt.Errorf("finding password-reset identity: %w", err)
+		}
+		revokedAt := now.UTC()
+		if err := tx.Model(&RetailSession{}).
+			Where("user_id = ? AND revoked_at IS NULL", identity.UserID).
+			Updates(map[string]any{"revoked_at": revokedAt, "updated_at": revokedAt}).Error; err != nil {
+			return fmt.Errorf("revoking password-reset sessions: %w", err)
+		}
+		return nil
+	})
+}
+
 func userProfile(user User) auth.UserProfile {
 	profile := auth.UserProfile{ID: user.ID, DisplayName: user.DisplayName, DeveloperEnabled: user.DeveloperEnabledAt != nil}
 	if user.Email != nil {
 		profile.Email = *user.Email
+	}
+	if user.AvatarObjectKey != nil {
+		profile.AvatarObjectKey = *user.AvatarObjectKey
 	}
 	profile.EmailVerified = user.EmailVerifiedAt != nil
 	return profile
@@ -251,3 +354,5 @@ func newUUID() string {
 
 var _ auth.TransactionStore = (*AuthRepository)(nil)
 var _ auth.UserSessionStore = (*AuthRepository)(nil)
+var _ auth.ProfileStore = (*AuthRepository)(nil)
+var _ auth.IdentitySessionRevoker = (*AuthRepository)(nil)

@@ -16,7 +16,15 @@ func TestDocumentValidatesAuthContract(t *testing.T) {
 	if err := document.Validate(t.Context()); err != nil {
 		t.Fatalf("validating OpenAPI document: %v", err)
 	}
-	for _, path := range []string{"/auth/login", "/auth/callback", "/auth/logout", "/auth/me"} {
+	for _, path := range []string{
+		"/auth/login",
+		"/auth/callback",
+		"/auth/logout",
+		"/auth/password/forgot",
+		"/auth/me",
+		"/auth/me/avatar",
+		"/internal/auth/password-reset-completed",
+	} {
 		if document.Paths.Find(path) == nil {
 			t.Errorf("missing auth path %q", path)
 		}

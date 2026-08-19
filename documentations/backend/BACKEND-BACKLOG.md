@@ -78,6 +78,7 @@ Acceptance: state/event/outbox commit atomically; multiple workers cannot hold o
 | BE-026 | Implement client-scoped `GET /v1/orders/{id}`. | P0 | 2 | Week 1 | BE-020, BE-022 | Blocked |
 | BE-027 | Implement cursor-paginated `GET /v1/orders`. | P1 | 3 | Week 3 | BE-026 | Blocked |
 | BE-028 | Publish and validate initial OpenAPI with auth, amounts, errors, and examples. | P0 | 3 | Week 1 | BE-024-BE-026 | Blocked |
+| BE-029 | Implement Auth0 profile editing, hosted password reset, local-session revocation, and private MinIO avatars. | P1 | 5 | Week 1 | BE-010, BE-011 | Implemented |
 
 Acceptance: exact amount round-trips; invalid/cross-client requests fail; duplicate create returns one order; each legal transition creates one versioned event.
 

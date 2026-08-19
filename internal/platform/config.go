@@ -13,12 +13,13 @@ import (
 )
 
 type Config struct {
-	App      AppConfig
-	HTTP     HTTPConfig
-	Health   HealthConfig
-	Database DatabaseConfig
-	Logging  LoggingConfig
-	Auth     AuthConfig
+	App           AppConfig
+	HTTP          HTTPConfig
+	Health        HealthConfig
+	Database      DatabaseConfig
+	Logging       LoggingConfig
+	Auth          AuthConfig
+	ObjectStorage ObjectStorageConfig
 }
 
 type AppConfig struct {
@@ -53,20 +54,31 @@ type LoggingConfig struct {
 	Format string
 }
 
+type ObjectStorageConfig struct {
+	Endpoint  string
+	AccessKey string
+	SecretKey string
+	Bucket    string
+	Region    string
+	UseSSL    bool
+}
+
 type AuthConfig struct {
-	IssuerURL                string
-	ClientID                 string
-	ClientSecret             string
-	RedirectURL              string
-	EmailConnection          string
-	SuccessRedirectURL       string
-	TransactionEncryptionKey string
-	SessionHMACKey           string
-	SessionAbsoluteLifetime  time.Duration
-	SessionIdleLifetime      time.Duration
-	TransactionLifetime      time.Duration
-	CookieName               string
-	CookieSecure             bool
+	IssuerURL                  string
+	ClientID                   string
+	ClientSecret               string
+	RedirectURL                string
+	EmailConnection            string
+	SuccessRedirectURL         string
+	TransactionEncryptionKey   string
+	SessionHMACKey             string
+	SessionAbsoluteLifetime    time.Duration
+	SessionIdleLifetime        time.Duration
+	TransactionLifetime        time.Duration
+	CookieName                 string
+	CookieSecure               bool
+	PasswordResetWebhookSecret string
+	AvatarMaxBytes             int64
 }
 
 func Load() (Config, error) {
@@ -109,19 +121,29 @@ func Load() (Config, error) {
 			Format: strings.ToLower(strings.TrimSpace(v.GetString("logging.format"))),
 		},
 		Auth: AuthConfig{
-			IssuerURL:                strings.TrimRight(strings.TrimSpace(v.GetString("auth0.issuer_url")), "/"),
-			ClientID:                 strings.TrimSpace(v.GetString("auth0.client_id")),
-			ClientSecret:             strings.TrimSpace(v.GetString("auth0.client_secret")),
-			RedirectURL:              strings.TrimSpace(v.GetString("auth0.redirect_url")),
-			EmailConnection:          strings.TrimSpace(v.GetString("auth0.email_connection")),
-			SuccessRedirectURL:       strings.TrimSpace(v.GetString("auth.success_redirect_url")),
-			TransactionEncryptionKey: strings.TrimSpace(v.GetString("auth.transaction_encryption_key")),
-			SessionHMACKey:           strings.TrimSpace(v.GetString("auth.session_hmac_key")),
-			SessionAbsoluteLifetime:  v.GetDuration("auth.session_absolute_lifetime"),
-			SessionIdleLifetime:      v.GetDuration("auth.session_idle_lifetime"),
-			TransactionLifetime:      v.GetDuration("auth.transaction_lifetime"),
-			CookieName:               strings.TrimSpace(v.GetString("auth.cookie_name")),
-			CookieSecure:             v.GetBool("auth.cookie_secure"),
+			IssuerURL:                  strings.TrimRight(strings.TrimSpace(v.GetString("auth0.issuer_url")), "/"),
+			ClientID:                   strings.TrimSpace(v.GetString("auth0.client_id")),
+			ClientSecret:               strings.TrimSpace(v.GetString("auth0.client_secret")),
+			RedirectURL:                strings.TrimSpace(v.GetString("auth0.redirect_url")),
+			EmailConnection:            strings.TrimSpace(v.GetString("auth0.email_connection")),
+			SuccessRedirectURL:         strings.TrimSpace(v.GetString("auth.success_redirect_url")),
+			TransactionEncryptionKey:   strings.TrimSpace(v.GetString("auth.transaction_encryption_key")),
+			SessionHMACKey:             strings.TrimSpace(v.GetString("auth.session_hmac_key")),
+			SessionAbsoluteLifetime:    v.GetDuration("auth.session_absolute_lifetime"),
+			SessionIdleLifetime:        v.GetDuration("auth.session_idle_lifetime"),
+			TransactionLifetime:        v.GetDuration("auth.transaction_lifetime"),
+			CookieName:                 strings.TrimSpace(v.GetString("auth.cookie_name")),
+			CookieSecure:               v.GetBool("auth.cookie_secure"),
+			PasswordResetWebhookSecret: strings.TrimSpace(v.GetString("auth.password_reset_webhook_secret")),
+			AvatarMaxBytes:             v.GetInt64("auth.avatar_max_bytes"),
+		},
+		ObjectStorage: ObjectStorageConfig{
+			Endpoint:  strings.TrimSpace(v.GetString("minio.endpoint")),
+			AccessKey: strings.TrimSpace(v.GetString("minio.access_key")),
+			SecretKey: strings.TrimSpace(v.GetString("minio.secret_key")),
+			Bucket:    strings.TrimSpace(v.GetString("minio.bucket")),
+			Region:    strings.TrimSpace(v.GetString("minio.region")),
+			UseSSL:    v.GetBool("minio.use_ssl"),
 		},
 	}
 
@@ -169,6 +191,33 @@ func (c Config) Validate() error {
 	if err := c.Auth.Validate(c.App.Environment); err != nil {
 		return err
 	}
+	if err := c.ObjectStorage.Validate(c.App.Environment); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (c ObjectStorageConfig) Validate(environment string) error {
+	endpoint := strings.TrimSpace(c.Endpoint)
+	if endpoint == "" || strings.Contains(endpoint, "://") {
+		return errors.New("MinIO endpoint must be host:port without a URL scheme")
+	}
+	parsed, err := url.Parse("http://" + endpoint)
+	if err != nil || parsed.Host != endpoint || parsed.Path != "" {
+		return errors.New("MinIO endpoint is invalid")
+	}
+	if strings.TrimSpace(c.AccessKey) == "" || strings.TrimSpace(c.SecretKey) == "" {
+		return errors.New("MinIO credentials are required")
+	}
+	if !validBucketName(c.Bucket) {
+		return errors.New("MinIO bucket name is invalid")
+	}
+	if strings.TrimSpace(c.Region) == "" {
+		return errors.New("MinIO region is required")
+	}
+	if !strings.EqualFold(environment, "local") && !c.UseSSL {
+		return errors.New("MinIO TLS must be enabled outside local")
+	}
 	return nil
 }
 
@@ -203,6 +252,12 @@ func (c AuthConfig) Validate(environment string) error {
 	}
 	if strings.TrimSpace(c.CookieName) == "" {
 		return errors.New("auth cookie name is required")
+	}
+	if len(c.PasswordResetWebhookSecret) < 32 {
+		return errors.New("auth password reset webhook secret must be at least 32 bytes")
+	}
+	if c.AvatarMaxBytes <= 0 {
+		return errors.New("auth avatar maximum bytes must be positive")
 	}
 	if !strings.EqualFold(environment, "local") && !c.CookieSecure {
 		return errors.New("auth cookie must be secure outside local")
@@ -249,6 +304,10 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("auth.transaction_lifetime", 10*time.Minute)
 	v.SetDefault("auth.cookie_name", "kailopay_session")
 	v.SetDefault("auth.cookie_secure", false)
+	v.SetDefault("auth.avatar_max_bytes", int64(5<<20))
+	v.SetDefault("minio.bucket", "kailopay-profile")
+	v.SetDefault("minio.region", "us-east-1")
+	v.SetDefault("minio.use_ssl", false)
 }
 
 func bindEnvironment(v *viper.Viper) {
@@ -261,37 +320,62 @@ func bindEnvironment(v *viper.Viper) {
 
 func environmentBindings() map[string]string {
 	return map[string]string{
-		"app.environment":                 "APP_ENV",
-		"app.version":                     "APP_VERSION",
-		"http.address":                    "HTTP_ADDRESS",
-		"http.read_header_timeout":        "HTTP_READ_HEADER_TIMEOUT",
-		"http.read_timeout":               "HTTP_READ_TIMEOUT",
-		"http.write_timeout":              "HTTP_WRITE_TIMEOUT",
-		"http.idle_timeout":               "HTTP_IDLE_TIMEOUT",
-		"http.shutdown_timeout":           "HTTP_SHUTDOWN_TIMEOUT",
-		"health.check_timeout":            "HEALTH_CHECK_TIMEOUT",
-		"database.dsn":                    "DATABASE_DSN",
-		"database.max_open_conns":         "DATABASE_MAX_OPEN_CONNS",
-		"database.max_idle_conns":         "DATABASE_MAX_IDLE_CONNS",
-		"database.conn_max_lifetime":      "DATABASE_CONN_MAX_LIFETIME",
-		"database.conn_max_idle_time":     "DATABASE_CONN_MAX_IDLE_TIME",
-		"database.ping_timeout":           "DATABASE_PING_TIMEOUT",
-		"logging.level":                   "LOG_LEVEL",
-		"logging.format":                  "LOG_FORMAT",
-		"auth0.issuer_url":                "AUTH0_ISSUER_URL",
-		"auth0.client_id":                 "AUTH0_CLIENT_ID",
-		"auth0.client_secret":             "AUTH0_CLIENT_SECRET",
-		"auth0.redirect_url":              "AUTH0_REDIRECT_URL",
-		"auth0.email_connection":          "AUTH0_EMAIL_CONNECTION",
-		"auth.success_redirect_url":       "AUTH_SUCCESS_REDIRECT_URL",
-		"auth.transaction_encryption_key": "AUTH_TRANSACTION_ENCRYPTION_KEY",
-		"auth.session_hmac_key":           "AUTH_SESSION_HMAC_KEY",
-		"auth.session_absolute_lifetime":  "AUTH_SESSION_ABSOLUTE_LIFETIME",
-		"auth.session_idle_lifetime":      "AUTH_SESSION_IDLE_LIFETIME",
-		"auth.transaction_lifetime":       "AUTH_TRANSACTION_LIFETIME",
-		"auth.cookie_name":                "AUTH_COOKIE_NAME",
-		"auth.cookie_secure":              "AUTH_COOKIE_SECURE",
+		"app.environment":                    "APP_ENV",
+		"app.version":                        "APP_VERSION",
+		"http.address":                       "HTTP_ADDRESS",
+		"http.read_header_timeout":           "HTTP_READ_HEADER_TIMEOUT",
+		"http.read_timeout":                  "HTTP_READ_TIMEOUT",
+		"http.write_timeout":                 "HTTP_WRITE_TIMEOUT",
+		"http.idle_timeout":                  "HTTP_IDLE_TIMEOUT",
+		"http.shutdown_timeout":              "HTTP_SHUTDOWN_TIMEOUT",
+		"health.check_timeout":               "HEALTH_CHECK_TIMEOUT",
+		"database.dsn":                       "DATABASE_DSN",
+		"database.max_open_conns":            "DATABASE_MAX_OPEN_CONNS",
+		"database.max_idle_conns":            "DATABASE_MAX_IDLE_CONNS",
+		"database.conn_max_lifetime":         "DATABASE_CONN_MAX_LIFETIME",
+		"database.conn_max_idle_time":        "DATABASE_CONN_MAX_IDLE_TIME",
+		"database.ping_timeout":              "DATABASE_PING_TIMEOUT",
+		"logging.level":                      "LOG_LEVEL",
+		"logging.format":                     "LOG_FORMAT",
+		"auth0.issuer_url":                   "AUTH0_ISSUER_URL",
+		"auth0.client_id":                    "AUTH0_CLIENT_ID",
+		"auth0.client_secret":                "AUTH0_CLIENT_SECRET",
+		"auth0.redirect_url":                 "AUTH0_REDIRECT_URL",
+		"auth0.email_connection":             "AUTH0_EMAIL_CONNECTION",
+		"auth.success_redirect_url":          "AUTH_SUCCESS_REDIRECT_URL",
+		"auth.transaction_encryption_key":    "AUTH_TRANSACTION_ENCRYPTION_KEY",
+		"auth.session_hmac_key":              "AUTH_SESSION_HMAC_KEY",
+		"auth.session_absolute_lifetime":     "AUTH_SESSION_ABSOLUTE_LIFETIME",
+		"auth.session_idle_lifetime":         "AUTH_SESSION_IDLE_LIFETIME",
+		"auth.transaction_lifetime":          "AUTH_TRANSACTION_LIFETIME",
+		"auth.cookie_name":                   "AUTH_COOKIE_NAME",
+		"auth.cookie_secure":                 "AUTH_COOKIE_SECURE",
+		"auth.password_reset_webhook_secret": "AUTH_PASSWORD_RESET_WEBHOOK_SECRET",
+		"auth.avatar_max_bytes":              "PROFILE_AVATAR_MAX_BYTES",
+		"minio.endpoint":                     "MINIO_ENDPOINT",
+		"minio.access_key":                   "MINIO_ACCESS_KEY",
+		"minio.secret_key":                   "MINIO_SECRET_KEY",
+		"minio.bucket":                       "MINIO_BUCKET",
+		"minio.region":                       "MINIO_REGION",
+		"minio.use_ssl":                      "MINIO_USE_SSL",
 	}
+}
+
+func validBucketName(name string) bool {
+	if len(name) < 3 || len(name) > 63 || name != strings.ToLower(name) ||
+		strings.Contains(name, "..") || strings.Contains(name, ".-") || strings.Contains(name, "-.") {
+		return false
+	}
+	for index, char := range name {
+		isAlphaNumeric := char >= 'a' && char <= 'z' || char >= '0' && char <= '9'
+		if !isAlphaNumeric && char != '-' && char != '.' {
+			return false
+		}
+		if (index == 0 || index == len(name)-1) && !isAlphaNumeric {
+			return false
+		}
+	}
+	return true
 }
 
 func readConfigFile(v *viper.Viper) error {

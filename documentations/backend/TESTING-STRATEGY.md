@@ -58,6 +58,8 @@ Minimum cases:
 - Exact amount serialization without floating-point drift.
 - Rate/body-size/content-type handling.
 - Health/readiness responses leak no configuration.
+- Profile updates cannot change Auth0-owned email fields; avatar upload enforces authentication, MIME allowlists, and size limits.
+- Forgot-password responses do not disclose account existence; password-reset callbacks reject invalid secrets and revoke all local sessions for the provider subject.
 
 OpenAPI tests validate the document and compare representative request/response examples with the running API.
 

@@ -60,6 +60,25 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /auth/password/forgot:
+    post:
+      summary: Request a password-reset email
+      description: Requests Auth0 to send its hosted password-reset link. A valid request always returns 202 regardless of whether the account exists.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ForgotPasswordRequest'
+      responses:
+        '202':
+          description: The request was accepted without disclosing account existence
+        '400':
+          description: Invalid JSON or email syntax
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /auth/me:
     get:
       summary: Get the authenticated local user
@@ -82,6 +101,120 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+    patch:
+      summary: Update the authenticated local profile
+      description: Updates the local display name. Email and verification status remain Auth0-managed.
+      security:
+        - kailoSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProfileRequest'
+      responses:
+        '200':
+          description: Updated profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfileResponse'
+        '400':
+          description: Invalid display name
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Missing or invalid local session
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /auth/me/avatar:
+    get:
+      summary: Read the authenticated user's private avatar
+      security:
+        - kailoSession: []
+      responses:
+        '200':
+          description: Avatar bytes streamed from private object storage
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/png:
+              schema:
+                type: string
+                format: binary
+            image/webp:
+              schema:
+                type: string
+                format: binary
+        '401':
+          description: Missing or invalid local session
+        '404':
+          description: The user has no avatar
+    put:
+      summary: Replace the authenticated user's avatar
+      description: Accepts one JPEG, PNG, or WebP image up to the configured size limit and stores it in the private MinIO bucket.
+      security:
+        - kailoSession: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [avatar]
+              properties:
+                avatar:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Updated profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfileResponse'
+        '400':
+          description: Invalid image or multipart request
+        '401':
+          description: Missing or invalid local session
+        '413':
+          description: Avatar exceeds the configured size limit
+    delete:
+      summary: Delete the authenticated user's avatar
+      security:
+        - kailoSession: []
+      responses:
+        '200':
+          description: Updated profile without an avatar
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfileResponse'
+        '401':
+          description: Missing or invalid local session
+  /internal/auth/password-reset-completed:
+    post:
+      summary: Revoke local sessions after an Auth0 password reset
+      description: Internal Auth0 Action callback. It is not intended for browser clients.
+      security:
+        - passwordResetWebhook: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordResetCompletedRequest'
+      responses:
+        '204':
+          description: All local sessions for the Auth0 identity were revoked
+        '401':
+          description: Missing or invalid callback secret
 components:
   securitySchemes:
     kailoSession:
@@ -89,7 +222,17 @@ components:
       in: cookie
       name: kailopay_session
       description: Opaque KailoPay-owned session cookie. Auth0 tokens are never returned to the browser.
+    passwordResetWebhook:
+      type: http
+      scheme: bearer
+      description: Dedicated Auth0 Action callback secret; never use an end-user token.
   schemas:
+    UserProfileResponse:
+      type: object
+      required: [user]
+      properties:
+        user:
+          $ref: '#/components/schemas/UserProfile'
     UserProfile:
       type: object
       required: [id, displayName, email, emailVerified, developerEnabled]
@@ -106,6 +249,35 @@ components:
           type: boolean
         developerEnabled:
           type: boolean
+        avatarUrl:
+          type: string
+          description: Authenticated relative URL for the private profile image; omitted when no avatar exists.
+    UpdateProfileRequest:
+      type: object
+      additionalProperties: false
+      required: [displayName]
+      properties:
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 100
+    ForgotPasswordRequest:
+      type: object
+      additionalProperties: false
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+    PasswordResetCompletedRequest:
+      type: object
+      additionalProperties: false
+      required: [subject]
+      properties:
+        subject:
+          type: string
+          minLength: 1
     EnvironmentMetadata:
       type: object
       required: [environment]

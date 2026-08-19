@@ -45,7 +45,7 @@ The web frontend is a separate deliverable and communicates only through public/
 
 | Module | Owns | May depend on |
 |---|---|---|
-| `identity` | API clients, test-key issuance/revocation, authentication context | Shared crypto/time abstractions, persistence |
+| `identity` | Auth0 login/reset, local profiles/sessions, private avatars, API clients, test-key issuance/revocation | Shared crypto/time abstractions, persistence, private object storage |
 | `orders` | Quotes, orders, state transitions, order event history, orchestration commands | Payment and Stellar ports, outbox, persistence |
 | `payments` | Gateway checkout, callback normalization/verification, payout request and reconciliation | Selected provider adapter, orders port |
 | `stellar` | Testnet accounts, asset transfer/issuance, deposit verification, retirement, transaction reconciliation | Stellar SDK adapter, orders port |
@@ -175,6 +175,7 @@ Minimum sandbox topology:
 - Public HTTPS host for `api`.
 - One `worker` process with the same release version.
 - Managed PostgreSQL or a persistent PostgreSQL instance.
+- Private S3-compatible object storage for profile images.
 - Managed secret injection for gateway credentials and Stellar testnet secret keys.
 - Public static/documentation host.
 - Public `stellar.toml` location and federation endpoint.
@@ -187,6 +188,7 @@ Configuration is parsed and validated once at process startup. Required groups:
 
 - Application environment, release version, public URLs, log level.
 - Database connection and pool settings.
+- Private object-storage endpoint, bucket, region, TLS mode, and credentials.
 - API-key hashing/pepper secret.
 - Gateway provider, sandbox endpoint, credentials, and callback secret/token.
 - Stellar network passphrase, Horizon/RPC endpoint, account roles, asset code/issuer, and encrypted/injected secret keys.

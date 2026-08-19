@@ -7,6 +7,8 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
+	"io"
+	"strings"
 	"testing"
 	"time"
 )
@@ -16,11 +18,13 @@ type fixedClock struct{ now time.Time }
 func (c fixedClock) Now() time.Time { return c.now }
 
 type fakeProvider struct {
-	identity  Identity
-	state     string
-	nonce     string
-	challenge string
-	code      string
+	identity           Identity
+	state              string
+	nonce              string
+	challenge          string
+	code               string
+	passwordResetEmail string
+	passwordResetErr   error
 }
 
 func (p *fakeProvider) AuthorizationURL(_ context.Context, state, nonce, challenge string) (string, error) {
@@ -34,6 +38,11 @@ func (p *fakeProvider) Exchange(_ context.Context, code, _, nonce string) (Ident
 		return Identity{}, ErrInvalidIdentity
 	}
 	return p.identity, nil
+}
+
+func (p *fakeProvider) RequestPasswordReset(_ context.Context, email string) error {
+	p.passwordResetEmail = email
+	return p.passwordResetErr
 }
 
 type fakeTransactionStore struct {
@@ -55,11 +64,15 @@ func (s *fakeTransactionStore) Consume(_ context.Context, _ []byte, _ time.Time)
 }
 
 type fakeUserSessionStore struct {
-	profile       UserProfile
-	created       SessionRecord
-	authenticated AuthenticatedUser
-	revoked       bool
-	err           error
+	profile           UserProfile
+	created           SessionRecord
+	authenticated     AuthenticatedUser
+	revoked           bool
+	revokedSubject    string
+	updatedName       string
+	avatarKey         string
+	previousAvatarKey string
+	err               error
 }
 
 func (s *fakeUserSessionStore) UpsertIdentityAndCreateSession(_ context.Context, _ Identity, session SessionRecord) (UserProfile, error) {
@@ -76,7 +89,63 @@ func (s *fakeUserSessionStore) FindActiveSession(_ context.Context, _ []byte, _ 
 	return s.authenticated, s.err
 }
 
-func testAuthUsecase(t *testing.T) (*AuthUsecase, *fakeProvider, *fakeTransactionStore, *fakeUserSessionStore, fixedClock) {
+func (s *fakeUserSessionStore) UpdateDisplayName(_ context.Context, _ string, displayName string) (UserProfile, error) {
+	s.updatedName = displayName
+	s.profile.DisplayName = displayName
+	return s.profile, s.err
+}
+
+func (s *fakeUserSessionStore) FindProfile(_ context.Context, _ string) (UserProfile, error) {
+	return s.profile, s.err
+}
+
+func (s *fakeUserSessionStore) ReplaceAvatarObjectKey(_ context.Context, _ string, objectKey string) (UserProfile, string, error) {
+	s.avatarKey = objectKey
+	s.profile.AvatarObjectKey = objectKey
+	return s.profile, s.previousAvatarKey, s.err
+}
+
+func (s *fakeUserSessionStore) ClearAvatarObjectKey(_ context.Context, _ string) (UserProfile, string, error) {
+	previous := s.avatarKey
+	if previous == "" {
+		previous = s.previousAvatarKey
+	}
+	s.avatarKey = ""
+	s.profile.AvatarObjectKey = ""
+	return s.profile, previous, s.err
+}
+
+func (s *fakeUserSessionStore) RevokeSessionsForIdentity(_ context.Context, _, subject string, _ time.Time) error {
+	s.revokedSubject = subject
+	return s.err
+}
+
+type fakeAvatarStore struct {
+	putObject   AvatarObject
+	openedKey   string
+	opened      AvatarFile
+	deletedKeys []string
+	putErr      error
+	openErr     error
+	deleteErr   error
+}
+
+func (s *fakeAvatarStore) Put(_ context.Context, object AvatarObject) error {
+	s.putObject = object
+	return s.putErr
+}
+
+func (s *fakeAvatarStore) Open(_ context.Context, objectKey string) (AvatarFile, error) {
+	s.openedKey = objectKey
+	return s.opened, s.openErr
+}
+
+func (s *fakeAvatarStore) Delete(_ context.Context, objectKey string) error {
+	s.deletedKeys = append(s.deletedKeys, objectKey)
+	return s.deleteErr
+}
+
+func testAuthUsecase(t *testing.T) (*AuthUsecase, *fakeProvider, *fakeTransactionStore, *fakeUserSessionStore, *fakeAvatarStore, fixedClock) {
 	t.Helper()
 	clock := fixedClock{now: time.Date(2026, time.August, 19, 10, 0, 0, 0, time.UTC)}
 	provider := &fakeProvider{identity: Identity{
@@ -88,22 +157,32 @@ func testAuthUsecase(t *testing.T) (*AuthUsecase, *fakeProvider, *fakeTransactio
 	}}
 	transactions := &fakeTransactionStore{}
 	users := &fakeUserSessionStore{profile: UserProfile{ID: "user-id", DisplayName: "Test User", Email: "user@example.com", EmailVerified: true}}
+	avatars := &fakeAvatarStore{}
 	key := []byte("01234567890123456789012345678901")
-	service, err := NewAuthUsecase(provider, transactions, users, clock, Config{
+	service, err := NewAuthUsecase(Dependencies{
+		Provider:       provider,
+		PasswordReset:  provider,
+		Transactions:   transactions,
+		Sessions:       users,
+		Profiles:       users,
+		SessionRevoker: users,
+		Avatars:        avatars,
+	}, clock, Config{
 		TransactionEncryptionKey: key,
 		SessionHMACKey:           key,
 		SessionAbsoluteLifetime:  8 * time.Hour,
 		SessionIdleLifetime:      30 * time.Minute,
 		TransactionLifetime:      10 * time.Minute,
+		AvatarMaxBytes:           5 << 20,
 	})
 	if err != nil {
 		t.Fatalf("NewAuthUsecase() error = %v", err)
 	}
-	return service, provider, transactions, users, clock
+	return service, provider, transactions, users, avatars, clock
 }
 
 func TestAuthUsecaseBeginLoginCreatesPKCETransaction(t *testing.T) {
-	service, provider, transactions, _, _ := testAuthUsecase(t)
+	service, provider, transactions, _, _, _ := testAuthUsecase(t)
 
 	redirect, err := service.BeginLogin(context.Background())
 	if err != nil {
@@ -124,7 +203,7 @@ func TestAuthUsecaseBeginLoginCreatesPKCETransaction(t *testing.T) {
 }
 
 func TestAuthUsecaseCompleteLoginCreatesLocalSession(t *testing.T) {
-	service, provider, transactions, users, clock := testAuthUsecase(t)
+	service, provider, transactions, users, _, clock := testAuthUsecase(t)
 	if _, err := service.BeginLogin(context.Background()); err != nil {
 		t.Fatalf("BeginLogin() error = %v", err)
 	}
@@ -164,7 +243,7 @@ func TestAuthUsecaseRejectsInvalidTransactionAndProviderIdentity(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			service, provider, transactions, _, clock := testAuthUsecase(t)
+			service, provider, transactions, _, _, clock := testAuthUsecase(t)
 			transactions.err = tt.transactionErr
 			if tt.transactionErr == nil {
 				provider.identity = tt.identity
@@ -187,7 +266,7 @@ func TestAuthUsecaseRejectsInvalidTransactionAndProviderIdentity(t *testing.T) {
 }
 
 func TestAuthUsecaseLogoutAndAuthenticateHashTokens(t *testing.T) {
-	service, _, _, users, clock := testAuthUsecase(t)
+	service, _, _, users, _, clock := testAuthUsecase(t)
 	users.authenticated = AuthenticatedUser{User: users.profile, SessionID: "session-id", LastUsedAt: clock.now}
 
 	if err := service.Logout(context.Background(), "raw-session-token"); err != nil {
@@ -202,6 +281,113 @@ func TestAuthUsecaseLogoutAndAuthenticateHashTokens(t *testing.T) {
 	}
 	if got.SessionID != "session-id" {
 		t.Fatalf("session id = %q, want session-id", got.SessionID)
+	}
+}
+
+func TestAuthUsecaseUpdatesOnlyTheAuthenticatedUsersDisplayName(t *testing.T) {
+	service, _, _, users, _, _ := testAuthUsecase(t)
+
+	profile, err := service.UpdateProfile(context.Background(), "user-id", UpdateProfileInput{DisplayName: "  New Name  "})
+	if err != nil {
+		t.Fatalf("UpdateProfile() error = %v", err)
+	}
+	if users.updatedName != "New Name" || profile.DisplayName != "New Name" {
+		t.Fatalf("updated/profile display name = %q/%q, want New Name", users.updatedName, profile.DisplayName)
+	}
+	if profile.Email != "user@example.com" {
+		t.Fatalf("profile email = %q, want existing verified email", profile.Email)
+	}
+}
+
+func TestAuthUsecaseRejectsInvalidDisplayNames(t *testing.T) {
+	service, _, _, _, _, _ := testAuthUsecase(t)
+
+	for _, displayName := range []string{"   ", strings.Repeat("a", 101)} {
+		if _, err := service.UpdateProfile(context.Background(), "user-id", UpdateProfileInput{DisplayName: displayName}); !errors.Is(err, ErrInvalidProfile) {
+			t.Fatalf("UpdateProfile(%q) error = %v, want %v", displayName, err, ErrInvalidProfile)
+		}
+	}
+}
+
+func TestAuthUsecaseRequestsPasswordResetWithoutLookingUpLocalUsers(t *testing.T) {
+	service, provider, _, _, _, _ := testAuthUsecase(t)
+
+	if err := service.RequestPasswordReset(context.Background(), "  USER@Example.COM "); err != nil {
+		t.Fatalf("RequestPasswordReset() error = %v", err)
+	}
+	if provider.passwordResetEmail != "user@example.com" {
+		t.Fatalf("password reset email = %q, want normalized email", provider.passwordResetEmail)
+	}
+}
+
+func TestAuthUsecaseReplacesAvatarAndRemovesPreviousObject(t *testing.T) {
+	service, _, _, users, avatars, _ := testAuthUsecase(t)
+	users.previousAvatarKey = "avatars/user-id/old.png"
+
+	profile, err := service.UpdateAvatar(context.Background(), "user-id", AvatarUpload{
+		Body:        strings.NewReader("png-bytes"),
+		Size:        9,
+		ContentType: "image/png",
+	})
+	if err != nil {
+		t.Fatalf("UpdateAvatar() error = %v", err)
+	}
+	if !strings.HasPrefix(avatars.putObject.Key, "avatars/user-id/") || avatars.putObject.ContentType != "image/png" {
+		t.Fatalf("stored avatar = %#v", avatars.putObject)
+	}
+	if profile.AvatarURL != "/auth/me/avatar" {
+		t.Fatalf("avatar URL = %q", profile.AvatarURL)
+	}
+	if len(avatars.deletedKeys) != 1 || avatars.deletedKeys[0] != "avatars/user-id/old.png" {
+		t.Fatalf("deleted keys = %#v", avatars.deletedKeys)
+	}
+}
+
+func TestAuthUsecaseCleansUpNewAvatarWhenProfilePersistenceFails(t *testing.T) {
+	service, _, _, users, avatars, _ := testAuthUsecase(t)
+	users.err = errors.New("database unavailable")
+
+	_, err := service.UpdateAvatar(context.Background(), "user-id", AvatarUpload{
+		Body:        strings.NewReader("jpeg-bytes"),
+		Size:        10,
+		ContentType: "image/jpeg",
+	})
+	if err == nil {
+		t.Fatal("UpdateAvatar() error = nil")
+	}
+	if len(avatars.deletedKeys) != 1 || avatars.deletedKeys[0] != avatars.putObject.Key {
+		t.Fatalf("cleanup keys = %#v, stored key = %q", avatars.deletedKeys, avatars.putObject.Key)
+	}
+}
+
+func TestAuthUsecaseOpensOnlyTheAuthenticatedUsersAvatar(t *testing.T) {
+	service, _, _, users, avatars, _ := testAuthUsecase(t)
+	users.profile.AvatarObjectKey = "avatars/user-id/avatar.webp"
+	avatars.opened = AvatarFile{
+		Body:        io.NopCloser(strings.NewReader("avatar")),
+		Size:        6,
+		ContentType: "image/webp",
+		ETag:        "etag-value",
+	}
+
+	file, err := service.OpenAvatar(context.Background(), "user-id")
+	if err != nil {
+		t.Fatalf("OpenAvatar() error = %v", err)
+	}
+	defer file.Body.Close()
+	if avatars.openedKey != users.profile.AvatarObjectKey || file.ContentType != "image/webp" {
+		t.Fatalf("opened key/content type = %q/%q", avatars.openedKey, file.ContentType)
+	}
+}
+
+func TestAuthUsecaseRevokesAllLocalSessionsAfterAuth0PasswordReset(t *testing.T) {
+	service, _, _, users, _, _ := testAuthUsecase(t)
+
+	if err := service.CompletePasswordReset(context.Background(), "auth0|user-1"); err != nil {
+		t.Fatalf("CompletePasswordReset() error = %v", err)
+	}
+	if users.revokedSubject != "auth0|user-1" {
+		t.Fatalf("revoked subject = %q", users.revokedSubject)
 	}
 }
 

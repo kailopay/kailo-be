@@ -1,9 +1,13 @@
 package auth0
 
 import (
+	"bytes"
 	"context"
 	"crypto/subtle"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -21,6 +25,7 @@ type Client struct {
 	verifier        *oidc.IDTokenVerifier
 	httpClient      *http.Client
 	emailConnection string
+	issuerURL       string
 }
 
 func NewClient(ctx context.Context, cfg platform.AuthConfig, httpClient *http.Client) (*Client, error) {
@@ -53,7 +58,43 @@ func NewClient(ctx context.Context, cfg platform.AuthConfig, httpClient *http.Cl
 		verifier:        provider.Verifier(&oidc.Config{ClientID: cfg.ClientID}),
 		httpClient:      httpClient,
 		emailConnection: cfg.EmailConnection,
+		issuerURL:       strings.TrimRight(cfg.IssuerURL, "/"),
 	}, nil
+}
+
+func (c *Client) RequestPasswordReset(ctx context.Context, email string) error {
+	payload, err := json.Marshal(struct {
+		ClientID   string `json:"client_id"`
+		Email      string `json:"email"`
+		Connection string `json:"connection"`
+	}{
+		ClientID:   c.oauthConfig.ClientID,
+		Email:      email,
+		Connection: c.emailConnection,
+	})
+	if err != nil {
+		return fmt.Errorf("encoding password reset request: %w", err)
+	}
+	request, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodPost,
+		c.issuerURL+"/dbconnections/change_password",
+		bytes.NewReader(payload),
+	)
+	if err != nil {
+		return fmt.Errorf("creating password reset request: %w", err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	response, err := c.httpClient.Do(request)
+	if err != nil {
+		return fmt.Errorf("sending password reset request: %w", err)
+	}
+	defer response.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4<<10))
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("password reset provider returned status %d", response.StatusCode)
+	}
+	return nil
 }
 
 func (c *Client) AuthorizationURL(ctx context.Context, state, nonce, codeChallenge string) (string, error) {
@@ -120,3 +161,4 @@ func (c *Client) Exchange(ctx context.Context, code, codeVerifier, nonce string)
 }
 
 var _ auth.Provider = (*Client)(nil)
+var _ auth.PasswordResetRequester = (*Client)(nil)

@@ -9,6 +9,7 @@ The module path is `github.com/febry3/kailopay-be`.
 - Gin for HTTP delivery
 - Viper for startup configuration
 - PostgreSQL through GORM
+- Private profile-image storage through MinIO
 - `log/slog` for structured logging
 
 ## Layout minimum
@@ -56,8 +57,17 @@ not become domain entities or use-case contracts.
 
 ## Local setup
 
-1. Copy `.env.example` to `.env` and set `DATABASE_DSN`.
-2. Start a local PostgreSQL database.
+1. Copy `.env.example` to `.env` and set the Auth0 values.
+2. Start the local PostgreSQL and MinIO services:
+
+   ```powershell
+   docker compose up -d postgres minio
+   ```
+
+   PostgreSQL is available at `localhost:5432`. MinIO exposes its S3 API at
+   `http://localhost:9000` and its console at `http://localhost:9001`. The API
+   creates the private `kailopay-profile` bucket automatically in local/test.
+
 3. Run the guarded schema bootstrap:
 
    ```powershell
@@ -82,9 +92,20 @@ not become domain entities or use-case contracts.
    The repository-level `.air.toml` builds `./cmd/api` into the ignored
    `tmp/api.exe` and reloads when Go source or `.env` changes.
 
+Stop the local services with `docker compose down`. Add `-v` only when you
+intentionally want to remove the PostgreSQL and MinIO development data.
+
 `cmd/automigrate` refuses environments other than `local` and `test`. Do not
 use GORM `AutoMigrate` as a production/shared-database migration mechanism;
 production changes must use reviewed, versioned migrations.
+
+Auth profile endpoints are `GET/PATCH /auth/me` and
+`GET/PUT/DELETE /auth/me/avatar`. `POST /auth/password/forgot` asks the
+configured Auth0 database connection to send its hosted reset email. Configure
+an Auth0 post-change-password Action to call
+`POST /internal/auth/password-reset-completed` with
+`Authorization: Bearer <AUTH_PASSWORD_RESET_WEBHOOK_SECRET>` and JSON
+`{"subject":"<event.user.user_id>"}` so existing local sessions are revoked.
 
 ## Verification
 

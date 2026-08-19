@@ -11,19 +11,32 @@ import (
 func validAuthConfig() AuthConfig {
 	key := base64.StdEncoding.EncodeToString(make([]byte, 32))
 	return AuthConfig{
-		IssuerURL:                "https://tenant.example.com/",
-		ClientID:                 "client-id",
-		ClientSecret:             "client-secret",
-		RedirectURL:              "https://api.example.com/auth/callback",
-		EmailConnection:          "email",
-		SuccessRedirectURL:       "https://app.example.com/",
-		TransactionEncryptionKey: key,
-		SessionHMACKey:           key,
-		SessionAbsoluteLifetime:  8 * time.Hour,
-		SessionIdleLifetime:      30 * time.Minute,
-		TransactionLifetime:      10 * time.Minute,
-		CookieName:               "__Host-kailopay_session",
-		CookieSecure:             true,
+		IssuerURL:                  "https://tenant.example.com/",
+		ClientID:                   "client-id",
+		ClientSecret:               "client-secret",
+		RedirectURL:                "https://api.example.com/auth/callback",
+		EmailConnection:            "email",
+		SuccessRedirectURL:         "https://app.example.com/",
+		TransactionEncryptionKey:   key,
+		SessionHMACKey:             key,
+		SessionAbsoluteLifetime:    8 * time.Hour,
+		SessionIdleLifetime:        30 * time.Minute,
+		TransactionLifetime:        10 * time.Minute,
+		CookieName:                 "__Host-kailopay_session",
+		CookieSecure:               true,
+		PasswordResetWebhookSecret: "01234567890123456789012345678901",
+		AvatarMaxBytes:             5 << 20,
+	}
+}
+
+func validObjectStorageConfig() ObjectStorageConfig {
+	return ObjectStorageConfig{
+		Endpoint:  "minio.example.com:9000",
+		AccessKey: "access-key",
+		SecretKey: "secret-key",
+		Bucket:    "kailopay-profile",
+		Region:    "us-east-1",
+		UseSSL:    true,
 	}
 }
 
@@ -39,6 +52,12 @@ func setValidAuthEnv(t *testing.T) {
 	t.Setenv("AUTH_TRANSACTION_ENCRYPTION_KEY", key)
 	t.Setenv("AUTH_SESSION_HMAC_KEY", key)
 	t.Setenv("AUTH_COOKIE_SECURE", "true")
+	t.Setenv("AUTH_PASSWORD_RESET_WEBHOOK_SECRET", "01234567890123456789012345678901")
+	t.Setenv("MINIO_ENDPOINT", "minio.example.com:9000")
+	t.Setenv("MINIO_ACCESS_KEY", "access-key")
+	t.Setenv("MINIO_SECRET_KEY", "secret-key")
+	t.Setenv("MINIO_BUCKET", "kailopay-profile")
+	t.Setenv("MINIO_USE_SSL", "true")
 }
 
 func TestLoadUsesEnvironmentOverrides(t *testing.T) {
@@ -106,6 +125,49 @@ func TestAuthConfigValidateAcceptsProductionSettings(t *testing.T) {
 	}
 }
 
+func TestObjectStorageConfigValidateRejectsUnsafeSettings(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*ObjectStorageConfig)
+	}{
+		{name: "missing endpoint", mutate: func(cfg *ObjectStorageConfig) { cfg.Endpoint = "" }},
+		{name: "endpoint includes scheme", mutate: func(cfg *ObjectStorageConfig) { cfg.Endpoint = "https://minio.example.com" }},
+		{name: "missing credentials", mutate: func(cfg *ObjectStorageConfig) { cfg.SecretKey = "" }},
+		{name: "invalid bucket", mutate: func(cfg *ObjectStorageConfig) { cfg.Bucket = "Invalid_Bucket" }},
+		{name: "insecure outside local", mutate: func(cfg *ObjectStorageConfig) { cfg.UseSSL = false }},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := validObjectStorageConfig()
+			tt.mutate(&cfg)
+			if err := cfg.Validate("production"); err == nil {
+				t.Fatal("Validate() error = nil")
+			}
+		})
+	}
+}
+
+func TestLoadReadsMinIOEnvironmentOverrides(t *testing.T) {
+	setValidAuthEnv(t)
+	t.Setenv("APP_ENV", "local")
+	t.Setenv("DATABASE_DSN", "host=test-db user=tester password=secret dbname=test port=5432")
+	t.Setenv("MINIO_ENDPOINT", "localhost:9000")
+	t.Setenv("MINIO_USE_SSL", "false")
+	t.Setenv("PROFILE_AVATAR_MAX_BYTES", "1048576")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.ObjectStorage.Endpoint != "localhost:9000" || cfg.ObjectStorage.UseSSL {
+		t.Fatalf("object storage endpoint/SSL = %q/%t", cfg.ObjectStorage.Endpoint, cfg.ObjectStorage.UseSSL)
+	}
+	if cfg.Auth.AvatarMaxBytes != 1048576 {
+		t.Fatalf("avatar maximum bytes = %d", cfg.Auth.AvatarMaxBytes)
+	}
+}
+
 func TestAuthConfigValidateRejectsInvalidSettings(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -144,6 +206,12 @@ func TestLoadReadsAuthEnvironmentOverrides(t *testing.T) {
 	t.Setenv("AUTH_TRANSACTION_ENCRYPTION_KEY", key)
 	t.Setenv("AUTH_SESSION_HMAC_KEY", key)
 	t.Setenv("AUTH_COOKIE_SECURE", "false")
+	t.Setenv("AUTH_PASSWORD_RESET_WEBHOOK_SECRET", "01234567890123456789012345678901")
+	t.Setenv("MINIO_ENDPOINT", "localhost:9000")
+	t.Setenv("MINIO_ACCESS_KEY", "access-key")
+	t.Setenv("MINIO_SECRET_KEY", "secret-key")
+	t.Setenv("MINIO_BUCKET", "kailopay-profile")
+	t.Setenv("MINIO_USE_SSL", "false")
 
 	cfg, err := Load()
 	if err != nil {

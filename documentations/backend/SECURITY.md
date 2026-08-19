@@ -64,6 +64,9 @@ Recommended format: `pk_test_<public_id>_<random_secret>`.
 - The Auth0 callback uses Authorization Code + PKCE, validates issuer, audience, signature, expiry, subject, and nonce, and consumes a database-backed state transaction once. PKCE verifiers are encrypted at rest; state, nonce, and local session lookup values are HMAC-SHA-256 digests.
 - The browser receives only the KailoPay local session cookie. Auth0 access, refresh, and ID tokens remain inside the backend callback exchange and are discarded.
 - Local sessions use an eight-hour absolute lifetime, thirty-minute idle timeout, logout revocation, disabled-user checks, `SameSite=Lax`, `HttpOnly`, and `Secure` outside local development.
+- Forgot-password requests return the same accepted response regardless of account existence; Auth0 hosts password entry and reset-token validation.
+- A dedicated high-entropy Auth0 Action callback secret protects password-reset completion notifications, which revoke every local session for the stable Auth0 subject.
+- Profile avatars accept only bounded JPEG, PNG, or WebP bytes, use server-generated object keys, stay in a private MinIO bucket, and are streamed only after local-session authorization.
 - Developer Mode and direct `owner_user_id` checks are enforced before developer-session configuration actions.
 - Developer-session endpoints use CSRF/session protections appropriate to the selected frontend auth approach.
 - There is no public endpoint that accepts an arbitrary `client_id` as authorization.
