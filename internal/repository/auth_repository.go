@@ -256,6 +256,26 @@ func (r *AuthRepository) UpdateDisplayName(ctx context.Context, userID, displayN
 	return profile, nil
 }
 
+func (r *AuthRepository) SetDeveloperMode(ctx context.Context, userID string, enabled bool) (auth.UserProfile, error) {
+	now := time.Now().UTC()
+	updates := map[string]any{"updated_at": now}
+	if enabled {
+		updates["developer_enabled_at"] = now
+	} else {
+		updates["developer_enabled_at"] = nil
+	}
+	result := r.db.WithContext(ctx).Model(&User{}).
+		Where("id = ? AND status = ?", userID, activeUserStatus).
+		Updates(updates)
+	if result.Error != nil {
+		return auth.UserProfile{}, fmt.Errorf("setting developer mode: %w", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return auth.UserProfile{}, auth.ErrInvalidSession
+	}
+	return r.FindProfile(ctx, userID)
+}
+
 func (r *AuthRepository) FindProfile(ctx context.Context, userID string) (auth.UserProfile, error) {
 	var user User
 	if err := r.db.WithContext(ctx).

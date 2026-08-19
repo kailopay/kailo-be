@@ -54,6 +54,7 @@ CREATE TABLE api_clients (
     updated_at timestamptz NOT NULL
 );
 CREATE INDEX idx_api_clients_owner ON api_clients(owner_user_id, created_at DESC);
+CREATE UNIQUE INDEX idx_api_clients_owner_environment ON api_clients(owner_user_id, environment);
 
 CREATE TABLE api_keys (
     id uuid PRIMARY KEY,
@@ -284,4 +285,3 @@ CREATE TABLE webhook_attempts (
     next_attempt_at timestamptz,
     UNIQUE (event_id, endpoint_id, attempt_number)
 );
-

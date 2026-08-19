@@ -27,6 +27,7 @@ type UserSessionStore interface {
 
 type ProfileStore interface {
 	UpdateDisplayName(ctx context.Context, userID, displayName string) (UserProfile, error)
+	SetDeveloperMode(ctx context.Context, userID string, enabled bool) (UserProfile, error)
 	FindProfile(ctx context.Context, userID string) (UserProfile, error)
 	ReplaceAvatarObjectKey(ctx context.Context, userID, objectKey string) (UserProfile, string, error)
 	ClearAvatarObjectKey(ctx context.Context, userID string) (UserProfile, string, error)
@@ -134,7 +135,8 @@ type Provider interface {
 }
 
 type UpdateProfileInput struct {
-	DisplayName string
+	DisplayName      string
+	DeveloperEnabled *bool
 }
 
 type AvatarUpload struct {
@@ -307,12 +309,22 @@ func (s *AuthUsecase) Authenticate(ctx context.Context, rawToken string) (Authen
 
 func (s *AuthUsecase) UpdateProfile(ctx context.Context, userID string, input UpdateProfileInput) (UserProfile, error) {
 	displayName := strings.TrimSpace(input.DisplayName)
-	if strings.TrimSpace(userID) == "" || displayName == "" || utf8.RuneCountInString(displayName) > 100 {
+	if strings.TrimSpace(userID) == "" || (displayName == "" && input.DeveloperEnabled == nil) || utf8.RuneCountInString(displayName) > 100 {
 		return UserProfile{}, ErrInvalidProfile
 	}
-	profile, err := s.profiles.UpdateDisplayName(ctx, userID, displayName)
-	if err != nil {
-		return UserProfile{}, fmt.Errorf("updating profile: %w", err)
+	var profile UserProfile
+	var err error
+	if displayName != "" {
+		profile, err = s.profiles.UpdateDisplayName(ctx, userID, displayName)
+		if err != nil {
+			return UserProfile{}, fmt.Errorf("updating profile: %w", err)
+		}
+	}
+	if input.DeveloperEnabled != nil {
+		profile, err = s.profiles.SetDeveloperMode(ctx, userID, *input.DeveloperEnabled)
+		if err != nil {
+			return UserProfile{}, fmt.Errorf("updating developer mode: %w", err)
+		}
 	}
 	return withAvatarURL(profile), nil
 }

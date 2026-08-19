@@ -70,6 +70,7 @@ type fakeUserSessionStore struct {
 	revoked           bool
 	revokedSubject    string
 	updatedName       string
+	developerEnabled  *bool
 	avatarKey         string
 	previousAvatarKey string
 	err               error
@@ -92,6 +93,12 @@ func (s *fakeUserSessionStore) FindActiveSession(_ context.Context, _ []byte, _ 
 func (s *fakeUserSessionStore) UpdateDisplayName(_ context.Context, _ string, displayName string) (UserProfile, error) {
 	s.updatedName = displayName
 	s.profile.DisplayName = displayName
+	return s.profile, s.err
+}
+
+func (s *fakeUserSessionStore) SetDeveloperMode(_ context.Context, _ string, enabled bool) (UserProfile, error) {
+	s.developerEnabled = &enabled
+	s.profile.DeveloperEnabled = enabled
 	return s.profile, s.err
 }
 
@@ -306,6 +313,22 @@ func TestAuthUsecaseRejectsInvalidDisplayNames(t *testing.T) {
 		if _, err := service.UpdateProfile(context.Background(), "user-id", UpdateProfileInput{DisplayName: displayName}); !errors.Is(err, ErrInvalidProfile) {
 			t.Fatalf("UpdateProfile(%q) error = %v, want %v", displayName, err, ErrInvalidProfile)
 		}
+	}
+}
+
+func TestAuthUsecaseEnablesDeveloperModeWithoutChangingDisplayName(t *testing.T) {
+	service, _, _, users, _, _ := testAuthUsecase(t)
+	enabled := true
+
+	profile, err := service.UpdateProfile(context.Background(), "user-id", UpdateProfileInput{DeveloperEnabled: &enabled})
+	if err != nil {
+		t.Fatalf("UpdateProfile() error = %v", err)
+	}
+	if users.developerEnabled == nil || !*users.developerEnabled || !profile.DeveloperEnabled {
+		t.Fatalf("developer mode = %v, profile = %+v", users.developerEnabled, profile)
+	}
+	if users.updatedName != "" {
+		t.Fatalf("display name unexpectedly updated to %q", users.updatedName)
 	}
 }
 

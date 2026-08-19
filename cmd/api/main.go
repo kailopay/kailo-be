@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -19,6 +20,7 @@ import (
 	"github.com/febry3/kailopay-be/internal/handler/middleware"
 	"github.com/febry3/kailopay-be/internal/platform"
 	"github.com/febry3/kailopay-be/internal/repository"
+	"github.com/febry3/kailopay-be/internal/service/apikey"
 	auth "github.com/febry3/kailopay-be/internal/usecase"
 )
 
@@ -112,7 +114,25 @@ func run(ctx context.Context) error {
 	}
 	authHandler := httpapi.NewAuthHandler(authService, cfg.Auth, appLogger)
 	sessionMiddleware := middleware.RequireSessionWithCookie(authService, cfg.Auth.CookieName)
-	router, err := httpapi.NewRouter(appLogger, health, authHandler, sessionMiddleware)
+	apiKeyRepository := repository.NewAPIKeyRepository(db)
+	apiKeyService, err := apikey.New(apikey.Dependencies{
+		DeveloperMode: apiKeyRepository,
+		Creator:       apiKeyRepository,
+		Finder:        apiKeyRepository,
+		UsageRecorder: apiKeyRepository,
+		Lister:        apiKeyRepository,
+		Revoker:       apiKeyRepository,
+	}, apikey.Config{
+		Pepper: []byte(cfg.Week1.APIKeyPepper),
+		Random: rand.Reader,
+		NewID:  platform.NewID,
+		Now:    time.Now,
+	})
+	if err != nil {
+		return fmt.Errorf("creating api key service: %w", err)
+	}
+	apiKeyHandler := httpapi.NewAPIKeyHandler(apiKeyService, appLogger)
+	router, err := httpapi.NewRouter(appLogger, health, authHandler, sessionMiddleware, httpapi.WithAPIKeys(apiKeyHandler))
 	if err != nil {
 		return fmt.Errorf("creating http router: %w", err)
 	}

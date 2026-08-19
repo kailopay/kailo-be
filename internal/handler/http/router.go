@@ -8,7 +8,23 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func NewRouter(logger *slog.Logger, health *HealthHandler, authHandler *AuthHandler, requireSession gin.HandlerFunc) (*gin.Engine, error) {
+type routerOptions struct {
+	apiKeys *APIKeyHandler
+}
+
+type RouterOption func(*routerOptions) error
+
+func WithAPIKeys(handler *APIKeyHandler) RouterOption {
+	return func(options *routerOptions) error {
+		if handler == nil {
+			return errors.New("api key handler is required")
+		}
+		options.apiKeys = handler
+		return nil
+	}
+}
+
+func NewRouter(logger *slog.Logger, health *HealthHandler, authHandler *AuthHandler, requireSession gin.HandlerFunc, options ...RouterOption) (*gin.Engine, error) {
 	if health == nil {
 		return nil, errors.New("health handler is required")
 	}
@@ -17,6 +33,15 @@ func NewRouter(logger *slog.Logger, health *HealthHandler, authHandler *AuthHand
 	}
 	if logger == nil {
 		logger = slog.Default()
+	}
+	configured := routerOptions{}
+	for _, option := range options {
+		if option == nil {
+			return nil, errors.New("router option is required")
+		}
+		if err := option(&configured); err != nil {
+			return nil, err
+		}
 	}
 
 	router := gin.New()
@@ -45,5 +70,12 @@ func NewRouter(logger *slog.Logger, health *HealthHandler, authHandler *AuthHand
 	authRoutes.PUT("/me/avatar", authHandler.UpdateAvatar)
 	authRoutes.GET("/me/avatar", authHandler.Avatar)
 	authRoutes.DELETE("/me/avatar", authHandler.DeleteAvatar)
+	if configured.apiKeys != nil {
+		apiKeyRoutes := router.Group("/v1/api-keys")
+		apiKeyRoutes.Use(requireSession)
+		apiKeyRoutes.POST("", configured.apiKeys.Create)
+		apiKeyRoutes.GET("", configured.apiKeys.List)
+		apiKeyRoutes.DELETE("/:id", configured.apiKeys.Revoke)
+	}
 	return router, nil
 }

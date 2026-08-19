@@ -28,6 +28,7 @@ type fakeAuthService struct {
 	logoutToken        string
 	updatedProfile     auth.UserProfile
 	updatedName        string
+	developerEnabled   *bool
 	profileErr         error
 	passwordResetEmail string
 	passwordResetErr   error
@@ -57,6 +58,7 @@ func (s *fakeAuthService) Authenticate(context.Context, string) (auth.Authentica
 
 func (s *fakeAuthService) UpdateProfile(_ context.Context, _ string, input auth.UpdateProfileInput) (auth.UserProfile, error) {
 	s.updatedName = input.DisplayName
+	s.developerEnabled = input.DeveloperEnabled
 	return s.updatedProfile, s.profileErr
 }
 
@@ -197,6 +199,23 @@ func TestAuthHandlerUpdatesAuthenticatedProfile(t *testing.T) {
 
 	if response.Code != http.StatusOK || service.updatedName != "New Name" || !strings.Contains(response.Body.String(), `"displayName":"New Name"`) {
 		t.Fatalf("profile response/name = %d/%q/%q", response.Code, response.Body.String(), service.updatedName)
+	}
+}
+
+func TestAuthHandlerEnablesDeveloperMode(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	service := &fakeAuthService{updatedProfile: auth.UserProfile{ID: "user-id", DeveloperEnabled: true}}
+	handler := testAuthHandler(t, service)
+	router := authenticatedAuthRouter(t, handler, http.MethodPatch, "/auth/me", handler.UpdateProfile)
+
+	request := httptest.NewRequest(http.MethodPatch, "/auth/me", strings.NewReader(`{"developerEnabled":true}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.AddCookie(&http.Cookie{Name: middleware.DefaultSessionCookieName, Value: "token"})
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK || service.developerEnabled == nil || !*service.developerEnabled {
+		t.Fatalf("status = %d, developer mode = %v, body = %q", response.Code, service.developerEnabled, response.Body.String())
 	}
 }
 

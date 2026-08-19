@@ -98,13 +98,17 @@ func (h *AuthHandler) UpdateProfile(c *gin.Context) {
 		return
 	}
 	var request struct {
-		DisplayName string `json:"displayName"`
+		DisplayName      string `json:"displayName"`
+		DeveloperEnabled *bool  `json:"developerEnabled"`
 	}
 	if err := decodeJSON(c, &request, 4<<10); err != nil {
 		writeRequestError(c, http.StatusBadRequest)
 		return
 	}
-	profile, err := h.service.UpdateProfile(c.Request.Context(), user.User.ID, auth.UpdateProfileInput{DisplayName: request.DisplayName})
+	profile, err := h.service.UpdateProfile(c.Request.Context(), user.User.ID, auth.UpdateProfileInput{
+		DisplayName:      request.DisplayName,
+		DeveloperEnabled: request.DeveloperEnabled,
+	})
 	if err != nil {
 		if errors.Is(err, auth.ErrInvalidProfile) {
 			writeRequestError(c, http.StatusBadRequest)
