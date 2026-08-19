@@ -1,5 +1,15 @@
 # Database Design
 
+## Week 1 migration status
+
+`migrations/000001_week1_onramp.up.sql` is the authoritative clean-schema
+migration. It includes Auth0-backed users/sessions, one test API client per
+developer/environment, hashed API keys, immutable quote fields, orders/events,
+Xendit checkout and callback receipts, treasury accounts/reservations,
+idempotency records, Stellar intents, and durable outbox leases. Runtime
+services use explicit transactions; `AutoMigrate` remains local/test bootstrap
+only.
+
 ## 1. Database principles
 
 - PostgreSQL is the authoritative local state store.

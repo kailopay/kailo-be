@@ -3,6 +3,7 @@ package xendit
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
@@ -67,7 +68,9 @@ func New(config Config) (*Client, error) {
 }
 
 func (c *Client) VerifyCallback(raw []byte, token string) (onramp.Callback, error) {
-	if subtle.ConstantTimeCompare([]byte(token), []byte(c.callbackToken)) != 1 {
+	providedTokenHash := sha256.Sum256([]byte(token))
+	expectedTokenHash := sha256.Sum256([]byte(c.callbackToken))
+	if subtle.ConstantTimeCompare(providedTokenHash[:], expectedTokenHash[:]) != 1 {
 		return onramp.Callback{}, onramp.ErrInvalidCallback
 	}
 	var payload struct {

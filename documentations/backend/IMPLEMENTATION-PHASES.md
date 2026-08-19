@@ -27,9 +27,9 @@ Each slice includes:
 
 ### Work
 
-- Test Xendit and/or Midtrans sandbox for QRIS, bank transfer/virtual account, callback authentication, status lookup, idempotency, and payout simulation.
-- Select provider and record ADR.
-- Define test asset code, precision, accounts, trustline requirements, issuance/distribution, and retirement; fund testnet accounts and submit one probe transaction.
+- Test Xendit sandbox Payment Requests v3 for QRIS, BRI virtual account, callback authentication, and status lookup.
+- Select Xendit and record `ADR-001-xendit-native-xlm.md`.
+- Use native XLM with a pre-funded testnet distribution wallet; no issued KIDR asset or trustline is required in Week 1.
 - Decide developer-session mechanism, hosting/public URLs, repository license, secrets, and off-ramp evidence fallback.
 - Confirm Go version, PostgreSQL version, Gin/Viper/GORM stack, migration/test strategy, and supported deployment model.
 
@@ -52,10 +52,11 @@ A developer can authenticate, create/query sandbox orders, and receive real prov
 2. PostgreSQL migrations, repository transaction helper, IDs/clock, and structured logging.
 3. API-key creation/verification and client ownership boundary.
 4. Order aggregate, state transition policy, event history, idempotency records, and outbox.
-5. Create/get/list on-ramp and off-ramp API contracts.
+5. Create/get/list on-ramp API contracts; defer off-ramp.
 6. Selected provider adapter for QRIS and bank transfer.
 7. Callback raw-body verification, deduplication, reconciliation, and durable settlement intent.
 8. Initial OpenAPI and integration tests.
+9. Native-XLM settlement worker with hash-first persistence and Horizon reconciliation.
 
 ### Week 1 gate
 
@@ -64,18 +65,19 @@ A developer can authenticate, create/query sandbox orders, and receive real prov
 - Replayed paid callback creates one payment-confirmed transition and one settlement intent.
 - Clean database can migrate and API tests pass.
 - Public repository contains no secret.
+- A verified payment creates one durable settlement job; the worker confirms one
+  native-XLM testnet transfer before completing the order.
 
-## 4. Week 2: Stellar settlement, off-ramp, SEP-24
+## 4. Week 2: Off-ramp and SEP-24
 
 ### Outcome
 
-On-ramp payment results in one testnet asset movement, and a valid off-ramp asset deposit results in retirement plus sandbox withdrawal evidence. Anchor discovery and interactive skeleton work.
+Build off-ramp and anchor capabilities on the Week 1 native-XLM settlement foundation.
 
 ### Build order
 
-1. Stellar adapter, account/asset validation, serialized submissions, and transaction persistence.
-2. On-ramp issuance worker and unknown-outcome reconciliation.
-3. Off-ramp deposit instructions, transaction lookup/detection, exact validation, and retirement worker.
+1. Off-ramp deposit instructions, transaction lookup/detection, and exact validation.
+2. Sandbox payout intent and unknown-outcome reconciliation.
 4. Gateway payout/simulation intent and reconciliation.
 5. SEP-24 deposit/withdrawal interactive endpoints and synthetic KYC stub.
 6. Public `stellar.toml` and federation endpoint.

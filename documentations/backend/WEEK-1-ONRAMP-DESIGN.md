@@ -75,7 +75,7 @@ queue, dependency-injection framework, or second database is introduced.
 
 ## 4. Identity and API keys
 
-`PATCH /auth/me` accepts an optional `developer_enabled` boolean in addition to
+`PATCH /auth/me` accepts an optional `developerEnabled` boolean in addition to
 the display name. Disabling Developer Mode blocks management endpoints but does
 not revoke existing keys.
 

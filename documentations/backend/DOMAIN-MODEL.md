@@ -1,5 +1,15 @@
 # Domain Model
 
+## Week 1 implemented profile
+
+The first vertical slice is an IDR-to-native-XLM on-ramp. A developer-owned
+test API client requests an exact quote, reserves pre-funded treasury stroops,
+creates a Xendit sandbox checkout, and receives XLM only after authenticated
+payment reconciliation. `TreasuryReservation` prevents the same wallet
+inventory from backing multiple checkouts. `StellarTransaction` and the
+transactional outbox preserve one settlement intent across retries and unknown
+network outcomes. Off-ramp and issued-asset aggregates are not active in Week 1.
+
 ## 1. Domain boundaries
 
 The core domain is the lifecycle of a sandbox conversion order. Payment checkout, Stellar settlement, SEP-24, and outgoing webhooks are supporting capabilities around that lifecycle.

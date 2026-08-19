@@ -15,12 +15,17 @@ import (
 	"time"
 
 	"github.com/febry3/kailopay-be/internal/adapter/auth0"
+	"github.com/febry3/kailopay-be/internal/adapter/coinmarketcap"
 	"github.com/febry3/kailopay-be/internal/adapter/objectstorage"
+	stellaradapter "github.com/febry3/kailopay-be/internal/adapter/stellar"
+	"github.com/febry3/kailopay-be/internal/adapter/xendit"
+	"github.com/febry3/kailopay-be/internal/entity"
 	httpapi "github.com/febry3/kailopay-be/internal/handler/http"
 	"github.com/febry3/kailopay-be/internal/handler/middleware"
 	"github.com/febry3/kailopay-be/internal/platform"
 	"github.com/febry3/kailopay-be/internal/repository"
 	"github.com/febry3/kailopay-be/internal/service/apikey"
+	"github.com/febry3/kailopay-be/internal/service/onramp"
 	auth "github.com/febry3/kailopay-be/internal/usecase"
 )
 
@@ -132,7 +137,44 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("creating api key service: %w", err)
 	}
 	apiKeyHandler := httpapi.NewAPIKeyHandler(apiKeyService, appLogger)
-	router, err := httpapi.NewRouter(appLogger, health, authHandler, sessionMiddleware, httpapi.WithAPIKeys(apiKeyHandler))
+	priceClient, err := coinmarketcap.New(coinmarketcap.Config{BaseURL: cfg.Week1.CoinMarketCap.BaseURL,
+		APIKey: cfg.Week1.CoinMarketCap.APIKey, HTTPClient: &http.Client{Timeout: cfg.Week1.CoinMarketCap.Timeout}})
+	if err != nil {
+		return fmt.Errorf("creating CoinMarketCap client: %w", err)
+	}
+	paymentClient, err := xendit.New(xendit.Config{BaseURL: cfg.Week1.Xendit.BaseURL, SecretKey: cfg.Week1.Xendit.SecretKey,
+		CallbackToken: cfg.Week1.Xendit.CallbackToken, APIVersion: cfg.Week1.Xendit.APIVersion,
+		QRISChannel: cfg.Week1.Xendit.QRISChannel, VAChannel: cfg.Week1.Xendit.VAChannel,
+		HTTPClient: &http.Client{Timeout: cfg.Week1.Xendit.Timeout}})
+	if err != nil {
+		return fmt.Errorf("creating Xendit client: %w", err)
+	}
+	treasuryReader, err := stellaradapter.NewBalanceReader(cfg.Week1.Stellar.HorizonURL, &http.Client{Timeout: cfg.Week1.Stellar.Timeout})
+	if err != nil {
+		return fmt.Errorf("creating Stellar balance reader: %w", err)
+	}
+	onrampRepository := repository.NewOnrampRepository(db, cfg.Week1.Stellar.TreasuryAccount, "testnet",
+		entity.Stroops(cfg.Week1.Stellar.OperatingBufferStroops))
+	onrampService, err := onramp.NewService(onramp.Dependencies{Store: onrampRepository, Prices: priceClient,
+		Treasury: treasuryReader, Gateway: paymentClient, Destinations: treasuryReader}, onramp.ServiceConfig{
+		QuotePolicy: onramp.QuotePolicy{TTL: cfg.Week1.Onramp.QuoteTTL, MaxAge: cfg.Week1.Onramp.QuoteMaxAge,
+			SpreadBPS: cfg.Week1.Onramp.QuoteSpreadBPS}, MinIDR: entity.IDR(cfg.Week1.Onramp.MinIDR),
+		MaxIDR: entity.IDR(cfg.Week1.Onramp.MaxIDR), TreasuryAccount: cfg.Week1.Stellar.TreasuryAccount,
+		NewID: platform.NewID, Now: time.Now,
+	})
+	if err != nil {
+		return fmt.Errorf("creating onramp service: %w", err)
+	}
+	callbackService, err := onramp.NewCallbackService(paymentClient, onrampRepository)
+	if err != nil {
+		return fmt.Errorf("creating payment callback service: %w", err)
+	}
+	onrampHandler := httpapi.NewOnrampHandler(onrampService, appLogger)
+	callbackHandler := httpapi.NewXenditCallbackHandler(callbackService, appLogger)
+	apiKeyMiddleware := middleware.RequireAPIKey(apiKeyService)
+	router, err := httpapi.NewRouter(appLogger, health, authHandler, sessionMiddleware,
+		httpapi.WithAPIKeys(apiKeyHandler), httpapi.WithOnramp(onrampHandler, apiKeyMiddleware),
+		httpapi.WithXenditCallback(callbackHandler))
 	if err != nil {
 		return fmt.Errorf("creating http router: %w", err)
 	}

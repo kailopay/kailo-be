@@ -10,6 +10,8 @@ The module path is `github.com/febry3/kailopay-be`.
 - Viper for startup configuration
 - PostgreSQL through GORM
 - Private profile-image storage through MinIO
+- Xendit Payment Requests v3 sandbox checkouts
+- CoinMarketCap reference pricing and native XLM on Stellar testnet
 - `log/slog` for structured logging
 
 ## Layout minimum
@@ -68,10 +70,10 @@ not become domain entities or use-case contracts.
    `http://localhost:9000` and its console at `http://localhost:9001`. The API
    creates the private `kailopay-profile` bucket automatically in local/test.
 
-3. Run the guarded schema bootstrap:
+3. Apply the versioned Week 1 schema:
 
    ```powershell
-   go run ./cmd/automigrate
+   go run ./cmd/migrate
    ```
 
 4. Start the API:
@@ -91,6 +93,19 @@ not become domain entities or use-case contracts.
 
    The repository-level `.air.toml` builds `./cmd/api` into the ignored
    `tmp/api.exe` and reloads when Go source or `.env` changes.
+
+5. Run the settlement worker in a second terminal after configuring a funded
+   Stellar testnet distribution account and `STELLAR_TREASURY_SECRET`:
+
+   ```powershell
+   go run ./cmd/worker
+   ```
+
+Developer flow: sign in through Auth0, set `developerEnabled` with
+`PATCH /auth/me`, create a one-time `pk_test_` key at `POST /v1/api-keys`, then
+use it as `Authorization: Bearer <key>` with `POST /v1/onramps`. The on-ramp
+requires `Idempotency-Key`, accepts QRIS or `bri_va`, reserves pre-funded XLM,
+and returns Xendit presentation instructions. See `openapi/openapi.yaml`.
 
 Stop the local services with `docker compose down`. Add `-v` only when you
 intentionally want to remove the PostgreSQL and MinIO development data.

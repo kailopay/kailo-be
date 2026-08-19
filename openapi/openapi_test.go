@@ -24,6 +24,12 @@ func TestDocumentValidatesAuthContract(t *testing.T) {
 		"/auth/me",
 		"/auth/me/avatar",
 		"/internal/auth/password-reset-completed",
+		"/v1/api-keys",
+		"/v1/api-keys/{id}",
+		"/v1/onramps",
+		"/v1/orders",
+		"/v1/orders/{id}",
+		"/callbacks/payments/xendit",
 	} {
 		if document.Paths.Find(path) == nil {
 			t.Errorf("missing auth path %q", path)

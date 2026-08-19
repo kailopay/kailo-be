@@ -44,7 +44,7 @@ func (order *Order) Transition(next OrderStatus) error {
 func allowedTransition(current, next OrderStatus) bool {
 	switch current {
 	case OrderStatusCreated:
-		return next == OrderStatusPaymentPending || next == OrderStatusCancelled
+		return next == OrderStatusPaymentPending || next == OrderStatusPaymentFailed || next == OrderStatusCancelled
 	case OrderStatusPaymentPending:
 		return next == OrderStatusPaymentConfirmed || next == OrderStatusExpired ||
 			next == OrderStatusPaymentFailed || next == OrderStatusCancelled

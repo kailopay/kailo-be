@@ -390,11 +390,18 @@ func (r *OnrampRepository) orderView(ctx context.Context, order Order) (onramp.O
 	var checkout PaymentCheckout
 	if err := r.db.WithContext(ctx).Where("order_id = ?", order.ID).Order("created_at DESC").First(&checkout).Error; err == nil {
 		presentation := ""
+		presentationType := ""
 		if checkout.PresentationReference != nil {
 			presentation = *checkout.PresentationReference
 		}
+		var metadata struct {
+			PresentationType string `json:"presentation_type"`
+		}
+		if json.Unmarshal(checkout.Metadata, &metadata) == nil {
+			presentationType = metadata.PresentationType
+		}
 		view.Checkout = &onramp.Checkout{ProviderID: checkout.ProviderCheckoutID, Method: entity.PaymentMethod(checkout.Method), Status: checkout.Status,
-			PresentationValue: presentation, ExpiresAt: checkout.ExpiresAt}
+			PresentationType: presentationType, PresentationValue: presentation, ExpiresAt: checkout.ExpiresAt}
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return onramp.OrderView{}, fmt.Errorf("finding checkout: %w", err)
 	}

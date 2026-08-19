@@ -40,7 +40,7 @@ Story points are not hours. Phase 0 must validate the P0 total against actual ve
 
 | ID | Story | Pri | SP | Target | Dependency | Status |
 |---|---|---:|---:|---|---|---|
-| BE-001 | Probe Xendit/Midtrans sandbox and record provider ADR. | P0 | 3 | Phase 0 | Sandbox accounts | Ready |
+| BE-001 | Probe Xendit/Midtrans sandbox and record provider ADR. | P0 | 3 | Phase 0 | Sandbox accounts | Implemented (Xendit selected) |
 | BE-002 | Define Stellar test asset/accounts/retirement and record ADR. | P0 | 2 | Phase 0 | Testnet access | Ready |
 | BE-003 | Decide off-ramp sandbox evidence fallback and document wording. | P0 | 1 | Phase 0 | BE-001 | Blocked |
 | BE-004 | Select Auth0 email login with KailoPay-owned PostgreSQL retail sessions for test-key management. | P0 | 2 | Phase 0 | Product decision | Done |
@@ -54,12 +54,12 @@ Acceptance: ADRs contain context/options/consequences; repository builds from cl
 
 | ID | Story | Pri | SP | Target | Dependency | Status |
 |---|---|---:|---:|---|---|---|
-| BE-010 | Implement validated startup configuration and sandbox/testnet assertions. | P0 | 3 | Week 1 | BE-006 | Blocked |
-| BE-011 | Add PostgreSQL connection, transaction helper, migration tooling, and clean-schema CI test. | P0 | 5 | Week 1 | BE-006 | Blocked |
-| BE-012 | Implement IDs, injected clock, exact amount types, and canonical serialization. | P0 | 3 | Week 1 | BE-006 | Blocked |
+| BE-010 | Implement validated startup configuration and sandbox/testnet assertions. | P0 | 3 | Week 1 | BE-006 | Implemented |
+| BE-011 | Add PostgreSQL connection, transaction helper, migration tooling, and clean-schema CI test. | P0 | 5 | Week 1 | BE-006 | Implemented |
+| BE-012 | Implement IDs, injected clock, exact amount types, and canonical serialization. | P0 | 3 | Week 1 | BE-006 | Implemented |
 | BE-013 | Implement request/correlation context and JSON logging with central redaction. | P0 | 3 | Week 1 | BE-006 | Blocked |
 | BE-014 | Implement error taxonomy and stable HTTP error mapper. | P0 | 3 | Week 1 | BE-006 | Blocked |
-| BE-015 | Implement transactional outbox schema, leasing, retry, and worker loop. | P0 | 5 | Week 1 | BE-011 | Blocked |
+| BE-015 | Implement transactional outbox schema, leasing, retry, and worker loop. | P0 | 5 | Week 1 | BE-011 | Implemented |
 | BE-016 | Add liveness, readiness, release version, and migration checks. | P1 | 2 | Week 1 | BE-010, BE-011 | Blocked |
 | BE-017 | Add sandbox seed/test-fixture tooling using synthetic data. | P1 | 2 | Week 1 | BE-011 | Blocked |
 
@@ -69,15 +69,15 @@ Acceptance: state/event/outbox commit atomically; multiple workers cannot hold o
 
 | ID | Story | Pri | SP | Target | Dependency | Status |
 |---|---|---:|---:|---|---|---|
-| BE-020 | Implement API client and `pk_test_` key generation, hashed storage, authentication, and revocation. | P0 | 5 | Week 1 | BE-011-BE-014 | Blocked |
-| BE-021 | Implement order aggregate/value objects and on/off-ramp state-transition policy. | P0 | 5 | Week 1 | BE-012 | Blocked |
-| BE-022 | Implement order/order-event repositories with optimistic concurrency. | P0 | 5 | Week 1 | BE-011, BE-021 | Blocked |
-| BE-023 | Implement idempotency records and same-key conflicting-request detection. | P0 | 3 | Week 1 | BE-011 | Blocked |
-| BE-024 | Implement `POST /v1/onramps` with validation and checkout intent. | P0 | 5 | Week 1 | BE-020-BE-023 | Blocked |
+| BE-020 | Implement API client and `pk_test_` key generation, hashed storage, authentication, and revocation. | P0 | 5 | Week 1 | BE-011-BE-014 | Implemented |
+| BE-021 | Implement order aggregate/value objects and on/off-ramp state-transition policy. | P0 | 5 | Week 1 | BE-012 | Implemented for on-ramp |
+| BE-022 | Implement order/order-event repositories with optimistic concurrency. | P0 | 5 | Week 1 | BE-011, BE-021 | Implemented for on-ramp |
+| BE-023 | Implement idempotency records and same-key conflicting-request detection. | P0 | 3 | Week 1 | BE-011 | Implemented |
+| BE-024 | Implement `POST /v1/onramps` with validation and checkout intent. | P0 | 5 | Week 1 | BE-020-BE-023 | Implemented |
 | BE-025 | Implement `POST /v1/offramps` with deposit instruction intent. | P0 | 5 | Week 1-2 | BE-020-BE-023 | Blocked |
-| BE-026 | Implement client-scoped `GET /v1/orders/{id}`. | P0 | 2 | Week 1 | BE-020, BE-022 | Blocked |
+| BE-026 | Implement client-scoped `GET /v1/orders/{id}`. | P0 | 2 | Week 1 | BE-020, BE-022 | Implemented |
 | BE-027 | Implement cursor-paginated `GET /v1/orders`. | P1 | 3 | Week 3 | BE-026 | Blocked |
-| BE-028 | Publish and validate initial OpenAPI with auth, amounts, errors, and examples. | P0 | 3 | Week 1 | BE-024-BE-026 | Blocked |
+| BE-028 | Publish and validate initial OpenAPI with auth, amounts, errors, and examples. | P0 | 3 | Week 1 | BE-024-BE-026 | Implemented |
 | BE-029 | Implement Auth0 profile editing, hosted password reset, local-session revocation, and private MinIO avatars. | P1 | 5 | Week 1 | BE-010, BE-011 | Implemented |
 
 Acceptance: exact amount round-trips; invalid/cross-client requests fail; duplicate create returns one order; each legal transition creates one versioned event.
@@ -86,12 +86,12 @@ Acceptance: exact amount round-trips; invalid/cross-client requests fail; duplic
 
 | ID | Story | Pri | SP | Target | Dependency | Status |
 |---|---|---:|---:|---|---|---|
-| BE-030 | Define provider-neutral payment port and selected-provider adapter mapping. | P0 | 3 | Week 1 | BE-001 | Blocked |
-| BE-031 | Create real QRIS sandbox checkout with stable external/idempotency reference. | P0 | 5 | Week 1 | BE-024, BE-030 | Blocked |
-| BE-032 | Create real bank-transfer/virtual-account sandbox checkout. | P0 | 3 | Week 1 | BE-024, BE-030 | Blocked |
-| BE-033 | Implement raw-body callback authentication and sanitized receipt persistence. | P0 | 5 | Week 1 | BE-030, BE-011 | Blocked |
-| BE-034 | Implement callback deduplication and amount/currency/reference/status reconciliation. | P0 | 5 | Week 1 | BE-033, BE-021 | Blocked |
-| BE-035 | Persist one settlement intent after verified payment and process asynchronously. | P0 | 3 | Week 1-2 | BE-015, BE-034 | Blocked |
+| BE-030 | Define provider-neutral payment port and selected-provider adapter mapping. | P0 | 3 | Week 1 | BE-001 | Implemented |
+| BE-031 | Create real QRIS sandbox checkout with stable external/idempotency reference. | P0 | 5 | Week 1 | BE-024, BE-030 | Implemented; credentialed sandbox evidence pending |
+| BE-032 | Create real bank-transfer/virtual-account sandbox checkout. | P0 | 3 | Week 1 | BE-024, BE-030 | Implemented for BRI VA; evidence pending |
+| BE-033 | Implement raw-body callback authentication and sanitized receipt persistence. | P0 | 5 | Week 1 | BE-030, BE-011 | Implemented |
+| BE-034 | Implement callback deduplication and amount/currency/reference/status reconciliation. | P0 | 5 | Week 1 | BE-033, BE-021 | Implemented |
+| BE-035 | Persist one settlement intent after verified payment and process asynchronously. | P0 | 3 | Week 1-2 | BE-015, BE-034 | Implemented |
 | BE-036 | Implement provider payment status reconciliation for timeout/late/unknown events. | P0 | 5 | Week 2 | BE-030, BE-034 | Blocked |
 | BE-037 | Implement off-ramp payout/simulation intent, provider adapter, and reconciliation. | P0 | 5 | Week 2 | BE-003, BE-030 | Blocked |
 
@@ -101,9 +101,9 @@ Acceptance: invalid/mismatched/replayed callback cannot duplicate state/settleme
 
 | ID | Story | Pri | SP | Target | Dependency | Status |
 |---|---|---:|---:|---|---|---|
-| BE-040 | Implement Stellar configuration, network assertion, account/asset validation, and public metadata. | P0 | 3 | Week 1-2 | BE-002, BE-010 | Blocked |
+| BE-040 | Implement Stellar configuration, network assertion, account/asset validation, and public metadata. | P0 | 3 | Week 1-2 | BE-002, BE-010 | Implemented for native-XLM testnet flow |
 | BE-041 | Implement serialized/account-locked transaction submission and persistent intent/result model. | P0 | 5 | Week 2 | BE-011, BE-040 | Blocked |
-| BE-042 | Implement on-ramp issuance/transfer worker with deterministic correlation. | P0 | 5 | Week 2 | BE-035, BE-041 | Blocked |
+| BE-042 | Implement on-ramp issuance/transfer worker with deterministic correlation. | P0 | 5 | Week 2 | BE-035, BE-041 | Implemented as pre-funded native-XLM transfer |
 | BE-043 | Implement unknown submission reconciliation before retry. | P0 | 5 | Week 2 | BE-041 | Blocked |
 | BE-044 | Generate off-ramp deposit instructions with exact asset/amount/memo and expiry. | P0 | 3 | Week 2 | BE-025, BE-040 | Blocked |
 | BE-045 | Detect/look up and validate off-ramp deposit transaction. | P0 | 5 | Week 2 | BE-044 | Blocked |

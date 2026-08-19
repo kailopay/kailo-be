@@ -2,15 +2,16 @@
 
 ## 1. Scope
 
-`v0.1.0` integrates exactly one Indonesian provider—Xendit or Midtrans—using sandbox credentials. The adapter must support:
+`v0.1.0` selects Xendit Payment Requests v3 using development credentials. The Week 1 adapter supports:
 
 - QRIS sandbox checkout.
 - At least one bank-transfer/virtual-account sandbox checkout.
 - Authenticated payment callbacks.
 - Payment status lookup/reconciliation.
-- The provider's available sandbox payout/withdrawal operation or an approved, explicit simulation evidence path.
+- Server-side Payment Request status reconciliation.
 
-Provider selection is a Phase 0 decision. Domain and API behavior must remain provider-neutral.
+The selected API version is `2024-11-11`; QRIS uses `QRIS` and bank transfer
+uses `BRI_VIRTUAL_ACCOUNT`. Domain and service behavior remain provider-neutral.
 
 ## 2. Provider port
 
@@ -40,8 +41,8 @@ Input must include:
 Processing:
 
 1. Validate order is `created` and route is supported.
-2. Persist checkout intent/outbox message.
-3. Worker calls the provider with a stable idempotency/reference value.
+2. Persist the order, idempotency record, and XLM reservation atomically.
+3. The API calls Xendit synchronously after that transaction commits, using the order ID as `reference_id`.
 4. Persist provider checkout ID, method-specific presentation data, amount, expiry, and sanitized metadata.
 5. Move order to `payment_pending`.
 
@@ -68,7 +69,9 @@ Do not initiate Stellar network calls inside the callback request. The callback 
 
 ## 5. Callback authenticity
 
-The selected adapter must document the exact provider mechanism, which may include a verification token, HMAC signature, public-key signature, or status API lookup.
+Xendit authenticates the webhook with `x-callback-token`. KailoPay compares the
+configured token in constant time, stores the exact-body digest, then retrieves
+`GET /v3/payment_requests/{payment_request_id}` before moving value.
 
 General requirements:
 

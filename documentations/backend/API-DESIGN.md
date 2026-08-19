@@ -57,31 +57,31 @@ Idempotency keys are scoped to API client and operation. Reuse with a different 
 
 ```json
 {
-  "data": {
+  "order": {
     "id": "01J...",
-    "object": "order",
-    "direction": "onramp",
     "status": "payment_pending",
     "environment": "sandbox",
+    "network": "stellar_testnet",
     "fiat": { "currency": "IDR", "amount_minor": "100000" },
-    "asset": {
-      "network": "stellar_testnet",
-      "code": "KIDR",
-      "issuer": "G...",
-      "amount": "6.2500000"
+    "asset": { "code": "XLM", "amount": "40.0000000" },
+    "quote": {
+      "rate": "2500",
+      "adjusted_rate": "2500",
+      "spread_bps": 0,
+      "source_at": "2026-08-18T12:00:00Z",
+      "expires_at": "2026-08-18T12:05:00Z"
     },
     "payment_method": "qris",
     "checkout": {
-      "type": "redirect_or_qr",
-      "url": "https://checkout.sandbox-gateway.test/session/chk_demo",
-      "expires_at": "2026-08-18T12:30:00Z"
+      "id": "pr-demo",
+      "status": "REQUIRES_ACTION",
+      "presentation_type": "QR_STRING",
+      "presentation_value": "000201...",
+      "expires_at": "2026-08-18T12:05:00Z"
     },
-    "stellar_transaction": null,
-    "failure": null,
     "created_at": "2026-08-18T12:00:00Z",
     "updated_at": "2026-08-18T12:00:00Z"
-  },
-  "request_id": "req_..."
+  }
 }
 ```
 
@@ -93,10 +93,11 @@ The reserved `.test` address and synthetic values are illustrative; released exa
 
 | Method | Path | Auth | Idempotency | Purpose |
 |---|---|---|---|---|
-| `POST` | `/v1/onramps` | Test key | Required | Create IDR-to-test-asset order and checkout |
-| `POST` | `/v1/offramps` | Test key | Required | Create test-asset-to-IDR sandbox withdrawal order |
-| `GET` | `/v1/orders/{order_id}` | Test key or retail session | N/A | Retrieve an order owned by the authenticated client/session |
-| `GET` | `/v1/orders` | Test key or retail session | N/A | List only orders owned by the authenticated client/session |
+| `POST` | `/v1/onramps` | Test key | Required | Create IDR-to-native-XLM order and Xendit checkout |
+| `GET` | `/v1/orders/{order_id}` | Test key | N/A | Retrieve an order owned by the authenticated API client |
+| `GET` | `/v1/orders` | Test key | N/A | List only orders owned by the authenticated API client |
+
+Off-ramp and retail-session order access are explicitly deferred beyond Week 1.
 
 ### Developer configuration
 
@@ -125,7 +126,6 @@ SEP-24 and federation paths follow the applicable Stellar specifications and are
 ```json
 {
   "fiat": { "currency": "IDR", "amount_minor": "100000" },
-  "asset": { "code": "KIDR", "network": "stellar_testnet" },
   "payment_method": "qris",
   "stellar_destination": { "account": "G...", "memo": null }
 }
@@ -134,22 +134,19 @@ SEP-24 and federation paths follow the applicable Stellar specifications and are
 Validation:
 
 - Positive amount within configured sandbox bounds.
-- `IDR`, configured asset, testnet, and supported method only.
+- `IDR`, native XLM on testnet, and `qris` or `bri_va` only.
 - Valid Stellar account and memo/muxed-account policy.
 - No real identity or production-bank data required.
 
-Response: `201` with order and checkout representation. Returning `202` is acceptable only if checkout creation is explicitly asynchronous and clients can poll; choose one model and document it in OpenAPI.
+Response: `201` with the immutable quote and Xendit checkout representation.
+An unknown provider-create outcome returns `202` and is held for reconciliation;
+KailoPay does not automatically create a replacement checkout.
 
 ## 7. Create off-ramp request
 
 ```json
 {
-  "asset": {
-    "network": "stellar_testnet",
-    "code": "KIDR",
-    "issuer": "G...",
-    "amount": "6.2500000"
-  },
+  "asset": { "network": "stellar_testnet", "code": "XLM", "amount": "6.2500000" },
   "withdrawal": {
     "currency": "IDR",
     "method": "sandbox_bank_transfer",
@@ -164,7 +161,7 @@ Response includes asset deposit account, required memo/correlation data, expiry,
 
 `GET /v1/orders` uses opaque cursor pagination:
 
-- Query: `limit` with a conservative maximum, `starting_after`, optional `direction` and `status`.
+- Query: `limit` with maximum 100 and opaque `cursor`.
 - Stable ordering: descending creation time plus ID tie-breaker.
 - Response: `data`, `has_more`, `next_cursor`, `request_id`.
 

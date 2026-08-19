@@ -1,5 +1,21 @@
 # Order State Machines
 
+## Week 1 on-ramp path
+
+```text
+created
+  -> payment_pending
+  -> payment_confirmed
+  -> stellar_processing
+  -> completed
+```
+
+Permanent checkout failure moves `payment_pending` to `payment_failed` and
+releases the treasury reservation. Payment expiry moves it to `expired` and
+also releases inventory. Once payment is confirmed, settlement failure moves
+`stellar_processing` to `stellar_failed` but keeps inventory held for manual
+recovery. Only a confirmed Stellar transaction consumes the reservation.
+
 ## 1. General rules
 
 - State transitions occur only through the order application service.

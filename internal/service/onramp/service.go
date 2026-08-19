@@ -34,6 +34,10 @@ type TreasuryReader interface {
 	SpendableBalance(ctx context.Context, account string) (entity.Stroops, error)
 }
 
+type DestinationValidator interface {
+	ValidateDestination(account string) error
+}
+
 type PaymentGateway interface {
 	CreateCheckout(ctx context.Context, input CheckoutInput) (Checkout, error)
 }
@@ -49,10 +53,11 @@ type Store interface {
 }
 
 type Dependencies struct {
-	Store    Store
-	Prices   PriceReader
-	Treasury TreasuryReader
-	Gateway  PaymentGateway
+	Store        Store
+	Prices       PriceReader
+	Treasury     TreasuryReader
+	Gateway      PaymentGateway
+	Destinations DestinationValidator
 }
 
 type ServiceConfig struct {
@@ -135,7 +140,7 @@ type Service struct {
 }
 
 func NewService(dependencies Dependencies, config ServiceConfig) (*Service, error) {
-	if dependencies.Store == nil || dependencies.Prices == nil || dependencies.Treasury == nil || dependencies.Gateway == nil ||
+	if dependencies.Store == nil || dependencies.Prices == nil || dependencies.Treasury == nil || dependencies.Gateway == nil || dependencies.Destinations == nil ||
 		config.NewID == nil || config.Now == nil || strings.TrimSpace(config.TreasuryAccount) == "" ||
 		config.MinIDR <= 0 || config.MaxIDR < config.MinIDR {
 		return nil, errors.New("valid onramp dependencies and configuration are required")
@@ -151,6 +156,9 @@ func (s *Service) Create(ctx context.Context, command Command) (OrderView, bool,
 	if err := validateCommand(command); err != nil {
 		return OrderView{}, false, err
 	}
+	if err := s.dependencies.Destinations.ValidateDestination(command.Destination); err != nil {
+		return OrderView{}, false, ErrInvalidCommand
+	}
 	if command.Amount < s.config.MinIDR || command.Amount > s.config.MaxIDR {
 		return OrderView{}, false, ErrAmountOutOfRange
 	}
@@ -161,6 +169,9 @@ func (s *Service) Create(ctx context.Context, command Command) (OrderView, bool,
 		return OrderView{}, false, fmt.Errorf("checking idempotency: %w", err)
 	}
 	if found {
+		if replayed.FailureCode == "checkout_unknown" {
+			return replayed, true, ErrCheckoutUnknown
+		}
 		return replayed, true, nil
 	}
 	market, err := s.dependencies.Prices.LatestXLMIDR(ctx)

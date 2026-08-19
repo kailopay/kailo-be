@@ -49,6 +49,10 @@ func (treasuryFake) SpendableBalance(context.Context, string) (entity.Stroops, e
 	return entity.Stroops(1_000_000_000), nil
 }
 
+type destinationFake struct{}
+
+func (destinationFake) ValidateDestination(string) error { return nil }
+
 type gatewayFake struct{ calls []string }
 
 func (g *gatewayFake) CreateCheckout(_ context.Context, input CheckoutInput) (Checkout, error) {
@@ -60,7 +64,7 @@ func TestCreateReservesBeforeExposingCheckout(t *testing.T) {
 	now := time.Date(2026, 8, 20, 1, 0, 0, 0, time.UTC)
 	store := &createStoreFake{}
 	gateway := &gatewayFake{}
-	service, err := NewService(Dependencies{Store: store, Prices: priceFake{now: now}, Treasury: treasuryFake{}, Gateway: gateway}, ServiceConfig{
+	service, err := NewService(Dependencies{Store: store, Prices: priceFake{now: now}, Treasury: treasuryFake{}, Gateway: gateway, Destinations: destinationFake{}}, ServiceConfig{
 		QuotePolicy: QuotePolicy{TTL: 5 * time.Minute, MaxAge: 2 * time.Minute},
 		MinIDR:      10_000, MaxIDR: 10_000_000, TreasuryAccount: "G" + string(make([]byte, 55)),
 		NewID: func() (string, error) { return "order-1", nil }, Now: func() time.Time { return now },

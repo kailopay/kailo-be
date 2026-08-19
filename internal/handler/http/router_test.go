@@ -65,3 +65,31 @@ func TestRouterRegistersExpandedAuthEndpoints(t *testing.T) {
 		})
 	}
 }
+
+func TestRouterRegistersWeek1Routes(t *testing.T) {
+	authHandler := testAuthHandler(t, &fakeAuthService{})
+	health := NewHealthHandler(func(context.Context) error { return nil }, time.Second, nil)
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	requireSession := middleware.RequireSession(fakeSessionAuthenticator{user: auth.AuthenticatedUser{User: auth.UserProfile{ID: "user-id"}}})
+	router, err := NewRouter(logger, health, authHandler, requireSession,
+		WithAPIKeys(NewAPIKeyHandler(&fakeAPIKeyService{}, logger)),
+		WithOnramp(NewOnrampHandler(&fakeOnrampService{}, logger), middleware.RequireAPIKey(fixedAPIAuthenticator{})),
+		WithXenditCallback(NewXenditCallbackHandler(&callbackServiceFake{}, logger)),
+	)
+	if err != nil {
+		t.Fatalf("NewRouter() error = %v", err)
+	}
+	routes := make(map[string]bool)
+	for _, route := range router.Routes() {
+		routes[route.Method+" "+route.Path] = true
+	}
+	for _, route := range []string{
+		"POST /v1/api-keys", "GET /v1/api-keys", "DELETE /v1/api-keys/:id",
+		"POST /v1/onramps", "GET /v1/orders", "GET /v1/orders/:id",
+		"POST /callbacks/payments/xendit",
+	} {
+		if !routes[route] {
+			t.Errorf("missing route %s", route)
+		}
+	}
+}

@@ -100,6 +100,14 @@ func (c *Client) Build(ctx context.Context, transfer settlement.Transfer) (settl
 	return settlement.BuiltTransaction{Hash: hash, Envelope: envelope}, nil
 }
 
+func (c *Client) ValidateDestination(account string) error {
+	parsed, err := keypair.ParseAddress(account)
+	if err != nil || parsed.Address() != account {
+		return errors.New("invalid Stellar destination")
+	}
+	return nil
+}
+
 func (c *Client) Submit(ctx context.Context, transaction settlement.BuiltTransaction) (settlement.Submission, error) {
 	form := url.Values{"tx": []string{transaction.Envelope}}
 	request, err := c.request(ctx, http.MethodPost, "/transactions", strings.NewReader(form.Encode()))

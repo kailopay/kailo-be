@@ -1,5 +1,10 @@
 # Stellar Anchor Integration
 
+> Week 1 does not expose an anchor or SEP endpoint. It sends native XLM from a
+> pre-funded Stellar testnet distribution wallet after Xendit payment
+> reconciliation. SEP-24, federation, and off-ramp behavior remain later-phase
+> work and must reuse the same order and settlement invariants.
+
 ## 1. Scope and network
 
 All `v0.1.0` operations use **Stellar testnet**. The release demonstrates:

@@ -215,6 +215,160 @@ paths:
           description: All local sessions for the Auth0 identity were revoked
         '401':
           description: Missing or invalid callback secret
+  /v1/api-keys:
+    post:
+      summary: Create a sandbox API key
+      description: Requires Developer Mode. The full key is returned only in this response.
+      security:
+        - kailoSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAPIKeyRequest'
+      responses:
+        '201':
+          description: API key created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateAPIKeyResponse'
+        '403':
+          description: Developer Mode is disabled
+    get:
+      summary: List sandbox API keys
+      security:
+        - kailoSession: []
+      responses:
+        '200':
+          description: API-key metadata without secret values
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [apiKeys]
+                properties:
+                  apiKeys:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/APIKeyMetadata'
+  /v1/api-keys/{id}:
+    delete:
+      summary: Revoke a sandbox API key
+      security:
+        - kailoSession: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: API key revoked
+        '404':
+          description: Key not found for this user
+  /v1/onramps:
+    post:
+      summary: Create an IDR to native-XLM sandbox on-ramp
+      security:
+        - kailoAPIKey: []
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 255
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOnrampRequest'
+      responses:
+        '201':
+          description: Treasury inventory reserved and Xendit checkout created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+        '409':
+          description: Idempotency conflict or insufficient liquidity
+        '503':
+          description: Quote, payment, or Stellar service unavailable
+  /v1/orders:
+    get:
+      summary: List API-client-owned on-ramp orders
+      security:
+        - kailoAPIKey: []
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Client-owned orders
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [orders, next_cursor]
+                properties:
+                  orders:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Order'
+                  next_cursor:
+                    type: string
+  /v1/orders/{id}:
+    get:
+      summary: Get one API-client-owned on-ramp order
+      security:
+        - kailoAPIKey: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Order found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+        '404':
+          description: Missing or cross-client order
+  /callbacks/payments/xendit:
+    post:
+      summary: Receive an authenticated Xendit payment webhook
+      security:
+        - xenditCallback: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Callback accepted, replayed, or safely retained
+        '401':
+          description: Invalid callback token
 components:
   securitySchemes:
     kailoSession:
@@ -226,6 +380,14 @@ components:
       type: http
       scheme: bearer
       description: Dedicated Auth0 Action callback secret; never use an end-user token.
+    kailoAPIKey:
+      type: http
+      scheme: bearer
+      description: KailoPay sandbox key using the pk_test_ prefix.
+    xenditCallback:
+      type: apiKey
+      in: header
+      name: x-callback-token
   schemas:
     UserProfileResponse:
       type: object
@@ -255,12 +417,123 @@ components:
     UpdateProfileRequest:
       type: object
       additionalProperties: false
-      required: [displayName]
+      anyOf:
+        - required: [displayName]
+        - required: [developerEnabled]
       properties:
         displayName:
           type: string
           minLength: 1
           maxLength: 100
+        developerEnabled:
+          type: boolean
+    CreateAPIKeyRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+    APIKeyMetadata:
+      type: object
+      required: [id, clientId, name, prefix, createdAt]
+      properties:
+        id: {type: string, format: uuid}
+        clientId: {type: string, format: uuid}
+        name: {type: string}
+        prefix: {type: string}
+        createdAt: {type: string, format: date-time}
+        lastUsedAt: {type: string, format: date-time}
+        revokedAt: {type: string, format: date-time}
+    CreateAPIKeyResponse:
+      type: object
+      required: [apiKey]
+      properties:
+        apiKey:
+          type: object
+          required: [id, clientId, prefix, key, createdAt]
+          properties:
+            id: {type: string, format: uuid}
+            clientId: {type: string, format: uuid}
+            prefix: {type: string}
+            key:
+              type: string
+              description: One-time plaintext sandbox key.
+            createdAt: {type: string, format: date-time}
+    CreateOnrampRequest:
+      type: object
+      additionalProperties: false
+      required: [fiat, payment_method, stellar_destination]
+      properties:
+        fiat:
+          type: object
+          required: [currency, amount_minor]
+          properties:
+            currency: {type: string, enum: [IDR]}
+            amount_minor: {type: string, pattern: '^[1-9][0-9]*$'}
+        payment_method:
+          type: string
+          enum: [qris, bri_va]
+        stellar_destination:
+          type: object
+          required: [account]
+          properties:
+            account: {type: string, minLength: 56, maxLength: 56}
+            memo: {type: string, nullable: true, maxLength: 28}
+    OrderResponse:
+      type: object
+      required: [order]
+      properties:
+        order:
+          $ref: '#/components/schemas/Order'
+    Order:
+      type: object
+      required: [id, status, environment, network, fiat, asset, quote, payment_method, stellar_destination, created_at, updated_at]
+      properties:
+        id: {type: string, format: uuid}
+        status:
+          type: string
+          enum: [created, payment_pending, payment_confirmed, stellar_processing, completed, expired, payment_failed, stellar_failed, cancelled]
+        environment: {type: string, enum: [sandbox]}
+        network: {type: string, enum: [stellar_testnet]}
+        fiat:
+          type: object
+          properties:
+            currency: {type: string, enum: [IDR]}
+            amount_minor: {type: string}
+        asset:
+          type: object
+          properties:
+            code: {type: string, enum: [XLM]}
+            amount: {type: string, pattern: '^[0-9]+\.[0-9]{7}$'}
+        quote:
+          type: object
+          properties:
+            rate: {type: string}
+            adjusted_rate: {type: string}
+            spread_bps: {type: integer}
+            source_at: {type: string, format: date-time}
+            expires_at: {type: string, format: date-time}
+        payment_method: {type: string, enum: [qris, bri_va]}
+        stellar_destination:
+          type: object
+          properties:
+            account: {type: string}
+            memo: {type: string}
+        checkout:
+          type: object
+          properties:
+            id: {type: string}
+            status: {type: string}
+            presentation_type: {type: string, enum: [QR_STRING, VIRTUAL_ACCOUNT_NUMBER]}
+            presentation_value: {type: string}
+            expires_at: {type: string, format: date-time, nullable: true}
+        stellar_transaction_hash: {type: string}
+        failure_code: {type: string}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
     ForgotPasswordRequest:
       type: object
       additionalProperties: false
