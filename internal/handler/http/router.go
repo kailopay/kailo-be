@@ -9,7 +9,20 @@ import (
 )
 
 type routerOptions struct {
-	apiKeys *APIKeyHandler
+	apiKeys       *APIKeyHandler
+	onramp        *OnrampHandler
+	requireAPIKey gin.HandlerFunc
+}
+
+func WithOnramp(handler *OnrampHandler, requireAPIKey gin.HandlerFunc) RouterOption {
+	return func(options *routerOptions) error {
+		if handler == nil || requireAPIKey == nil {
+			return errors.New("onramp handler and api key middleware are required")
+		}
+		options.onramp = handler
+		options.requireAPIKey = requireAPIKey
+		return nil
+	}
 }
 
 type RouterOption func(*routerOptions) error
@@ -76,6 +89,13 @@ func NewRouter(logger *slog.Logger, health *HealthHandler, authHandler *AuthHand
 		apiKeyRoutes.POST("", configured.apiKeys.Create)
 		apiKeyRoutes.GET("", configured.apiKeys.List)
 		apiKeyRoutes.DELETE("/:id", configured.apiKeys.Revoke)
+	}
+	if configured.onramp != nil {
+		onrampRoutes := router.Group("/v1")
+		onrampRoutes.Use(configured.requireAPIKey)
+		onrampRoutes.POST("/onramps", configured.onramp.Create)
+		onrampRoutes.GET("/orders", configured.onramp.List)
+		onrampRoutes.GET("/orders/:id", configured.onramp.Get)
 	}
 	return router, nil
 }
