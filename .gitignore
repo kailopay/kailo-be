@@ -19,6 +19,8 @@
 *.dylib
 /.codex-tmp/
 /.codex-sow-render/
+/.worktrees/
+/.superpowers/
 
 *.local
 *.log
