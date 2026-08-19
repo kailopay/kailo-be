@@ -1,0 +1,19 @@
+DROP TABLE IF EXISTS webhook_attempts;
+DROP TABLE IF EXISTS webhook_events;
+DROP TABLE IF EXISTS webhook_endpoints;
+DROP TABLE IF EXISTS outbox_messages;
+DROP TABLE IF EXISTS idempotency_records;
+DROP TABLE IF EXISTS stellar_transactions;
+DROP TABLE IF EXISTS gateway_events;
+DROP TABLE IF EXISTS payment_checkouts;
+DROP TABLE IF EXISTS order_events;
+DROP TABLE IF EXISTS treasury_reservations;
+DROP TABLE IF EXISTS orders;
+DROP TABLE IF EXISTS treasury_accounts;
+DROP TABLE IF EXISTS api_keys;
+DROP TABLE IF EXISTS api_clients;
+DROP TABLE IF EXISTS retail_sessions;
+DROP TABLE IF EXISTS auth_transactions;
+DROP TABLE IF EXISTS user_identities;
+DROP TABLE IF EXISTS users;
+

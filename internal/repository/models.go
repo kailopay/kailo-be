@@ -78,25 +78,32 @@ type APIKey struct {
 func (APIKey) TableName() string { return "api_keys" }
 
 type Order struct {
-	ID                    string  `gorm:"type:uuid;primaryKey"`
-	ClientID              *string `gorm:"type:uuid;index"`
-	CreatedByUserID       *string `gorm:"type:uuid;index"`
-	RetailSessionID       *string `gorm:"type:uuid;index"`
-	Direction             string  `gorm:"type:text;not null"`
-	Status                string  `gorm:"type:text;not null;index"`
-	Version               int     `gorm:"not null"`
-	Currency              string  `gorm:"type:text;not null"`
-	FiatAmountMinor       int64   `gorm:"not null"`
-	AssetCode             string  `gorm:"type:text;not null"`
-	AssetIssuer           string  `gorm:"type:text;not null"`
-	Network               string  `gorm:"type:text;not null"`
-	AssetAmount           string  `gorm:"type:numeric(30,18);not null"`
-	PaymentMethod         string  `gorm:"type:text"`
-	GatewayProvider       string  `gorm:"type:text"`
-	StellarSource         *string `gorm:"type:text"`
-	StellarDestination    *string `gorm:"type:text"`
-	StellarMemo           *string `gorm:"type:text"`
-	WithdrawalDestination []byte  `gorm:"type:jsonb"`
+	ID                    string    `gorm:"type:uuid;primaryKey"`
+	ClientID              *string   `gorm:"type:uuid;index"`
+	CreatedByUserID       *string   `gorm:"type:uuid;index"`
+	RetailSessionID       *string   `gorm:"type:uuid;index"`
+	Direction             string    `gorm:"type:text;not null"`
+	Status                string    `gorm:"type:text;not null;index"`
+	Version               int       `gorm:"not null"`
+	Currency              string    `gorm:"type:text;not null"`
+	FiatAmountMinor       int64     `gorm:"not null"`
+	AssetCode             string    `gorm:"type:text;not null"`
+	AssetIssuer           string    `gorm:"type:text;not null"`
+	Network               string    `gorm:"type:text;not null"`
+	AssetAmount           string    `gorm:"type:numeric(30,18);not null"`
+	AssetAmountStroops    int64     `gorm:"not null"`
+	QuoteProvider         string    `gorm:"type:text;not null"`
+	QuoteSourceAt         time.Time `gorm:"not null"`
+	QuoteRate             string    `gorm:"type:numeric(30,18);not null"`
+	QuoteAdjustedRate     string    `gorm:"type:numeric(30,18);not null"`
+	QuoteSpreadBPS        int       `gorm:"not null"`
+	QuoteExpiresAt        time.Time `gorm:"not null;index"`
+	PaymentMethod         string    `gorm:"type:text"`
+	GatewayProvider       string    `gorm:"type:text"`
+	StellarSource         *string   `gorm:"type:text"`
+	StellarDestination    *string   `gorm:"type:text"`
+	StellarMemo           *string   `gorm:"type:text"`
+	WithdrawalDestination []byte    `gorm:"type:jsonb"`
 	ExpiresAt             *time.Time
 	FailureCode           *string `gorm:"type:text"`
 	FailureStage          *string `gorm:"type:text"`
@@ -161,9 +168,9 @@ func (GatewayEvent) TableName() string { return "gateway_events" }
 
 type StellarTransaction struct {
 	ID              string  `gorm:"type:uuid;primaryKey"`
-	OrderID         string  `gorm:"type:uuid;not null;index"`
+	OrderID         string  `gorm:"type:uuid;not null;uniqueIndex:idx_stellar_order_purpose,priority:1"`
 	IntentID        string  `gorm:"type:text;not null;uniqueIndex"`
-	Purpose         string  `gorm:"type:text;not null"`
+	Purpose         string  `gorm:"type:text;not null;uniqueIndex:idx_stellar_order_purpose,priority:2"`
 	Network         string  `gorm:"type:text;not null"`
 	AssetCode       string  `gorm:"type:text;not null"`
 	Amount          string  `gorm:"type:numeric(30,18);not null"`
@@ -259,6 +266,35 @@ type OutboxMessage struct {
 
 func (OutboxMessage) TableName() string { return "outbox_messages" }
 
+type TreasuryAccount struct {
+	ID                     string    `gorm:"type:uuid;primaryKey"`
+	Network                string    `gorm:"type:text;not null;uniqueIndex:idx_treasury_network_account,priority:1"`
+	PublicAccount          string    `gorm:"type:text;not null;uniqueIndex:idx_treasury_network_account,priority:2"`
+	ObservedBalanceStroops int64     `gorm:"not null"`
+	ReservedStroops        int64     `gorm:"not null"`
+	OperatingBufferStroops int64     `gorm:"not null"`
+	LastReconciledAt       time.Time `gorm:"not null"`
+	CreatedAt              time.Time `gorm:"not null"`
+	UpdatedAt              time.Time `gorm:"not null"`
+}
+
+func (TreasuryAccount) TableName() string { return "treasury_accounts" }
+
+type TreasuryReservation struct {
+	ID            string    `gorm:"type:uuid;primaryKey"`
+	TreasuryID    string    `gorm:"type:uuid;not null;index"`
+	OrderID       string    `gorm:"type:uuid;not null;uniqueIndex"`
+	AmountStroops int64     `gorm:"not null"`
+	Status        string    `gorm:"type:text;not null;index"`
+	ExpiresAt     time.Time `gorm:"not null;index"`
+	ConsumedAt    *time.Time
+	ReleasedAt    *time.Time
+	CreatedAt     time.Time `gorm:"not null"`
+	UpdatedAt     time.Time `gorm:"not null"`
+}
+
+func (TreasuryReservation) TableName() string { return "treasury_reservations" }
+
 func MigrationModels() []any {
 	return []any{
 		&User{},
@@ -277,5 +313,7 @@ func MigrationModels() []any {
 		&WebhookAttempt{},
 		&IdempotencyRecord{},
 		&OutboxMessage{},
+		&TreasuryAccount{},
+		&TreasuryReservation{},
 	}
 }

@@ -27,6 +27,8 @@ func TestMigrationModelsAreExplicitlyRegistered(t *testing.T) {
 		"user_identities",
 		"api_clients",
 		"api_keys",
+		"treasury_accounts",
+		"treasury_reservations",
 	} {
 		if _, ok := registeredTables[table]; !ok {
 			t.Errorf("MigrationModels() is missing %q", table)
@@ -36,6 +38,30 @@ func TestMigrationModelsAreExplicitlyRegistered(t *testing.T) {
 	for _, table := range []string{"organizations", "organization_memberships"} {
 		if _, ok := registeredTables[table]; ok {
 			t.Errorf("MigrationModels() must not register obsolete table %q", table)
+		}
+	}
+}
+
+func TestOnrampModelsUseExactQuoteAndTreasuryFields(t *testing.T) {
+	orderType := reflect.TypeOf(Order{})
+	for _, field := range []string{
+		"QuoteProvider",
+		"QuoteSourceAt",
+		"QuoteRate",
+		"QuoteAdjustedRate",
+		"QuoteSpreadBPS",
+		"AssetAmountStroops",
+		"QuoteExpiresAt",
+	} {
+		if _, ok := orderType.FieldByName(field); !ok {
+			t.Errorf("Order is missing %q", field)
+		}
+	}
+
+	reservationType := reflect.TypeOf(TreasuryReservation{})
+	for _, field := range []string{"OrderID", "AmountStroops", "Status", "ExpiresAt"} {
+		if _, ok := reservationType.FieldByName(field); !ok {
+			t.Errorf("TreasuryReservation is missing %q", field)
 		}
 	}
 }
