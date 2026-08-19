@@ -16,4 +16,3 @@ DROP TABLE IF EXISTS retail_sessions;
 DROP TABLE IF EXISTS auth_transactions;
 DROP TABLE IF EXISTS user_identities;
 DROP TABLE IF EXISTS users;
-
