@@ -3,6 +3,7 @@ package xendit
 import (
 	"bytes"
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,21 +20,23 @@ import (
 const maxResponseBytes int64 = 1 << 20
 
 type Config struct {
-	BaseURL     string
-	SecretKey   string
-	APIVersion  string
-	QRISChannel string
-	VAChannel   string
-	HTTPClient  *http.Client
+	BaseURL       string
+	SecretKey     string
+	CallbackToken string
+	APIVersion    string
+	QRISChannel   string
+	VAChannel     string
+	HTTPClient    *http.Client
 }
 
 type Client struct {
-	baseURL     *url.URL
-	secretKey   string
-	apiVersion  string
-	qrisChannel string
-	vaChannel   string
-	httpClient  *http.Client
+	baseURL       *url.URL
+	secretKey     string
+	callbackToken string
+	apiVersion    string
+	qrisChannel   string
+	vaChannel     string
+	httpClient    *http.Client
 }
 
 type paymentRequest struct {
@@ -55,12 +58,83 @@ type paymentRequest struct {
 
 func New(config Config) (*Client, error) {
 	baseURL, err := url.Parse(strings.TrimRight(config.BaseURL, "/"))
-	if err != nil || !baseURL.IsAbs() || strings.TrimSpace(config.SecretKey) == "" || config.APIVersion == "" ||
+	if err != nil || !baseURL.IsAbs() || strings.TrimSpace(config.SecretKey) == "" || len(config.CallbackToken) < 32 || config.APIVersion == "" ||
 		config.QRISChannel == "" || config.VAChannel == "" || config.HTTPClient == nil {
 		return nil, errors.New("valid Xendit configuration is required")
 	}
-	return &Client{baseURL: baseURL, secretKey: config.SecretKey, apiVersion: config.APIVersion,
+	return &Client{baseURL: baseURL, secretKey: config.SecretKey, callbackToken: config.CallbackToken, apiVersion: config.APIVersion,
 		qrisChannel: config.QRISChannel, vaChannel: config.VAChannel, httpClient: config.HTTPClient}, nil
+}
+
+func (c *Client) VerifyCallback(raw []byte, token string) (onramp.Callback, error) {
+	if subtle.ConstantTimeCompare([]byte(token), []byte(c.callbackToken)) != 1 {
+		return onramp.Callback{}, onramp.ErrInvalidCallback
+	}
+	var payload struct {
+		Event string `json:"event"`
+		Data  struct {
+			PaymentID        string `json:"payment_id"`
+			PaymentRequestID string `json:"payment_request_id"`
+		} `json:"data"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	if err := decoder.Decode(&payload); err != nil || payload.Event == "" || payload.Data.PaymentID == "" || payload.Data.PaymentRequestID == "" {
+		return onramp.Callback{}, onramp.ErrInvalidCallback
+	}
+	return onramp.Callback{EventID: payload.Data.PaymentID, EventType: payload.Event, PaymentRequestID: payload.Data.PaymentRequestID}, nil
+}
+
+func (c *Client) GetPaymentRequest(ctx context.Context, providerID string) (onramp.PaymentState, error) {
+	endpoint := *c.baseURL
+	endpoint.Path = strings.TrimRight(endpoint.Path, "/") + "/v3/payment_requests/" + url.PathEscape(providerID)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
+	if err != nil {
+		return onramp.PaymentState{}, fmt.Errorf("creating Xendit reconciliation request: %w", err)
+	}
+	request.Header.Set("Accept", "application/json")
+	request.Header.Set("api-version", c.apiVersion)
+	request.SetBasicAuth(c.secretKey, "")
+	response, err := c.httpClient.Do(request)
+	if err != nil {
+		return onramp.PaymentState{}, fmt.Errorf("getting Xendit payment request: %w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return onramp.PaymentState{}, fmt.Errorf("Xendit reconciliation status %d", response.StatusCode)
+	}
+	limited := io.LimitReader(response.Body, maxResponseBytes+1)
+	body, err := io.ReadAll(limited)
+	if err != nil || int64(len(body)) > maxResponseBytes {
+		return onramp.PaymentState{}, errors.New("reading Xendit reconciliation response")
+	}
+	var provider paymentRequest
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.UseNumber()
+	if err := decoder.Decode(&provider); err != nil {
+		return onramp.PaymentState{}, errors.New("decoding Xendit reconciliation response")
+	}
+	amount, err := providerAmount(provider.RequestAmount)
+	if err != nil {
+		return onramp.PaymentState{}, err
+	}
+	return onramp.PaymentState{ProviderID: provider.PaymentRequestID, ReferenceID: provider.ReferenceID, Status: provider.Status,
+		Currency: provider.Currency, Amount: entity.IDR(amount), Channel: provider.ChannelCode}, nil
+}
+
+func providerAmount(number json.Number) (int64, error) {
+	value := number.String()
+	if integer, err := number.Int64(); err == nil {
+		return integer, nil
+	}
+	parts := strings.SplitN(value, ".", 2)
+	if len(parts) != 2 || strings.Trim(parts[1], "0") != "" {
+		return 0, errors.New("Xendit amount is not an integer IDR value")
+	}
+	integer, err := json.Number(parts[0]).Int64()
+	if err != nil {
+		return 0, errors.New("Xendit amount is invalid")
+	}
+	return integer, nil
 }
 
 func (c *Client) CreateCheckout(ctx context.Context, input onramp.CheckoutInput) (onramp.Checkout, error) {

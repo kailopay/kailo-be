@@ -9,9 +9,20 @@ import (
 )
 
 type routerOptions struct {
-	apiKeys       *APIKeyHandler
-	onramp        *OnrampHandler
-	requireAPIKey gin.HandlerFunc
+	apiKeys        *APIKeyHandler
+	onramp         *OnrampHandler
+	requireAPIKey  gin.HandlerFunc
+	xenditCallback *XenditCallbackHandler
+}
+
+func WithXenditCallback(handler *XenditCallbackHandler) RouterOption {
+	return func(options *routerOptions) error {
+		if handler == nil {
+			return errors.New("Xendit callback handler is required")
+		}
+		options.xenditCallback = handler
+		return nil
+	}
 }
 
 func WithOnramp(handler *OnrampHandler, requireAPIKey gin.HandlerFunc) RouterOption {
@@ -96,6 +107,9 @@ func NewRouter(logger *slog.Logger, health *HealthHandler, authHandler *AuthHand
 		onrampRoutes.POST("/onramps", configured.onramp.Create)
 		onrampRoutes.GET("/orders", configured.onramp.List)
 		onrampRoutes.GET("/orders/:id", configured.onramp.Get)
+	}
+	if configured.xenditCallback != nil {
+		router.POST("/callbacks/payments/xendit", gin.WrapH(configured.xenditCallback))
 	}
 	return router, nil
 }

@@ -157,6 +157,112 @@ func (r *OnrampRepository) MarkCheckoutUnknown(ctx context.Context, orderID, rea
 		Updates(map[string]any{"failure_code": "checkout_unknown", "failure_stage": "payment", "failure_retryable": true, "updated_at": time.Now().UTC()}).Error
 }
 
+func (r *OnrampRepository) RecordCallbackReceipt(ctx context.Context, receipt onramp.CallbackReceipt) (bool, error) {
+	var existing GatewayEvent
+	err := r.db.WithContext(ctx).Where("provider = ? AND provider_event_id = ?", "xendit", receipt.EventID).First(&existing).Error
+	if err == nil {
+		if existing.PayloadHash != receipt.PayloadHash {
+			return false, onramp.ErrPaymentMismatch
+		}
+		return existing.ProcessedAt != nil, nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return false, fmt.Errorf("finding callback receipt: %w", err)
+	}
+	id, err := platform.NewID()
+	if err != nil {
+		return false, err
+	}
+	providerReference := receipt.PaymentRequestID
+	row := GatewayEvent{ID: id, Provider: "xendit", ProviderEventID: receipt.EventID, EventType: receipt.EventType,
+		CheckoutReference: &providerReference, PayloadHash: receipt.PayloadHash, SignatureVerified: true,
+		MatchingResult: "pending", ReceivedAt: time.Now().UTC(), ProcessingStatus: "received"}
+	if err := r.db.WithContext(ctx).Create(&row).Error; err != nil {
+		return false, fmt.Errorf("creating callback receipt: %w", err)
+	}
+	return false, nil
+}
+
+func (r *OnrampRepository) ExpectedPayment(ctx context.Context, providerID string) (onramp.ExpectedPayment, error) {
+	var checkout PaymentCheckout
+	if err := r.db.WithContext(ctx).Where("provider = ? AND provider_checkout_id = ?", "xendit", providerID).First(&checkout).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return onramp.ExpectedPayment{}, onramp.ErrOrderNotFound
+		}
+		return onramp.ExpectedPayment{}, fmt.Errorf("finding expected checkout: %w", err)
+	}
+	var order Order
+	if err := r.db.WithContext(ctx).Where("id = ?", checkout.OrderID).First(&order).Error; err != nil {
+		return onramp.ExpectedPayment{}, fmt.Errorf("finding expected order: %w", err)
+	}
+	channel := "QRIS"
+	if checkout.Method == string(onramp.PaymentMethodBRIVA) {
+		channel = "BRI_VIRTUAL_ACCOUNT"
+	}
+	return onramp.ExpectedPayment{OrderID: order.ID, ProviderID: checkout.ProviderCheckoutID, Amount: entity.IDR(checkout.AmountMinor),
+		Currency: checkout.Currency, Channel: channel, AssetAmount: entity.Stroops(order.AssetAmountStroops)}, nil
+}
+
+func (r *OnrampRepository) ConfirmPaymentAndEnqueue(ctx context.Context, confirmation onramp.PaymentConfirmation) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var order Order
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", confirmation.Expected.OrderID).First(&order).Error; err != nil {
+			return fmt.Errorf("locking paid order: %w", err)
+		}
+		if order.Status == string(entity.OrderStatusStellarProcessing) || order.Status == string(entity.OrderStatusCompleted) {
+			return nil
+		}
+		if order.Status != string(entity.OrderStatusPaymentPending) {
+			return entity.ErrInvalidOrderState
+		}
+		now := time.Now().UTC()
+		if err := tx.Model(&Order{}).Where("id = ? AND version = ?", order.ID, order.Version).Updates(map[string]any{
+			"status": entity.OrderStatusStellarProcessing, "version": order.Version + 2, "updated_at": now,
+		}).Error; err != nil {
+			return fmt.Errorf("moving paid order to settlement: %w", err)
+		}
+		if err := r.appendOrderEvent(tx, order.ID, order.Version+1, "payment.confirmed", order.Status, string(entity.OrderStatusPaymentConfirmed), now); err != nil {
+			return err
+		}
+		if err := r.appendOrderEvent(tx, order.ID, order.Version+2, "stellar.transfer_requested", string(entity.OrderStatusPaymentConfirmed), string(entity.OrderStatusStellarProcessing), now); err != nil {
+			return err
+		}
+		intentRowID, err := platform.NewID()
+		if err != nil {
+			return err
+		}
+		intentID := "stellar-onramp-" + order.ID
+		stellar := StellarTransaction{ID: intentRowID, OrderID: order.ID, IntentID: intentID, Purpose: "transfer", Network: order.Network,
+			AssetCode: "XLM", Amount: order.AssetAmount, Source: order.StellarSource, Destination: order.StellarDestination,
+			Memo: order.StellarMemo, Status: "pending", CreatedAt: now, UpdatedAt: now}
+		if err := tx.Create(&stellar).Error; err != nil {
+			return fmt.Errorf("creating settlement intent: %w", err)
+		}
+		outboxID, err := platform.NewID()
+		if err != nil {
+			return err
+		}
+		payload, _ := json.Marshal(map[string]string{"order_id": order.ID, "intent_id": intentID})
+		outbox := OutboxMessage{ID: outboxID, Topic: "stellar.settle_onramp", AggregateType: "order", AggregateID: order.ID,
+			Payload: payload, CreatedAt: now, AvailableAt: now}
+		if err := tx.Create(&outbox).Error; err != nil {
+			return fmt.Errorf("creating settlement outbox message: %w", err)
+		}
+		return tx.Model(&GatewayEvent{}).Where("provider = ? AND provider_event_id = ?", "xendit", confirmation.EventID).
+			Updates(map[string]any{"order_reference": order.ID, "matching_result": "matched", "processing_status": "processing"}).Error
+	})
+}
+
+func (r *OnrampRepository) CompleteCallback(ctx context.Context, eventID, result string) error {
+	now := time.Now().UTC()
+	status := "processed"
+	if result != "processed" {
+		status = "rejected"
+	}
+	return r.db.WithContext(ctx).Model(&GatewayEvent{}).Where("provider = ? AND provider_event_id = ?", "xendit", eventID).
+		Updates(map[string]any{"matching_result": result, "processing_status": status, "processed_at": now}).Error
+}
+
 func (r *OnrampRepository) Get(ctx context.Context, clientID, orderID string) (onramp.OrderView, error) {
 	var order Order
 	if err := r.db.WithContext(ctx).Where("id = ? AND client_id = ?", orderID, clientID).First(&order).Error; err != nil {
