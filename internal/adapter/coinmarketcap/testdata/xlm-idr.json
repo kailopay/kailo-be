@@ -1,0 +1,18 @@
+{
+  "status": {
+    "timestamp": "2026-08-20T01:00:01Z",
+    "error_code": 0
+  },
+  "data": {
+    "512": {
+      "id": 512,
+      "symbol": "XLM",
+      "quote": {
+        "IDR": {
+          "price": 2500.125,
+          "last_updated": "2026-08-20T01:00:00Z"
+        }
+      }
+    }
+  }
+}
