@@ -13,8 +13,14 @@ import (
 )
 
 func TestBuildCreatesSignedNativeXLMTransaction(t *testing.T) {
-	const secret = "SBPQUZ6G4FZNWFHKUWC5BEYWF6R52E3SEP7R3GWYSM2XTKGF5LNTWW4R"
-	source := keypair.MustParseFull(secret).Address()
+	var rawSeed [32]byte
+	copy(rawSeed[:], []byte("kailopay-week-one-test-seed"))
+	sourceKey, err := keypair.FromRawSeed(rawSeed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secret := sourceKey.Seed()
+	source := sourceKey.Address()
 	destination := keypair.MustRandom().Address()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/accounts/"+source {
