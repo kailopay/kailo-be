@@ -24,7 +24,7 @@ The documents describe intended behavior and boundaries. The checked-in OpenAPI 
 - `internal/usecase` owns application workflows and the narrow interfaces each
   use case consumes. Name capability files explicitly, such as
   `auth_usecase.go`.
-- `internal/repository` contains concrete GORM persistence models and repositories; those models do not cross into entities or handler DTOs.
+- `internal/entity` contains the business entities and MVP table models, with one table model per file. `internal/repository` contains concrete persistence operations and queries.
 - `internal/platform` contains configuration, database lifecycle, and structured logging setup; it contains no business policy.
 - `internal/adapter/<provider>` contains external payment and Stellar adapters; provider SDK types do not cross the adapter boundary.
 - `cmd/automigrate` is a local/test convenience command only. It refuses other environments. Production schema changes must use reviewed, versioned migrations.

@@ -15,7 +15,7 @@ import (
 	"time"
 
 	"github.com/febry3/kailopay-be/internal/entity"
-	"github.com/febry3/kailopay-be/internal/service/onramp"
+	"github.com/febry3/kailopay-be/internal/usecase"
 )
 
 const maxResponseBytes int64 = 1 << 20
@@ -67,11 +67,11 @@ func New(config Config) (*Client, error) {
 		qrisChannel: config.QRISChannel, vaChannel: config.VAChannel, httpClient: config.HTTPClient}, nil
 }
 
-func (c *Client) VerifyCallback(raw []byte, token string) (onramp.Callback, error) {
+func (c *Client) VerifyCallback(raw []byte, token string) (usecase.Callback, error) {
 	providedTokenHash := sha256.Sum256([]byte(token))
 	expectedTokenHash := sha256.Sum256([]byte(c.callbackToken))
 	if subtle.ConstantTimeCompare(providedTokenHash[:], expectedTokenHash[:]) != 1 {
-		return onramp.Callback{}, onramp.ErrInvalidCallback
+		return usecase.Callback{}, usecase.ErrInvalidCallback
 	}
 	var payload struct {
 		Event string `json:"event"`
@@ -82,45 +82,45 @@ func (c *Client) VerifyCallback(raw []byte, token string) (onramp.Callback, erro
 	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	if err := decoder.Decode(&payload); err != nil || payload.Event == "" || payload.Data.PaymentID == "" || payload.Data.PaymentRequestID == "" {
-		return onramp.Callback{}, onramp.ErrInvalidCallback
+		return usecase.Callback{}, usecase.ErrInvalidCallback
 	}
-	return onramp.Callback{EventID: payload.Data.PaymentID, EventType: payload.Event, PaymentRequestID: payload.Data.PaymentRequestID}, nil
+	return usecase.Callback{EventID: payload.Data.PaymentID, EventType: payload.Event, PaymentRequestID: payload.Data.PaymentRequestID}, nil
 }
 
-func (c *Client) GetPaymentRequest(ctx context.Context, providerID string) (onramp.PaymentState, error) {
+func (c *Client) GetPaymentRequest(ctx context.Context, providerID string) (usecase.PaymentState, error) {
 	endpoint := *c.baseURL
 	endpoint.Path = strings.TrimRight(endpoint.Path, "/") + "/v3/payment_requests/" + url.PathEscape(providerID)
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
 	if err != nil {
-		return onramp.PaymentState{}, fmt.Errorf("creating Xendit reconciliation request: %w", err)
+		return usecase.PaymentState{}, fmt.Errorf("creating Xendit reconciliation request: %w", err)
 	}
 	request.Header.Set("Accept", "application/json")
 	request.Header.Set("api-version", c.apiVersion)
 	request.SetBasicAuth(c.secretKey, "")
 	response, err := c.httpClient.Do(request)
 	if err != nil {
-		return onramp.PaymentState{}, fmt.Errorf("getting Xendit payment request: %w", err)
+		return usecase.PaymentState{}, fmt.Errorf("getting Xendit payment request: %w", err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return onramp.PaymentState{}, fmt.Errorf("Xendit reconciliation status %d", response.StatusCode)
+		return usecase.PaymentState{}, fmt.Errorf("Xendit reconciliation status %d", response.StatusCode)
 	}
 	limited := io.LimitReader(response.Body, maxResponseBytes+1)
 	body, err := io.ReadAll(limited)
 	if err != nil || int64(len(body)) > maxResponseBytes {
-		return onramp.PaymentState{}, errors.New("reading Xendit reconciliation response")
+		return usecase.PaymentState{}, errors.New("reading Xendit reconciliation response")
 	}
 	var provider paymentRequest
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.UseNumber()
 	if err := decoder.Decode(&provider); err != nil {
-		return onramp.PaymentState{}, errors.New("decoding Xendit reconciliation response")
+		return usecase.PaymentState{}, errors.New("decoding Xendit reconciliation response")
 	}
 	amount, err := providerAmount(provider.RequestAmount)
 	if err != nil {
-		return onramp.PaymentState{}, err
+		return usecase.PaymentState{}, err
 	}
-	return onramp.PaymentState{ProviderID: provider.PaymentRequestID, ReferenceID: provider.ReferenceID, Status: provider.Status,
+	return usecase.PaymentState{ProviderID: provider.PaymentRequestID, ReferenceID: provider.ReferenceID, Status: provider.Status,
 		Currency: provider.Currency, Amount: entity.IDR(amount), Channel: provider.ChannelCode}, nil
 }
 
@@ -140,13 +140,13 @@ func providerAmount(number json.Number) (int64, error) {
 	return integer, nil
 }
 
-func (c *Client) CreateCheckout(ctx context.Context, input onramp.CheckoutInput) (onramp.Checkout, error) {
+func (c *Client) CreateCheckout(ctx context.Context, input usecase.CheckoutInput) (usecase.Checkout, error) {
 	channel, descriptor, err := c.channel(input.Method)
 	if err != nil {
-		return onramp.Checkout{}, err
+		return usecase.Checkout{}, err
 	}
 	channelProperties := map[string]any{"expires_at": input.ExpiresAt.UTC().Format(time.RFC3339)}
-	if input.Method == onramp.PaymentMethodBRIVA {
+	if input.Method == usecase.PaymentMethodBRIVA {
 		channelProperties["display_name"] = "KailoPay Sandbox"
 	}
 	payload := map[string]any{
@@ -156,13 +156,13 @@ func (c *Client) CreateCheckout(ctx context.Context, input onramp.CheckoutInput)
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return onramp.Checkout{}, fmt.Errorf("encoding Xendit payment request: %w", err)
+		return usecase.Checkout{}, fmt.Errorf("encoding Xendit payment request: %w", err)
 	}
 	endpoint := *c.baseURL
 	endpoint.Path = strings.TrimRight(endpoint.Path, "/") + "/v3/payment_requests"
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint.String(), bytes.NewReader(body))
 	if err != nil {
-		return onramp.Checkout{}, fmt.Errorf("creating Xendit request: %w", err)
+		return usecase.Checkout{}, fmt.Errorf("creating Xendit request: %w", err)
 	}
 	request.Header.Set("Accept", "application/json")
 	request.Header.Set("Content-Type", "application/json")
@@ -170,26 +170,26 @@ func (c *Client) CreateCheckout(ctx context.Context, input onramp.CheckoutInput)
 	request.SetBasicAuth(c.secretKey, "")
 	response, err := c.httpClient.Do(request)
 	if err != nil {
-		return onramp.Checkout{}, &onramp.GatewayError{Unknown: true, Err: fmt.Errorf("sending Xendit payment request: %w", err)}
+		return usecase.Checkout{}, &usecase.GatewayError{Unknown: true, Err: fmt.Errorf("sending Xendit payment request: %w", err)}
 	}
 	defer response.Body.Close()
 	responseBody, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes+1))
 	if err != nil || int64(len(responseBody)) > maxResponseBytes {
-		return onramp.Checkout{}, &onramp.GatewayError{Unknown: true, Err: errors.New("reading Xendit payment response")}
+		return usecase.Checkout{}, &usecase.GatewayError{Unknown: true, Err: errors.New("reading Xendit payment response")}
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return onramp.Checkout{}, &onramp.GatewayError{Unknown: response.StatusCode >= 500, Err: fmt.Errorf("Xendit response status %d", response.StatusCode)}
+		return usecase.Checkout{}, &usecase.GatewayError{Unknown: response.StatusCode >= 500, Err: fmt.Errorf("Xendit response status %d", response.StatusCode)}
 	}
 	var provider paymentRequest
 	decoder := json.NewDecoder(bytes.NewReader(responseBody))
 	decoder.UseNumber()
 	if err := decoder.Decode(&provider); err != nil {
-		return onramp.Checkout{}, &onramp.GatewayError{Unknown: true, Err: errors.New("decoding Xendit payment response")}
+		return usecase.Checkout{}, &usecase.GatewayError{Unknown: true, Err: errors.New("decoding Xendit payment response")}
 	}
 	providerAmount, amountErr := provider.RequestAmount.Int64()
 	if amountErr != nil || provider.PaymentRequestID == "" || provider.ReferenceID != input.OrderID || provider.Currency != "IDR" ||
 		providerAmount != int64(input.Amount) || provider.ChannelCode != channel {
-		return onramp.Checkout{}, &onramp.GatewayError{Unknown: true, Err: errors.New("Xendit payment response mismatch")}
+		return usecase.Checkout{}, &usecase.GatewayError{Unknown: true, Err: errors.New("Xendit payment response mismatch")}
 	}
 	presentation := ""
 	for _, action := range provider.Actions {
@@ -199,24 +199,24 @@ func (c *Client) CreateCheckout(ctx context.Context, input onramp.CheckoutInput)
 		}
 	}
 	if presentation == "" {
-		return onramp.Checkout{}, &onramp.GatewayError{Unknown: true, Err: errors.New("Xendit presentation action missing")}
+		return usecase.Checkout{}, &usecase.GatewayError{Unknown: true, Err: errors.New("Xendit presentation action missing")}
 	}
 	var expiresAt *time.Time
 	if parsed, err := time.Parse(time.RFC3339Nano, provider.ChannelProperties.ExpiresAt); err == nil {
 		parsed = parsed.UTC()
 		expiresAt = &parsed
 	}
-	return onramp.Checkout{ProviderID: provider.PaymentRequestID, Method: input.Method, Status: provider.Status,
+	return usecase.Checkout{ProviderID: provider.PaymentRequestID, Method: input.Method, Status: provider.Status,
 		PresentationType: descriptor, PresentationValue: presentation, ExpiresAt: expiresAt}, nil
 }
 
 func (c *Client) channel(method entity.PaymentMethod) (string, string, error) {
 	switch method {
-	case onramp.PaymentMethodQRIS:
+	case usecase.PaymentMethodQRIS:
 		return c.qrisChannel, "QR_STRING", nil
-	case onramp.PaymentMethodBRIVA:
+	case usecase.PaymentMethodBRIVA:
 		return c.vaChannel, "VIRTUAL_ACCOUNT_NUMBER", nil
 	default:
-		return "", "", onramp.ErrInvalidCommand
+		return "", "", usecase.ErrInvalidCommand
 	}
 }

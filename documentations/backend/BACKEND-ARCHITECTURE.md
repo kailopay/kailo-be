@@ -105,8 +105,11 @@ Clean Architecture vocabulary:
 | `app/main.go` | `cmd/api`, `cmd/automigrate` | Multiple deployable processes need separate composition roots. |
 
 Feature-specific repositories and usecases are preferred over one global
-repository package. GORM models live alongside the PostgreSQL
-adapter and never cross into entities or use-case contracts.
+repository package. For the current MVP, GORM table models live in
+`internal/entity`, one table per file, while SQL and repository operations
+remain in `internal/repository`. This is an intentional pragmatic trade-off;
+future domain-specific entities can be separated from table models if their
+shapes or invariants diverge.
 
 ## 6. Request and command flow
 

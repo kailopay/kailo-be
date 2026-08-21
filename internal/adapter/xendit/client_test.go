@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/febry3/kailopay-be/internal/entity"
-	"github.com/febry3/kailopay-be/internal/service/onramp"
+	"github.com/febry3/kailopay-be/internal/usecase"
 )
 
 func TestVerifyCallbackRejectsWrongTokenBeforeAcceptingPayload(t *testing.T) {
@@ -22,7 +22,7 @@ func TestVerifyCallbackRejectsWrongTokenBeforeAcceptingPayload(t *testing.T) {
 		t.Fatal(err)
 	}
 	payload := []byte(`{"event":"payment.capture","data":{"payment_id":"py-1","payment_request_id":"pr-1"}}`)
-	if _, err := client.VerifyCallback(payload, "wrong"); !errors.Is(err, onramp.ErrInvalidCallback) {
+	if _, err := client.VerifyCallback(payload, "wrong"); !errors.Is(err, usecase.ErrInvalidCallback) {
 		t.Fatalf("VerifyCallback(wrong) error = %v", err)
 	}
 	callback, err := client.VerifyCallback(payload, "01234567890123456789012345678901")
@@ -60,7 +60,7 @@ func TestCreateCheckoutMapsQRISPaymentRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 	expires := time.Date(2026, 8, 20, 1, 5, 0, 0, time.UTC)
-	checkout, err := client.CreateCheckout(context.Background(), onramp.CheckoutInput{OrderID: "order-1", Method: entity.PaymentMethodQRIS, Amount: 100_000, ExpiresAt: expires})
+	checkout, err := client.CreateCheckout(context.Background(), usecase.CheckoutInput{OrderID: "order-1", Method: entity.PaymentMethodQRIS, Amount: 100_000, ExpiresAt: expires})
 	if err != nil {
 		t.Fatalf("CreateCheckout() error = %v", err)
 	}

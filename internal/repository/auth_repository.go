@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"github.com/febry3/kailopay-be/internal/entity"
 	"strings"
 	"time"
 
@@ -25,7 +26,7 @@ func NewAuthRepository(db *gorm.DB, idleLifetime time.Duration) *AuthRepository 
 }
 
 func (r *AuthRepository) Create(ctx context.Context, transaction auth.LoginTransaction) error {
-	row := AuthTransaction{
+	row := entity.AuthTransaction{
 		ID:                     transaction.ID,
 		StateHash:              append([]byte(nil), transaction.StateHash...),
 		NonceHash:              append([]byte(nil), transaction.NonceHash...),
@@ -43,7 +44,7 @@ func (r *AuthRepository) Create(ctx context.Context, transaction auth.LoginTrans
 func (r *AuthRepository) Consume(ctx context.Context, stateHash []byte, now time.Time) (auth.LoginTransaction, error) {
 	var result auth.LoginTransaction
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var row AuthTransaction
+		var row entity.AuthTransaction
 		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 			Where("state_hash = ? AND consumed_at IS NULL AND expires_at > ?", stateHash, now.UTC()).
 			First(&row).Error
@@ -54,7 +55,7 @@ func (r *AuthRepository) Consume(ctx context.Context, stateHash []byte, now time
 			return fmt.Errorf("finding auth transaction: %w", err)
 		}
 		consumedAt := now.UTC()
-		updated := tx.Model(&AuthTransaction{}).
+		updated := tx.Model(&entity.AuthTransaction{}).
 			Where("id = ? AND consumed_at IS NULL AND expires_at > ?", row.ID, now.UTC()).
 			Updates(map[string]any{"consumed_at": consumedAt}).RowsAffected
 		if updated != 1 {
@@ -79,7 +80,7 @@ func (r *AuthRepository) Consume(ctx context.Context, stateHash []byte, now time
 func (r *AuthRepository) UpsertIdentityAndCreateSession(ctx context.Context, identity auth.Identity, session auth.SessionRecord) (auth.UserProfile, error) {
 	var profile auth.UserProfile
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var identityRow UserIdentity
+		var identityRow entity.UserIdentity
 		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 			Where("provider = ? AND subject = ?", identity.Provider, identity.Subject).
 			First(&identityRow).Error
@@ -98,7 +99,7 @@ func (r *AuthRepository) UpsertIdentityAndCreateSession(ctx context.Context, ide
 			if identity.EmailVerified {
 				verifiedAt = &now
 			}
-			user := User{
+			user := entity.User{
 				ID:              userID,
 				Status:          activeUserStatus,
 				DisplayName:     identity.DisplayName,
@@ -110,7 +111,7 @@ func (r *AuthRepository) UpsertIdentityAndCreateSession(ctx context.Context, ide
 			if err := tx.Create(&user).Error; err != nil {
 				return fmt.Errorf("creating user: %w", err)
 			}
-			identityRow = UserIdentity{
+			identityRow = entity.UserIdentity{
 				ID:          newUUID(),
 				UserID:      user.ID,
 				Provider:    identity.Provider,
@@ -127,12 +128,12 @@ func (r *AuthRepository) UpsertIdentityAndCreateSession(ctx context.Context, ide
 		} else if err != nil {
 			return fmt.Errorf("finding user identity: %w", err)
 		} else {
-			if err := tx.Model(&UserIdentity{}).Where("id = ?", identityRow.ID).Updates(map[string]any{"last_login_at": now}).Error; err != nil {
+			if err := tx.Model(&entity.UserIdentity{}).Where("id = ?", identityRow.ID).Updates(map[string]any{"last_login_at": now}).Error; err != nil {
 				return fmt.Errorf("updating user identity: %w", err)
 			}
 		}
 
-		var user User
+		var user entity.User
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", identityRow.UserID).First(&user).Error; err != nil {
 			return fmt.Errorf("finding user: %w", err)
 		}
@@ -154,7 +155,7 @@ func (r *AuthRepository) UpsertIdentityAndCreateSession(ctx context.Context, ide
 			return fmt.Errorf("updating user profile: %w", err)
 		}
 
-		row := RetailSession{
+		row := entity.RetailSession{
 			ID:         newUUID(),
 			UserID:     user.ID,
 			TokenHash:  append([]byte(nil), session.TokenHash...),
@@ -180,7 +181,7 @@ func (r *AuthRepository) UpsertIdentityAndCreateSession(ctx context.Context, ide
 
 func (r *AuthRepository) RevokeSession(ctx context.Context, tokenHash []byte, now time.Time) error {
 	revokedAt := now.UTC()
-	if err := r.db.WithContext(ctx).Model(&RetailSession{}).
+	if err := r.db.WithContext(ctx).Model(&entity.RetailSession{}).
 		Where("token_hash = ? AND revoked_at IS NULL", tokenHash).
 		Updates(map[string]any{"revoked_at": revokedAt, "updated_at": revokedAt}).Error; err != nil {
 		return fmt.Errorf("revoking retail session: %w", err)
@@ -189,7 +190,7 @@ func (r *AuthRepository) RevokeSession(ctx context.Context, tokenHash []byte, no
 }
 
 func (r *AuthRepository) FindActiveSession(ctx context.Context, tokenHash []byte, now time.Time) (auth.AuthenticatedUser, error) {
-	var session RetailSession
+	var session entity.RetailSession
 	if err := r.db.WithContext(ctx).Where("token_hash = ?", tokenHash).First(&session).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return auth.AuthenticatedUser{}, auth.ErrInvalidSession
@@ -207,7 +208,7 @@ func (r *AuthRepository) FindActiveSession(ctx context.Context, tokenHash []byte
 	if session.RevokedAt != nil || !session.ExpiresAt.After(now) || !lastActivity.Add(r.idleLifetime).After(now) {
 		return auth.AuthenticatedUser{}, auth.ErrInvalidSession
 	}
-	var user User
+	var user entity.User
 	if err := r.db.WithContext(ctx).Where("id = ?", session.UserID).First(&user).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return auth.AuthenticatedUser{}, auth.ErrInvalidSession
@@ -221,7 +222,7 @@ func (r *AuthRepository) FindActiveSession(ctx context.Context, tokenHash []byte
 	if session.LastUsedAt != nil {
 		lastUsedAt = *session.LastUsedAt
 		if now.Sub(lastUsedAt) >= 5*time.Minute {
-			if err := r.db.WithContext(ctx).Model(&RetailSession{}).Where("id = ?", session.ID).Updates(map[string]any{"last_used_at": now, "updated_at": now}).Error; err != nil {
+			if err := r.db.WithContext(ctx).Model(&entity.RetailSession{}).Where("id = ?", session.ID).Updates(map[string]any{"last_used_at": now, "updated_at": now}).Error; err != nil {
 				return auth.AuthenticatedUser{}, fmt.Errorf("updating retail session activity: %w", err)
 			}
 			lastUsedAt = now
@@ -233,7 +234,7 @@ func (r *AuthRepository) FindActiveSession(ctx context.Context, tokenHash []byte
 func (r *AuthRepository) UpdateDisplayName(ctx context.Context, userID, displayName string) (auth.UserProfile, error) {
 	var profile auth.UserProfile
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var user User
+		var user entity.User
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 			Where("id = ? AND status = ?", userID, activeUserStatus).
 			First(&user).Error; err != nil {
@@ -264,7 +265,7 @@ func (r *AuthRepository) SetDeveloperMode(ctx context.Context, userID string, en
 	} else {
 		updates["developer_enabled_at"] = nil
 	}
-	result := r.db.WithContext(ctx).Model(&User{}).
+	result := r.db.WithContext(ctx).Model(&entity.User{}).
 		Where("id = ? AND status = ?", userID, activeUserStatus).
 		Updates(updates)
 	if result.Error != nil {
@@ -277,7 +278,7 @@ func (r *AuthRepository) SetDeveloperMode(ctx context.Context, userID string, en
 }
 
 func (r *AuthRepository) FindProfile(ctx context.Context, userID string) (auth.UserProfile, error) {
-	var user User
+	var user entity.User
 	if err := r.db.WithContext(ctx).
 		Where("id = ? AND status = ?", userID, activeUserStatus).
 		First(&user).Error; err != nil {
@@ -301,7 +302,7 @@ func (r *AuthRepository) updateAvatarObjectKey(ctx context.Context, userID strin
 	var profile auth.UserProfile
 	var previousKey string
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var user User
+		var user entity.User
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 			Where("id = ? AND status = ?", userID, activeUserStatus).
 			First(&user).Error; err != nil {
@@ -314,7 +315,7 @@ func (r *AuthRepository) updateAvatarObjectKey(ctx context.Context, userID strin
 			previousKey = *user.AvatarObjectKey
 		}
 		now := time.Now().UTC()
-		if err := tx.Model(&User{}).Where("id = ?", user.ID).Updates(map[string]any{
+		if err := tx.Model(&entity.User{}).Where("id = ?", user.ID).Updates(map[string]any{
 			"avatar_object_key": objectKey,
 			"updated_at":        now,
 		}).Error; err != nil {
@@ -333,7 +334,7 @@ func (r *AuthRepository) updateAvatarObjectKey(ctx context.Context, userID strin
 
 func (r *AuthRepository) RevokeSessionsForIdentity(ctx context.Context, provider, subject string, now time.Time) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var identity UserIdentity
+		var identity entity.UserIdentity
 		if err := tx.Where("provider = ? AND subject = ?", provider, subject).First(&identity).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return nil
@@ -341,7 +342,7 @@ func (r *AuthRepository) RevokeSessionsForIdentity(ctx context.Context, provider
 			return fmt.Errorf("finding password-reset identity: %w", err)
 		}
 		revokedAt := now.UTC()
-		if err := tx.Model(&RetailSession{}).
+		if err := tx.Model(&entity.RetailSession{}).
 			Where("user_id = ? AND revoked_at IS NULL", identity.UserID).
 			Updates(map[string]any{"revoked_at": revokedAt, "updated_at": revokedAt}).Error; err != nil {
 			return fmt.Errorf("revoking password-reset sessions: %w", err)
@@ -350,7 +351,7 @@ func (r *AuthRepository) RevokeSessionsForIdentity(ctx context.Context, provider
 	})
 }
 
-func userProfile(user User) auth.UserProfile {
+func userProfile(user entity.User) auth.UserProfile {
 	profile := auth.UserProfile{ID: user.ID, DisplayName: user.DisplayName, DeveloperEnabled: user.DeveloperEnabledAt != nil}
 	if user.Email != nil {
 		profile.Email = *user.Email

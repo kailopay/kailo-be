@@ -6,24 +6,24 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/febry3/kailopay-be/internal/service/apikey"
+	"github.com/febry3/kailopay-be/internal/usecase"
 	"github.com/gin-gonic/gin"
 )
 
 type fakeAPIKeyAuthenticator struct {
 	raw       string
-	principal apikey.Principal
+	principal usecase.Principal
 	err       error
 }
 
-func (f *fakeAPIKeyAuthenticator) Authenticate(_ context.Context, raw string) (apikey.Principal, error) {
+func (f *fakeAPIKeyAuthenticator) Authenticate(_ context.Context, raw string) (usecase.Principal, error) {
 	f.raw = raw
 	return f.principal, f.err
 }
 
 func TestRequireAPIKeyAuthenticatesBearerKeyAndSetsPrincipal(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	authenticator := &fakeAPIKeyAuthenticator{principal: apikey.Principal{ClientID: "client-1", OwnerUserID: "user-1"}}
+	authenticator := &fakeAPIKeyAuthenticator{principal: usecase.Principal{ClientID: "client-1", OwnerUserID: "user-1"}}
 	router := gin.New()
 	router.Use(RequireAPIKey(authenticator))
 	router.GET("/orders", func(c *gin.Context) {

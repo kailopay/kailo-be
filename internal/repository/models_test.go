@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"github.com/febry3/kailopay-be/internal/entity"
 	"reflect"
 	"testing"
 )
@@ -43,7 +44,7 @@ func TestMigrationModelsAreExplicitlyRegistered(t *testing.T) {
 }
 
 func TestOnrampModelsUseExactQuoteAndTreasuryFields(t *testing.T) {
-	orderType := reflect.TypeOf(Order{})
+	orderType := reflect.TypeOf(entity.OrderRecord{})
 	for _, field := range []string{
 		"QuoteProvider",
 		"QuoteSourceAt",
@@ -54,14 +55,14 @@ func TestOnrampModelsUseExactQuoteAndTreasuryFields(t *testing.T) {
 		"QuoteExpiresAt",
 	} {
 		if _, ok := orderType.FieldByName(field); !ok {
-			t.Errorf("Order is missing %q", field)
+			t.Errorf("entity.OrderRecord is missing %q", field)
 		}
 	}
 
-	reservationType := reflect.TypeOf(TreasuryReservation{})
+	reservationType := reflect.TypeOf(entity.TreasuryReservation{})
 	for _, field := range []string{"OrderID", "AmountStroops", "Status", "ExpiresAt"} {
 		if _, ok := reservationType.FieldByName(field); !ok {
-			t.Errorf("TreasuryReservation is missing %q", field)
+			t.Errorf("entity.TreasuryReservation is missing %q", field)
 		}
 	}
 }
@@ -71,10 +72,10 @@ func TestIdentityModelsHaveExpectedTableNames(t *testing.T) {
 		model any
 		want  string
 	}{
-		{model: User{}, want: "users"},
-		{model: AuthTransaction{}, want: "auth_transactions"},
-		{model: RetailSession{}, want: "retail_sessions"},
-		{model: UserIdentity{}, want: "user_identities"},
+		{model: entity.User{}, want: "users"},
+		{model: entity.AuthTransaction{}, want: "auth_transactions"},
+		{model: entity.RetailSession{}, want: "retail_sessions"},
+		{model: entity.UserIdentity{}, want: "user_identities"},
 	}
 
 	for _, tt := range tests {
@@ -88,44 +89,44 @@ func TestIdentityModelsHaveExpectedTableNames(t *testing.T) {
 }
 
 func TestAuthTransactionHasOneTimeCallbackFields(t *testing.T) {
-	typeOf := reflect.TypeOf(AuthTransaction{})
+	typeOf := reflect.TypeOf(entity.AuthTransaction{})
 	for _, field := range []string{"StateHash", "NonceHash", "CodeVerifierCiphertext", "ExpiresAt", "ConsumedAt"} {
 		if _, ok := typeOf.FieldByName(field); !ok {
-			t.Errorf("AuthTransaction is missing %q", field)
+			t.Errorf("entity.AuthTransaction is missing %q", field)
 		}
 	}
 }
 
 func TestAuthSchemaUsesFederatedIdentityAndUserOwnedClients(t *testing.T) {
-	userType := reflect.TypeOf(User{})
+	userType := reflect.TypeOf(entity.User{})
 	for _, field := range []string{"EmailVerifiedAt", "DeveloperEnabledAt"} {
 		if _, ok := userType.FieldByName(field); !ok {
-			t.Errorf("User is missing %q", field)
+			t.Errorf("entity.User is missing %q", field)
 		}
 	}
 
-	identityType := reflect.TypeOf(UserIdentity{})
+	identityType := reflect.TypeOf(entity.UserIdentity{})
 	for _, field := range []string{"UserID", "Provider", "Subject"} {
 		if _, ok := identityType.FieldByName(field); !ok {
-			t.Errorf("UserIdentity is missing %q", field)
+			t.Errorf("entity.UserIdentity is missing %q", field)
 		}
 	}
 
-	clientType := reflect.TypeOf(APIClient{})
+	clientType := reflect.TypeOf(entity.APIClient{})
 	if _, ok := clientType.FieldByName("OwnerUserID"); !ok {
-		t.Error("APIClient is missing OwnerUserID")
+		t.Error("entity.APIClient is missing OwnerUserID")
 	}
 	if _, ok := clientType.FieldByName("OrganizationID"); ok {
-		t.Error("APIClient must not retain OrganizationID")
+		t.Error("entity.APIClient must not retain OrganizationID")
 	}
 
-	orderType := reflect.TypeOf(Order{})
+	orderType := reflect.TypeOf(entity.OrderRecord{})
 	if _, ok := orderType.FieldByName("OrganizationID"); ok {
-		t.Error("Order must not retain OrganizationID")
+		t.Error("entity.OrderRecord must not retain OrganizationID")
 	}
 
-	webhookType := reflect.TypeOf(WebhookEndpoint{})
+	webhookType := reflect.TypeOf(entity.WebhookEndpoint{})
 	if _, ok := webhookType.FieldByName("OrganizationID"); ok {
-		t.Error("WebhookEndpoint must not retain OrganizationID")
+		t.Error("entity.WebhookEndpoint must not retain OrganizationID")
 	}
 }

@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/febry3/kailopay-be/internal/service/onramp"
+	"github.com/febry3/kailopay-be/internal/usecase"
 )
 
 const defaultMaxResponseBytes int64 = 1 << 20
@@ -48,7 +48,7 @@ func New(config Config) (*Client, error) {
 	return &Client{baseURL: baseURL, apiKey: config.APIKey, httpClient: config.HTTPClient, maxResponseBytes: maxResponseBytes}, nil
 }
 
-func (c *Client) LatestXLMIDR(ctx context.Context) (onramp.MarketPrice, error) {
+func (c *Client) LatestXLMIDR(ctx context.Context) (usecase.MarketPrice, error) {
 	requestURL := *c.baseURL
 	requestURL.Path = strings.TrimRight(requestURL.Path, "/") + "/v3/cryptocurrency/quotes/latest"
 	query := requestURL.Query()
@@ -57,24 +57,24 @@ func (c *Client) LatestXLMIDR(ctx context.Context) (onramp.MarketPrice, error) {
 	requestURL.RawQuery = query.Encode()
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL.String(), nil)
 	if err != nil {
-		return onramp.MarketPrice{}, fmt.Errorf("creating CoinMarketCap request: %w", err)
+		return usecase.MarketPrice{}, fmt.Errorf("creating CoinMarketCap request: %w", err)
 	}
 	request.Header.Set("Accept", "application/json")
 	request.Header.Set("X-CMC_PRO_API_KEY", c.apiKey)
 	response, err := c.httpClient.Do(request)
 	if err != nil {
-		return onramp.MarketPrice{}, fmt.Errorf("%w: requesting quote: %v", ErrUnavailable, err)
+		return usecase.MarketPrice{}, fmt.Errorf("%w: requesting quote: %v", ErrUnavailable, err)
 	}
 	defer response.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(response.Body, c.maxResponseBytes+1))
 	if err != nil {
-		return onramp.MarketPrice{}, fmt.Errorf("%w: reading quote response: %v", ErrUnavailable, err)
+		return usecase.MarketPrice{}, fmt.Errorf("%w: reading quote response: %v", ErrUnavailable, err)
 	}
 	if int64(len(body)) > c.maxResponseBytes {
-		return onramp.MarketPrice{}, fmt.Errorf("%w: quote response too large", ErrUnavailable)
+		return usecase.MarketPrice{}, fmt.Errorf("%w: quote response too large", ErrUnavailable)
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return onramp.MarketPrice{}, fmt.Errorf("%w: quote response status %d", ErrUnavailable, response.StatusCode)
+		return usecase.MarketPrice{}, fmt.Errorf("%w: quote response status %d", ErrUnavailable, response.StatusCode)
 	}
 	var payload struct {
 		Status struct {
@@ -90,19 +90,19 @@ func (c *Client) LatestXLMIDR(ctx context.Context) (onramp.MarketPrice, error) {
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.UseNumber()
 	if err := decoder.Decode(&payload); err != nil || payload.Status.ErrorCode != 0 {
-		return onramp.MarketPrice{}, fmt.Errorf("%w: invalid quote response", ErrUnavailable)
+		return usecase.MarketPrice{}, fmt.Errorf("%w: invalid quote response", ErrUnavailable)
 	}
 	xlm, ok := payload.Data["512"]
 	if !ok {
-		return onramp.MarketPrice{}, fmt.Errorf("%w: XLM quote missing", ErrUnavailable)
+		return usecase.MarketPrice{}, fmt.Errorf("%w: XLM quote missing", ErrUnavailable)
 	}
 	idr, ok := xlm.Quote["IDR"]
 	if !ok || idr.Price.String() == "" {
-		return onramp.MarketPrice{}, fmt.Errorf("%w: IDR quote missing", ErrUnavailable)
+		return usecase.MarketPrice{}, fmt.Errorf("%w: IDR quote missing", ErrUnavailable)
 	}
 	observedAt, err := time.Parse(time.RFC3339Nano, idr.LastUpdated)
 	if err != nil {
-		return onramp.MarketPrice{}, fmt.Errorf("%w: invalid quote timestamp", ErrUnavailable)
+		return usecase.MarketPrice{}, fmt.Errorf("%w: invalid quote timestamp", ErrUnavailable)
 	}
-	return onramp.MarketPrice{IDRPerXLM: idr.Price.String(), ObservedAt: observedAt.UTC()}, nil
+	return usecase.MarketPrice{IDRPerXLM: idr.Price.String(), ObservedAt: observedAt.UTC()}, nil
 }

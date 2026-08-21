@@ -9,28 +9,27 @@ import (
 
 	"github.com/febry3/kailopay-be/internal/entity"
 	"github.com/febry3/kailopay-be/internal/handler/middleware"
-	"github.com/febry3/kailopay-be/internal/service/apikey"
-	"github.com/febry3/kailopay-be/internal/service/onramp"
+	"github.com/febry3/kailopay-be/internal/usecase"
 	"github.com/gin-gonic/gin"
 )
 
-type fakeOnrampService struct{ command onramp.Command }
+type fakeOnrampService struct{ command usecase.Command }
 
-func (s *fakeOnrampService) Create(_ context.Context, command onramp.Command) (onramp.OrderView, bool, error) {
+func (s *fakeOnrampService) Create(_ context.Context, command usecase.Command) (usecase.OrderView, bool, error) {
 	s.command = command
-	return onramp.OrderView{ID: "order-1", Status: entity.OrderStatusPaymentPending, FiatAmountMinor: 100_000, AssetAmount: 400_000_000}, false, nil
+	return usecase.OrderView{ID: "order-1", Status: entity.OrderStatusPaymentPending, FiatAmountMinor: 100_000, AssetAmount: 400_000_000}, false, nil
 }
-func (s *fakeOnrampService) Get(context.Context, string, string) (onramp.OrderView, error) {
-	return onramp.OrderView{}, nil
+func (s *fakeOnrampService) Get(context.Context, string, string) (usecase.OrderView, error) {
+	return usecase.OrderView{}, nil
 }
-func (s *fakeOnrampService) List(context.Context, string, int, string) ([]onramp.OrderView, string, error) {
-	return []onramp.OrderView{}, "", nil
+func (s *fakeOnrampService) List(context.Context, string, int, string) ([]usecase.OrderView, string, error) {
+	return []usecase.OrderView{}, "", nil
 }
 
 type fixedAPIAuthenticator struct{}
 
-func (fixedAPIAuthenticator) Authenticate(context.Context, string) (apikey.Principal, error) {
-	return apikey.Principal{ClientID: "client-1"}, nil
+func (fixedAPIAuthenticator) Authenticate(context.Context, string) (usecase.Principal, error) {
+	return usecase.Principal{ClientID: "client-1"}, nil
 }
 
 func TestOnrampHandlerCreatesClientOwnedOrder(t *testing.T) {

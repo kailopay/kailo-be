@@ -1,4 +1,4 @@
-package settlement
+package usecase
 
 import (
 	"context"
@@ -51,7 +51,7 @@ type Submission struct {
 	SafeError string
 }
 
-type Store interface {
+type SettlementStore interface {
 	Lease(ctx context.Context, workerID string, now time.Time, duration time.Duration) (Job, error)
 	LoadIntent(ctx context.Context, intentID string) (Intent, error)
 	MarkSubmitted(ctx context.Context, intentID, hash string, now time.Time) error
@@ -68,26 +68,26 @@ type Network interface {
 	SpendableBalance(ctx context.Context, account string) (entity.Stroops, error)
 }
 
-type Config struct {
+type SettlementConfig struct {
 	LeaseDuration time.Duration
 	RetryDelay    time.Duration
 	Now           func() time.Time
 }
 
-type Service struct {
-	store   Store
+type SettlementUsecase struct {
+	store   SettlementStore
 	network Network
-	config  Config
+	config  SettlementConfig
 }
 
-func New(store Store, network Network, config Config) (*Service, error) {
+func NewSettlementUsecase(store SettlementStore, network Network, config SettlementConfig) (*SettlementUsecase, error) {
 	if store == nil || network == nil || config.LeaseDuration <= 0 || config.RetryDelay <= 0 || config.Now == nil {
 		return nil, errors.New("valid settlement dependencies and configuration are required")
 	}
-	return &Service{store: store, network: network, config: config}, nil
+	return &SettlementUsecase{store: store, network: network, config: config}, nil
 }
 
-func (s *Service) RunOnce(ctx context.Context, workerID string) (bool, error) {
+func (s *SettlementUsecase) RunOnce(ctx context.Context, workerID string) (bool, error) {
 	now := s.config.Now().UTC()
 	job, err := s.store.Lease(ctx, workerID, now, s.config.LeaseDuration)
 	if errors.Is(err, ErrNoJob) {
@@ -122,7 +122,7 @@ func (s *Service) RunOnce(ctx context.Context, workerID string) (bool, error) {
 	return true, s.handleSubmission(ctx, intent.IntentID, built.Hash, submission)
 }
 
-func (s *Service) reconcile(ctx context.Context, intentID, hash string) error {
+func (s *SettlementUsecase) reconcile(ctx context.Context, intentID, hash string) error {
 	result, err := s.network.FindByHash(ctx, hash)
 	if err != nil {
 		return s.store.RetryLater(ctx, intentID, s.config.Now().UTC().Add(s.config.RetryDelay), "transaction reconciliation unavailable")
@@ -133,7 +133,7 @@ func (s *Service) reconcile(ctx context.Context, intentID, hash string) error {
 	return s.handleSubmission(ctx, intentID, hash, result)
 }
 
-func (s *Service) handleSubmission(ctx context.Context, intentID, hash string, submission Submission) error {
+func (s *SettlementUsecase) handleSubmission(ctx context.Context, intentID, hash string, submission Submission) error {
 	switch submission.Result {
 	case SubmissionConfirmed:
 		return s.store.Confirm(ctx, intentID, hash, submission.LedgerAt.UTC())

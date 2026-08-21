@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/febry3/kailopay-be/internal/service/settlement"
+	"github.com/febry3/kailopay-be/internal/usecase"
 	"github.com/stellar/go-stellar-sdk/keypair"
 )
 
@@ -34,7 +34,7 @@ func TestBuildCreatesSignedNativeXLMTransaction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	built, err := client.Build(context.Background(), settlement.Transfer{OrderID: "order-1", Source: source, Destination: destination, Amount: 10_000_000})
+	built, err := client.Build(context.Background(), usecase.Transfer{OrderID: "order-1", Source: source, Destination: destination, Amount: 10_000_000})
 	if err != nil {
 		t.Fatalf("Build() error = %v", err)
 	}

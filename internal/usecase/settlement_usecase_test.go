@@ -1,4 +1,4 @@
-package settlement
+package usecase
 
 import (
 	"context"
@@ -55,7 +55,7 @@ func (n *settlementNetworkFake) SpendableBalance(context.Context, string) (entit
 func TestUnknownSubmissionReconcilesHashBeforeRetry(t *testing.T) {
 	store := &settlementStoreFake{job: Job{OutboxID: "outbox-1", IntentID: "intent-1"}, intent: Intent{IntentID: "intent-1", Transfer: Transfer{Amount: 100}}}
 	network := &settlementNetworkFake{}
-	service, err := New(store, network, Config{LeaseDuration: time.Minute, RetryDelay: time.Second, Now: time.Now})
+	service, err := NewSettlementUsecase(store, network, SettlementConfig{LeaseDuration: time.Minute, RetryDelay: time.Second, Now: time.Now})
 	if err != nil {
 		t.Fatal(err)
 	}

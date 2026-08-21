@@ -10,14 +10,14 @@ import (
 
 	"github.com/febry3/kailopay-be/internal/entity"
 	"github.com/febry3/kailopay-be/internal/handler/middleware"
-	"github.com/febry3/kailopay-be/internal/service/onramp"
+	"github.com/febry3/kailopay-be/internal/usecase"
 	"github.com/gin-gonic/gin"
 )
 
 type OnrampService interface {
-	Create(ctx context.Context, command onramp.Command) (onramp.OrderView, bool, error)
-	Get(ctx context.Context, clientID, orderID string) (onramp.OrderView, error)
-	List(ctx context.Context, clientID string, limit int, cursor string) ([]onramp.OrderView, string, error)
+	Create(ctx context.Context, command usecase.Command) (usecase.OrderView, bool, error)
+	Get(ctx context.Context, clientID, orderID string) (usecase.OrderView, error)
+	List(ctx context.Context, clientID string, limit int, cursor string) ([]usecase.OrderView, string, error)
 }
 
 type OnrampHandler struct {
@@ -66,7 +66,7 @@ func (h *OnrampHandler) Create(c *gin.Context) {
 	if request.Destination.Memo != nil {
 		memo = *request.Destination.Memo
 	}
-	view, replay, err := h.service.Create(c.Request.Context(), onramp.Command{
+	view, replay, err := h.service.Create(c.Request.Context(), usecase.Command{
 		ClientID: principal.ClientID, IdempotencyKey: c.GetHeader("Idempotency-Key"), Amount: entity.IDR(amount),
 		PaymentMethod: entity.PaymentMethod(request.PaymentMethod), Destination: request.Destination.Account, Memo: memo,
 	})
@@ -116,15 +116,15 @@ func (h *OnrampHandler) List(c *gin.Context) {
 
 func (h *OnrampHandler) writeError(c *gin.Context, operation string, err error) {
 	switch {
-	case errors.Is(err, onramp.ErrInvalidCommand), errors.Is(err, onramp.ErrAmountOutOfRange):
+	case errors.Is(err, usecase.ErrInvalidCommand), errors.Is(err, usecase.ErrAmountOutOfRange):
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_REQUEST", "message": err.Error()}})
-	case errors.Is(err, onramp.ErrInsufficientLiquidity):
+	case errors.Is(err, usecase.ErrInsufficientLiquidity):
 		c.JSON(http.StatusConflict, gin.H{"error": gin.H{"code": "INSUFFICIENT_LIQUIDITY", "message": err.Error()}})
-	case errors.Is(err, onramp.ErrIdempotencyConflict):
+	case errors.Is(err, usecase.ErrIdempotencyConflict):
 		c.JSON(http.StatusConflict, gin.H{"error": gin.H{"code": "IDEMPOTENCY_KEY_REUSED", "message": err.Error()}})
-	case errors.Is(err, onramp.ErrOrderNotFound):
+	case errors.Is(err, usecase.ErrOrderNotFound):
 		c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"code": "ORDER_NOT_FOUND", "message": err.Error()}})
-	case errors.Is(err, onramp.ErrCheckoutUnknown):
+	case errors.Is(err, usecase.ErrCheckoutUnknown):
 		c.JSON(http.StatusAccepted, gin.H{"error": gin.H{"code": "CHECKOUT_PENDING_RECONCILIATION", "message": err.Error()}})
 	default:
 		h.logger.ErrorContext(c.Request.Context(), operation+" failed", slog.Any("error", err))
@@ -132,7 +132,7 @@ func (h *OnrampHandler) writeError(c *gin.Context, operation string, err error) 
 	}
 }
 
-func publicOrder(view onramp.OrderView) gin.H {
+func publicOrder(view usecase.OrderView) gin.H {
 	result := gin.H{
 		"id": view.ID, "status": view.Status, "environment": "sandbox", "network": "stellar_testnet",
 		"fiat":  gin.H{"currency": "IDR", "amount_minor": strconv.FormatInt(int64(view.FiatAmountMinor), 10)},

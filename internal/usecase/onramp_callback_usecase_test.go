@@ -1,4 +1,4 @@
-package onramp
+package usecase
 
 import (
 	"context"
@@ -33,7 +33,7 @@ func (s *callbackStoreFake) CompleteCallback(context.Context, string, string) er
 
 func TestPaidCallbackReplayCreatesOneSettlementIntent(t *testing.T) {
 	store := &callbackStoreFake{}
-	service, err := NewCallbackService(callbackGatewayFake{}, store)
+	service, err := NewOnrampCallbackUsecase(callbackGatewayFake{}, store)
 	if err != nil {
 		t.Fatal(err)
 	}

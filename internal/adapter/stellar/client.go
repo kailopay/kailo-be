@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/febry3/kailopay-be/internal/entity"
-	"github.com/febry3/kailopay-be/internal/service/settlement"
+	"github.com/febry3/kailopay-be/internal/usecase"
 	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stellar/go-stellar-sdk/txnbuild"
 )
@@ -60,13 +60,13 @@ func NewBalanceReader(horizonURL string, httpClient *http.Client) (*Client, erro
 	return &Client{baseURL: baseURL, httpClient: httpClient}, nil
 }
 
-func (c *Client) Build(ctx context.Context, transfer settlement.Transfer) (settlement.BuiltTransaction, error) {
+func (c *Client) Build(ctx context.Context, transfer usecase.Transfer) (usecase.BuiltTransaction, error) {
 	if c.signer == nil || transfer.Source != c.signer.Address() || transfer.Amount.Validate() != nil || transfer.Destination == "" {
-		return settlement.BuiltTransaction{}, errors.New("invalid Stellar transfer")
+		return usecase.BuiltTransaction{}, errors.New("invalid Stellar transfer")
 	}
 	account, err := c.account(ctx, transfer.Source)
 	if err != nil {
-		return settlement.BuiltTransaction{}, err
+		return usecase.BuiltTransaction{}, err
 	}
 	source := txnbuild.NewSimpleAccount(transfer.Source, account.Sequence)
 	memo := transfer.Memo
@@ -83,21 +83,21 @@ func (c *Client) Build(ctx context.Context, transfer settlement.Transfer) (settl
 		Preconditions: txnbuild.Preconditions{TimeBounds: txnbuild.NewTimeout(int64(c.txTimeout.Seconds()))},
 	})
 	if err != nil {
-		return settlement.BuiltTransaction{}, fmt.Errorf("building Stellar transaction: %w", err)
+		return usecase.BuiltTransaction{}, fmt.Errorf("building Stellar transaction: %w", err)
 	}
 	signed, err := transaction.Sign(c.passphrase, c.signer)
 	if err != nil {
-		return settlement.BuiltTransaction{}, fmt.Errorf("signing Stellar transaction: %w", err)
+		return usecase.BuiltTransaction{}, fmt.Errorf("signing Stellar transaction: %w", err)
 	}
 	hash, err := signed.HashHex(c.passphrase)
 	if err != nil {
-		return settlement.BuiltTransaction{}, fmt.Errorf("hashing Stellar transaction: %w", err)
+		return usecase.BuiltTransaction{}, fmt.Errorf("hashing Stellar transaction: %w", err)
 	}
 	envelope, err := signed.Base64()
 	if err != nil {
-		return settlement.BuiltTransaction{}, fmt.Errorf("encoding Stellar transaction: %w", err)
+		return usecase.BuiltTransaction{}, fmt.Errorf("encoding Stellar transaction: %w", err)
 	}
-	return settlement.BuiltTransaction{Hash: hash, Envelope: envelope}, nil
+	return usecase.BuiltTransaction{Hash: hash, Envelope: envelope}, nil
 }
 
 func (c *Client) ValidateDestination(account string) error {
@@ -108,22 +108,22 @@ func (c *Client) ValidateDestination(account string) error {
 	return nil
 }
 
-func (c *Client) Submit(ctx context.Context, transaction settlement.BuiltTransaction) (settlement.Submission, error) {
+func (c *Client) Submit(ctx context.Context, transaction usecase.BuiltTransaction) (usecase.Submission, error) {
 	form := url.Values{"tx": []string{transaction.Envelope}}
 	request, err := c.request(ctx, http.MethodPost, "/transactions", strings.NewReader(form.Encode()))
 	if err != nil {
-		return settlement.Submission{}, err
+		return usecase.Submission{}, err
 	}
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	status, body, err := c.do(request)
 	if err != nil {
-		return settlement.Submission{Result: settlement.SubmissionUnknown, SafeError: "Horizon submission unavailable"}, err
+		return usecase.Submission{Result: usecase.SubmissionUnknown, SafeError: "Horizon submission unavailable"}, err
 	}
 	if status >= 500 {
-		return settlement.Submission{Result: settlement.SubmissionUnknown, SafeError: "Horizon server error"}, nil
+		return usecase.Submission{Result: usecase.SubmissionUnknown, SafeError: "Horizon server error"}, nil
 	}
 	if status < 200 || status >= 300 {
-		return settlement.Submission{Result: settlement.SubmissionPermanent, SafeError: "Stellar transaction rejected"}, nil
+		return usecase.Submission{Result: usecase.SubmissionPermanent, SafeError: "Stellar transaction rejected"}, nil
 	}
 	var response struct {
 		Hash       string `json:"hash"`
@@ -131,26 +131,26 @@ func (c *Client) Submit(ctx context.Context, transaction settlement.BuiltTransac
 		Successful bool   `json:"successful"`
 	}
 	if err := json.Unmarshal(body, &response); err != nil || response.Hash != transaction.Hash || !response.Successful {
-		return settlement.Submission{Result: settlement.SubmissionUnknown, SafeError: "invalid Horizon submission response"}, nil
+		return usecase.Submission{Result: usecase.SubmissionUnknown, SafeError: "invalid Horizon submission response"}, nil
 	}
 	ledgerAt, _ := time.Parse(time.RFC3339Nano, response.CreatedAt)
-	return settlement.Submission{Result: settlement.SubmissionConfirmed, LedgerAt: ledgerAt.UTC()}, nil
+	return usecase.Submission{Result: usecase.SubmissionConfirmed, LedgerAt: ledgerAt.UTC()}, nil
 }
 
-func (c *Client) FindByHash(ctx context.Context, hash string) (settlement.Submission, error) {
+func (c *Client) FindByHash(ctx context.Context, hash string) (usecase.Submission, error) {
 	request, err := c.request(ctx, http.MethodGet, "/transactions/"+url.PathEscape(hash), nil)
 	if err != nil {
-		return settlement.Submission{}, err
+		return usecase.Submission{}, err
 	}
 	status, body, err := c.do(request)
 	if err != nil {
-		return settlement.Submission{}, err
+		return usecase.Submission{}, err
 	}
 	if status == http.StatusNotFound {
-		return settlement.Submission{Result: settlement.SubmissionPending}, nil
+		return usecase.Submission{Result: usecase.SubmissionPending}, nil
 	}
 	if status < 200 || status >= 300 {
-		return settlement.Submission{Result: settlement.SubmissionUnknown}, nil
+		return usecase.Submission{Result: usecase.SubmissionUnknown}, nil
 	}
 	var response struct {
 		Hash       string `json:"hash"`
@@ -158,13 +158,13 @@ func (c *Client) FindByHash(ctx context.Context, hash string) (settlement.Submis
 		Successful bool   `json:"successful"`
 	}
 	if err := json.Unmarshal(body, &response); err != nil {
-		return settlement.Submission{}, err
+		return usecase.Submission{}, err
 	}
 	if !response.Successful {
-		return settlement.Submission{Result: settlement.SubmissionPermanent, SafeError: "Stellar transaction failed"}, nil
+		return usecase.Submission{Result: usecase.SubmissionPermanent, SafeError: "Stellar transaction failed"}, nil
 	}
 	ledgerAt, _ := time.Parse(time.RFC3339Nano, response.CreatedAt)
-	return settlement.Submission{Result: settlement.SubmissionConfirmed, LedgerAt: ledgerAt.UTC()}, nil
+	return usecase.Submission{Result: usecase.SubmissionConfirmed, LedgerAt: ledgerAt.UTC()}, nil
 }
 
 func (c *Client) SpendableBalance(ctx context.Context, accountID string) (entity.Stroops, error) {

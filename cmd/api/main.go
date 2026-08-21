@@ -24,9 +24,7 @@ import (
 	"github.com/febry3/kailopay-be/internal/handler/middleware"
 	"github.com/febry3/kailopay-be/internal/platform"
 	"github.com/febry3/kailopay-be/internal/repository"
-	"github.com/febry3/kailopay-be/internal/service/apikey"
-	"github.com/febry3/kailopay-be/internal/service/onramp"
-	auth "github.com/febry3/kailopay-be/internal/usecase"
+	"github.com/febry3/kailopay-be/internal/usecase"
 )
 
 func main() {
@@ -98,7 +96,7 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("creating Auth0 client: %w", err)
 	}
 	authRepository := repository.NewAuthRepository(db, cfg.Auth.SessionIdleLifetime)
-	authService, err := auth.NewAuthUsecase(auth.Dependencies{
+	authService, err := usecase.NewAuthUsecase(usecase.AuthDependencies{
 		Provider:       authProvider,
 		PasswordReset:  authProvider,
 		Transactions:   authRepository,
@@ -106,7 +104,7 @@ func run(ctx context.Context) error {
 		Profiles:       authRepository,
 		SessionRevoker: authRepository,
 		Avatars:        avatarStore,
-	}, nil, auth.Config{
+	}, nil, usecase.AuthConfig{
 		TransactionEncryptionKey: encryptionKey,
 		SessionHMACKey:           sessionHMACKey,
 		SessionAbsoluteLifetime:  cfg.Auth.SessionAbsoluteLifetime,
@@ -120,14 +118,14 @@ func run(ctx context.Context) error {
 	authHandler := httpapi.NewAuthHandler(authService, cfg.Auth, appLogger)
 	sessionMiddleware := middleware.RequireSessionWithCookie(authService, cfg.Auth.CookieName)
 	apiKeyRepository := repository.NewAPIKeyRepository(db)
-	apiKeyService, err := apikey.New(apikey.Dependencies{
+	apiKeyService, err := usecase.NewAPIKeyUsecase(usecase.APIKeyDependencies{
 		DeveloperMode: apiKeyRepository,
 		Creator:       apiKeyRepository,
 		Finder:        apiKeyRepository,
 		UsageRecorder: apiKeyRepository,
 		Lister:        apiKeyRepository,
 		Revoker:       apiKeyRepository,
-	}, apikey.Config{
+	}, usecase.APIKeyConfig{
 		Pepper: []byte(cfg.Week1.APIKeyPepper),
 		Random: rand.Reader,
 		NewID:  platform.NewID,
@@ -155,9 +153,9 @@ func run(ctx context.Context) error {
 	}
 	onrampRepository := repository.NewOnrampRepository(db, cfg.Week1.Stellar.TreasuryAccount, "testnet",
 		entity.Stroops(cfg.Week1.Stellar.OperatingBufferStroops))
-	onrampService, err := onramp.NewService(onramp.Dependencies{Store: onrampRepository, Prices: priceClient,
-		Treasury: treasuryReader, Gateway: paymentClient, Destinations: treasuryReader}, onramp.ServiceConfig{
-		QuotePolicy: onramp.QuotePolicy{TTL: cfg.Week1.Onramp.QuoteTTL, MaxAge: cfg.Week1.Onramp.QuoteMaxAge,
+	onrampService, err := usecase.NewOnrampUsecase(usecase.OnrampDependencies{Store: onrampRepository, Prices: priceClient,
+		Treasury: treasuryReader, Gateway: paymentClient, Destinations: treasuryReader}, usecase.ServiceConfig{
+		QuotePolicy: usecase.QuotePolicy{TTL: cfg.Week1.Onramp.QuoteTTL, MaxAge: cfg.Week1.Onramp.QuoteMaxAge,
 			SpreadBPS: cfg.Week1.Onramp.QuoteSpreadBPS}, MinIDR: entity.IDR(cfg.Week1.Onramp.MinIDR),
 		MaxIDR: entity.IDR(cfg.Week1.Onramp.MaxIDR), TreasuryAccount: cfg.Week1.Stellar.TreasuryAccount,
 		NewID: platform.NewID, Now: time.Now,
@@ -165,7 +163,7 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("creating onramp service: %w", err)
 	}
-	callbackService, err := onramp.NewCallbackService(paymentClient, onrampRepository)
+	callbackService, err := usecase.NewOnrampCallbackUsecase(paymentClient, onrampRepository)
 	if err != nil {
 		return fmt.Errorf("creating payment callback service: %w", err)
 	}

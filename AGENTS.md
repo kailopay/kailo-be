@@ -78,8 +78,10 @@ cmd -> all layers only for construction and lifecycle management
 - `usecase` may import `entity` and the standard library. It must not import
   PostgreSQL, payment-provider, Stellar, or HTTP implementations.
 - `repository` implements persistence ports owned by consumers.
-- Keep GORM models and query details inside `repository`; GORM is an
-  infrastructure tool, not a domain or use-case contract.
+- Keep GORM query details inside `repository`. For the current MVP, table
+  structs with GORM tags are grouped in `entity`, one file per table, as an
+  intentional pragmatic compromise; do not let query logic or GORM APIs
+  escape into that package.
 - Use `db.WithContext(ctx)` for repository operations and keep transactions
   explicit at the application boundary. Do not expose `*gorm.DB` to entities,
   use cases, or delivery packages.

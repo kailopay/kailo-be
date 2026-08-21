@@ -23,7 +23,7 @@ internal/entity         domain entities and invariants
 internal/handler/http    HTTP transport and router
 internal/handler/middleware HTTP middleware
 internal/usecase         business workflows / use cases
-internal/repository      persistence adapters and GORM models
+internal/repository      persistence adapters and repository queries
 internal/adapter         external payment/Stellar adapters
 internal/platform        config, database lifecycle, and logging
 ```
@@ -54,8 +54,8 @@ subfolder capability hanya untuk memenuhi diagram folder.
 
 The dependency direction is inward: handlers and adapters depend on usecases,
 and usecases depend on entities. Interfaces belong to the package that
-consumes them. GORM models stay in `internal/repository` and do
-not become domain entities or use-case contracts.
+consumes them. For this MVP, table models are grouped in `internal/entity`
+one file per table; repository queries remain in `internal/repository`.
 
 ## Local setup
 

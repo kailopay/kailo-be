@@ -7,13 +7,13 @@ import (
 	"net/http"
 
 	"github.com/febry3/kailopay-be/internal/handler/middleware"
-	"github.com/febry3/kailopay-be/internal/service/apikey"
+	"github.com/febry3/kailopay-be/internal/usecase"
 	"github.com/gin-gonic/gin"
 )
 
 type APIKeyService interface {
-	Create(ctx context.Context, ownerUserID, name string) (apikey.CreatedKey, error)
-	List(ctx context.Context, ownerUserID string) ([]apikey.Metadata, error)
+	Create(ctx context.Context, ownerUserID, name string) (usecase.CreatedKey, error)
+	List(ctx context.Context, ownerUserID string) ([]usecase.Metadata, error)
 	Revoke(ctx context.Context, ownerUserID, keyID string) error
 }
 
@@ -79,11 +79,11 @@ func (h *APIKeyHandler) Revoke(c *gin.Context) {
 
 func (h *APIKeyHandler) writeError(c *gin.Context, operation string, err error) {
 	switch {
-	case errors.Is(err, apikey.ErrDeveloperModeRequired):
+	case errors.Is(err, usecase.ErrDeveloperModeRequired):
 		c.JSON(http.StatusForbidden, gin.H{"error": "Developer Mode is required"})
-	case errors.Is(err, apikey.ErrInvalidName):
+	case errors.Is(err, usecase.ErrInvalidName):
 		writeRequestError(c, http.StatusBadRequest)
-	case errors.Is(err, apikey.ErrInvalidKey):
+	case errors.Is(err, usecase.ErrInvalidKey):
 		writeRequestError(c, http.StatusNotFound)
 	default:
 		h.logger.ErrorContext(c.Request.Context(), operation+" failed", slog.Any("error", err))

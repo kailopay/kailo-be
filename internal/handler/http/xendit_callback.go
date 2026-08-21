@@ -8,7 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/febry3/kailopay-be/internal/service/onramp"
+	"github.com/febry3/kailopay-be/internal/usecase"
 )
 
 const maxXenditCallbackBytes int64 = 1 << 20
@@ -39,9 +39,9 @@ func (h *XenditCallbackHandler) ServeHTTP(w http.ResponseWriter, request *http.R
 	switch {
 	case err == nil:
 		writeCallbackJSON(w, http.StatusOK, map[string]string{"status": "accepted"})
-	case errors.Is(err, onramp.ErrInvalidCallback):
+	case errors.Is(err, usecase.ErrInvalidCallback):
 		writeCallbackJSON(w, http.StatusUnauthorized, map[string]string{"error": "authentication failed"})
-	case errors.Is(err, onramp.ErrPaymentMismatch), errors.Is(err, onramp.ErrOrderNotFound):
+	case errors.Is(err, usecase.ErrPaymentMismatch), errors.Is(err, usecase.ErrOrderNotFound):
 		writeCallbackJSON(w, http.StatusOK, map[string]string{"status": "retained"})
 	default:
 		h.logger.ErrorContext(request.Context(), "processing Xendit callback failed", slog.Any("error", err))

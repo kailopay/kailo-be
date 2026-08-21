@@ -8,25 +8,25 @@ import (
 	"testing"
 
 	"github.com/febry3/kailopay-be/internal/handler/middleware"
-	"github.com/febry3/kailopay-be/internal/service/apikey"
+	"github.com/febry3/kailopay-be/internal/usecase"
 	auth "github.com/febry3/kailopay-be/internal/usecase"
 	"github.com/gin-gonic/gin"
 )
 
 type fakeAPIKeyService struct {
-	created apikey.CreatedKey
+	created usecase.CreatedKey
 	owner   string
 	name    string
 	revoked string
 }
 
-func (s *fakeAPIKeyService) Create(_ context.Context, owner, name string) (apikey.CreatedKey, error) {
+func (s *fakeAPIKeyService) Create(_ context.Context, owner, name string) (usecase.CreatedKey, error) {
 	s.owner, s.name = owner, name
 	return s.created, nil
 }
 
-func (s *fakeAPIKeyService) List(context.Context, string) ([]apikey.Metadata, error) {
-	return []apikey.Metadata{}, nil
+func (s *fakeAPIKeyService) List(context.Context, string) ([]usecase.Metadata, error) {
+	return []usecase.Metadata{}, nil
 }
 
 func (s *fakeAPIKeyService) Revoke(_ context.Context, _ string, keyID string) error {
@@ -36,7 +36,7 @@ func (s *fakeAPIKeyService) Revoke(_ context.Context, _ string, keyID string) er
 
 func TestAPIKeyHandlerCreatesOneTimeKeyForAuthenticatedUser(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	service := &fakeAPIKeyService{created: apikey.CreatedKey{ID: "key-1", Plaintext: "pk_test_public_secret"}}
+	service := &fakeAPIKeyService{created: usecase.CreatedKey{ID: "key-1", Plaintext: "pk_test_public_secret"}}
 	handler := NewAPIKeyHandler(service, nil)
 	router := gin.New()
 	router.POST("/v1/api-keys", middleware.RequireSession(fakeSessionAuthenticator{user: auth.AuthenticatedUser{

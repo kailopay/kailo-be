@@ -5,12 +5,12 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/febry3/kailopay-be/internal/service/apikey"
+	"github.com/febry3/kailopay-be/internal/usecase"
 	"github.com/gin-gonic/gin"
 )
 
 type APIKeyAuthenticator interface {
-	Authenticate(ctx context.Context, rawKey string) (apikey.Principal, error)
+	Authenticate(ctx context.Context, rawKey string) (usecase.Principal, error)
 }
 
 type apiPrincipalKey struct{}
@@ -37,7 +37,7 @@ func RequireAPIKey(authenticator APIKeyAuthenticator) gin.HandlerFunc {
 	}
 }
 
-func APIPrincipal(ctx context.Context) (apikey.Principal, bool) {
-	principal, ok := ctx.Value(apiPrincipalKey{}).(apikey.Principal)
+func APIPrincipal(ctx context.Context) (usecase.Principal, bool) {
+	principal, ok := ctx.Value(apiPrincipalKey{}).(usecase.Principal)
 	return principal, ok
 }

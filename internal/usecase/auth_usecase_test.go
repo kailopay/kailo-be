@@ -166,7 +166,7 @@ func testAuthUsecase(t *testing.T) (*AuthUsecase, *fakeProvider, *fakeTransactio
 	users := &fakeUserSessionStore{profile: UserProfile{ID: "user-id", DisplayName: "Test User", Email: "user@example.com", EmailVerified: true}}
 	avatars := &fakeAvatarStore{}
 	key := []byte("01234567890123456789012345678901")
-	service, err := NewAuthUsecase(Dependencies{
+	service, err := NewAuthUsecase(AuthDependencies{
 		Provider:       provider,
 		PasswordReset:  provider,
 		Transactions:   transactions,
@@ -174,7 +174,7 @@ func testAuthUsecase(t *testing.T) (*AuthUsecase, *fakeProvider, *fakeTransactio
 		Profiles:       users,
 		SessionRevoker: users,
 		Avatars:        avatars,
-	}, clock, Config{
+	}, clock, AuthConfig{
 		TransactionEncryptionKey: key,
 		SessionHMACKey:           key,
 		SessionAbsoluteLifetime:  8 * time.Hour,

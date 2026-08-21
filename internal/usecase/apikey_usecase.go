@@ -1,4 +1,4 @@
-package apikey
+package usecase
 
 import (
 	"context"
@@ -79,7 +79,7 @@ type Revoker interface {
 	RevokeForOwner(ctx context.Context, ownerUserID, keyID string, revokedAt time.Time) error
 }
 
-type Dependencies struct {
+type APIKeyDependencies struct {
 	DeveloperMode DeveloperModeReader
 	Creator       Creator
 	Finder        ActiveFinder
@@ -88,19 +88,19 @@ type Dependencies struct {
 	Revoker       Revoker
 }
 
-type Config struct {
+type APIKeyConfig struct {
 	Pepper []byte
 	Random io.Reader
 	NewID  func() (string, error)
 	Now    func() time.Time
 }
 
-type Service struct {
-	dependencies Dependencies
-	config       Config
+type APIKeyUsecase struct {
+	dependencies APIKeyDependencies
+	config       APIKeyConfig
 }
 
-func New(dependencies Dependencies, config Config) (*Service, error) {
+func NewAPIKeyUsecase(dependencies APIKeyDependencies, config APIKeyConfig) (*APIKeyUsecase, error) {
 	if dependencies.DeveloperMode == nil || dependencies.Creator == nil ||
 		dependencies.Finder == nil || dependencies.UsageRecorder == nil ||
 		dependencies.Lister == nil || dependencies.Revoker == nil {
@@ -109,10 +109,10 @@ func New(dependencies Dependencies, config Config) (*Service, error) {
 	if len(config.Pepper) < 32 || config.Random == nil || config.NewID == nil || config.Now == nil {
 		return nil, errors.New("valid api key configuration is required")
 	}
-	return &Service{dependencies: dependencies, config: config}, nil
+	return &APIKeyUsecase{dependencies: dependencies, config: config}, nil
 }
 
-func (s *Service) List(ctx context.Context, ownerUserID string) ([]Metadata, error) {
+func (s *APIKeyUsecase) List(ctx context.Context, ownerUserID string) ([]Metadata, error) {
 	if err := s.requireDeveloperMode(ctx, ownerUserID); err != nil {
 		return nil, err
 	}
@@ -126,7 +126,7 @@ func (s *Service) List(ctx context.Context, ownerUserID string) ([]Metadata, err
 	return keys, nil
 }
 
-func (s *Service) Revoke(ctx context.Context, ownerUserID, keyID string) error {
+func (s *APIKeyUsecase) Revoke(ctx context.Context, ownerUserID, keyID string) error {
 	if strings.TrimSpace(keyID) == "" {
 		return ErrInvalidKey
 	}
@@ -139,7 +139,7 @@ func (s *Service) Revoke(ctx context.Context, ownerUserID, keyID string) error {
 	return nil
 }
 
-func (s *Service) Create(ctx context.Context, ownerUserID, name string) (CreatedKey, error) {
+func (s *APIKeyUsecase) Create(ctx context.Context, ownerUserID, name string) (CreatedKey, error) {
 	ownerUserID = strings.TrimSpace(ownerUserID)
 	name = strings.TrimSpace(name)
 	if ownerUserID == "" || name == "" || len(name) > 100 {
@@ -190,7 +190,7 @@ func (s *Service) Create(ctx context.Context, ownerUserID, name string) (Created
 	return CreatedKey{ID: key.ID, ClientID: clientID, Prefix: prefix, Plaintext: plaintext, CreatedAt: now}, nil
 }
 
-func (s *Service) Authenticate(ctx context.Context, rawKey string) (Principal, error) {
+func (s *APIKeyUsecase) Authenticate(ctx context.Context, rawKey string) (Principal, error) {
 	publicID, secret, ok := parse(rawKey)
 	if !ok {
 		return Principal{}, ErrInvalidKey
@@ -209,7 +209,7 @@ func (s *Service) Authenticate(ctx context.Context, rawKey string) (Principal, e
 	return principal, nil
 }
 
-func (s *Service) requireDeveloperMode(ctx context.Context, ownerUserID string) error {
+func (s *APIKeyUsecase) requireDeveloperMode(ctx context.Context, ownerUserID string) error {
 	if strings.TrimSpace(ownerUserID) == "" {
 		return ErrDeveloperModeRequired
 	}

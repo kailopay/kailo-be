@@ -1,4 +1,4 @@
-package onramp
+package usecase
 
 import (
 	"context"
@@ -64,13 +64,13 @@ func TestCreateReservesBeforeExposingCheckout(t *testing.T) {
 	now := time.Date(2026, 8, 20, 1, 0, 0, 0, time.UTC)
 	store := &createStoreFake{}
 	gateway := &gatewayFake{}
-	service, err := NewService(Dependencies{Store: store, Prices: priceFake{now: now}, Treasury: treasuryFake{}, Gateway: gateway, Destinations: destinationFake{}}, ServiceConfig{
+	service, err := NewOnrampUsecase(OnrampDependencies{Store: store, Prices: priceFake{now: now}, Treasury: treasuryFake{}, Gateway: gateway, Destinations: destinationFake{}}, ServiceConfig{
 		QuotePolicy: QuotePolicy{TTL: 5 * time.Minute, MaxAge: 2 * time.Minute},
 		MinIDR:      10_000, MaxIDR: 10_000_000, TreasuryAccount: "G" + string(make([]byte, 55)),
 		NewID: func() (string, error) { return "order-1", nil }, Now: func() time.Time { return now },
 	})
 	if err != nil {
-		t.Fatalf("NewService() error = %v", err)
+		t.Fatalf("NewOnrampUsecase() error = %v", err)
 	}
 	_, replay, err := service.Create(context.Background(), Command{
 		ClientID: "client-1", IdempotencyKey: "idem-1", Amount: entity.IDR(100_000),

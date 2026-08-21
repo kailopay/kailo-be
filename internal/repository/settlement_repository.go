@@ -10,7 +10,7 @@ import (
 
 	"github.com/febry3/kailopay-be/internal/entity"
 	"github.com/febry3/kailopay-be/internal/platform"
-	"github.com/febry3/kailopay-be/internal/service/settlement"
+	"github.com/febry3/kailopay-be/internal/usecase"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -24,22 +24,22 @@ func NewSettlementRepository(db *gorm.DB, maxAttempts int) *SettlementRepository
 	return &SettlementRepository{db: db, maxAttempts: maxAttempts}
 }
 
-func (r *SettlementRepository) Lease(ctx context.Context, workerID string, now time.Time, duration time.Duration) (settlement.Job, error) {
-	var job settlement.Job
+func (r *SettlementRepository) Lease(ctx context.Context, workerID string, now time.Time, duration time.Duration) (usecase.Job, error) {
+	var job usecase.Job
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var row OutboxMessage
+		var row entity.OutboxMessage
 		err := tx.Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).
 			Where("topic = ? AND processed_at IS NULL AND available_at <= ? AND attempts < ? AND (lease_until IS NULL OR lease_until < ?)",
 				"stellar.settle_onramp", now, r.maxAttempts, now).
 			Order("available_at, created_at").First(&row).Error
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return settlement.ErrNoJob
+			return usecase.ErrNoJob
 		}
 		if err != nil {
 			return fmt.Errorf("selecting settlement outbox message: %w", err)
 		}
 		leaseUntil := now.Add(duration)
-		if err := tx.Model(&OutboxMessage{}).Where("id = ?", row.ID).Updates(map[string]any{
+		if err := tx.Model(&entity.OutboxMessage{}).Where("id = ?", row.ID).Updates(map[string]any{
 			"lease_owner": workerID, "lease_until": leaseUntil, "attempts": gorm.Expr("attempts + 1"),
 		}).Error; err != nil {
 			return fmt.Errorf("leasing settlement outbox message: %w", err)
@@ -50,22 +50,22 @@ func (r *SettlementRepository) Lease(ctx context.Context, workerID string, now t
 		if err := json.Unmarshal(row.Payload, &payload); err != nil || payload.IntentID == "" {
 			return errors.New("invalid settlement outbox payload")
 		}
-		job = settlement.Job{OutboxID: row.ID, IntentID: payload.IntentID}
+		job = usecase.Job{OutboxID: row.ID, IntentID: payload.IntentID}
 		return nil
 	})
 	return job, err
 }
 
-func (r *SettlementRepository) LoadIntent(ctx context.Context, intentID string) (settlement.Intent, error) {
-	var row StellarTransaction
+func (r *SettlementRepository) LoadIntent(ctx context.Context, intentID string) (usecase.Intent, error) {
+	var row entity.StellarTransaction
 	if err := r.db.WithContext(ctx).Where("intent_id = ? AND purpose = ?", intentID, "transfer").First(&row).Error; err != nil {
-		return settlement.Intent{}, fmt.Errorf("finding settlement intent: %w", err)
+		return usecase.Intent{}, fmt.Errorf("finding settlement intent: %w", err)
 	}
 	amount, err := parseStroops(row.Amount)
 	if err != nil {
-		return settlement.Intent{}, err
+		return usecase.Intent{}, err
 	}
-	transfer := settlement.Transfer{OrderID: row.OrderID, Amount: amount}
+	transfer := usecase.Transfer{OrderID: row.OrderID, Amount: amount}
 	if row.Source != nil {
 		transfer.Source = *row.Source
 	}
@@ -75,7 +75,7 @@ func (r *SettlementRepository) LoadIntent(ctx context.Context, intentID string) 
 	if row.Memo != nil {
 		transfer.Memo = *row.Memo
 	}
-	intent := settlement.Intent{IntentID: row.IntentID, Transfer: transfer}
+	intent := usecase.Intent{IntentID: row.IntentID, Transfer: transfer}
 	if row.TransactionHash != nil {
 		intent.TransactionHash = *row.TransactionHash
 	}
@@ -83,14 +83,14 @@ func (r *SettlementRepository) LoadIntent(ctx context.Context, intentID string) 
 }
 
 func (r *SettlementRepository) MarkSubmitted(ctx context.Context, intentID, hash string, now time.Time) error {
-	return r.db.WithContext(ctx).Model(&StellarTransaction{}).Where("intent_id = ?", intentID).Updates(map[string]any{
+	return r.db.WithContext(ctx).Model(&entity.StellarTransaction{}).Where("intent_id = ?", intentID).Updates(map[string]any{
 		"transaction_hash": hash, "status": "submitted", "attempt_count": gorm.Expr("attempt_count + 1"), "updated_at": now,
 	}).Error
 }
 
 func (r *SettlementRepository) Confirm(ctx context.Context, intentID, hash string, ledgerAt time.Time) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var stellar StellarTransaction
+		var stellar entity.StellarTransaction
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("intent_id = ?", intentID).First(&stellar).Error; err != nil {
 			return err
 		}
@@ -101,34 +101,34 @@ func (r *SettlementRepository) Confirm(ctx context.Context, intentID, hash strin
 			return errors.New("settlement hash mismatch")
 		}
 		now := time.Now().UTC()
-		if err := tx.Model(&StellarTransaction{}).Where("id = ?", stellar.ID).Updates(map[string]any{
+		if err := tx.Model(&entity.StellarTransaction{}).Where("id = ?", stellar.ID).Updates(map[string]any{
 			"status": "confirmed", "ledger_at": ledgerAt, "updated_at": now,
 		}).Error; err != nil {
 			return err
 		}
-		var reservation TreasuryReservation
+		var reservation entity.TreasuryReservation
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("order_id = ?", stellar.OrderID).First(&reservation).Error; err != nil {
 			return err
 		}
 		if reservation.Status == "reserved" {
-			if err := tx.Model(&TreasuryReservation{}).Where("id = ?", reservation.ID).Updates(map[string]any{
+			if err := tx.Model(&entity.TreasuryReservation{}).Where("id = ?", reservation.ID).Updates(map[string]any{
 				"status": "consumed", "consumed_at": now, "updated_at": now,
 			}).Error; err != nil {
 				return err
 			}
-			if err := tx.Model(&TreasuryAccount{}).Where("id = ?", reservation.TreasuryID).
+			if err := tx.Model(&entity.TreasuryAccount{}).Where("id = ?", reservation.TreasuryID).
 				Update("reserved_stroops", gorm.Expr("reserved_stroops - ?", reservation.AmountStroops)).Error; err != nil {
 				return err
 			}
 		}
-		var order Order
+		var order entity.OrderRecord
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", stellar.OrderID).First(&order).Error; err != nil {
 			return err
 		}
 		if order.Status != string(entity.OrderStatusStellarProcessing) {
 			return entity.ErrInvalidOrderState
 		}
-		if err := tx.Model(&Order{}).Where("id = ?", order.ID).Updates(map[string]any{
+		if err := tx.Model(&entity.OrderRecord{}).Where("id = ?", order.ID).Updates(map[string]any{
 			"status": entity.OrderStatusCompleted, "version": order.Version + 1, "completed_at": now, "updated_at": now,
 		}).Error; err != nil {
 			return err
@@ -136,45 +136,45 @@ func (r *SettlementRepository) Confirm(ctx context.Context, intentID, hash strin
 		if err := appendSettlementEvent(tx, order, now); err != nil {
 			return err
 		}
-		return tx.Model(&OutboxMessage{}).Where("topic = ? AND aggregate_id = ? AND processed_at IS NULL", "stellar.settle_onramp", order.ID).
+		return tx.Model(&entity.OutboxMessage{}).Where("topic = ? AND aggregate_id = ? AND processed_at IS NULL", "stellar.settle_onramp", order.ID).
 			Updates(map[string]any{"processed_at": now, "lease_owner": nil, "lease_until": nil, "last_error": nil}).Error
 	})
 }
 
 func (r *SettlementRepository) MarkUnknown(ctx context.Context, intentID, safeError string) error {
-	return r.db.WithContext(ctx).Model(&StellarTransaction{}).Where("intent_id = ?", intentID).
+	return r.db.WithContext(ctx).Model(&entity.StellarTransaction{}).Where("intent_id = ?", intentID).
 		Updates(map[string]any{"status": "unknown", "last_error": safeError, "updated_at": time.Now().UTC()}).Error
 }
 
 func (r *SettlementRepository) FailPermanent(ctx context.Context, intentID, safeError string) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var stellar StellarTransaction
+		var stellar entity.StellarTransaction
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("intent_id = ?", intentID).First(&stellar).Error; err != nil {
 			return err
 		}
 		now := time.Now().UTC()
-		if err := tx.Model(&StellarTransaction{}).Where("id = ?", stellar.ID).Updates(map[string]any{
+		if err := tx.Model(&entity.StellarTransaction{}).Where("id = ?", stellar.ID).Updates(map[string]any{
 			"status": "failed", "last_error": safeError, "updated_at": now,
 		}).Error; err != nil {
 			return err
 		}
-		if err := tx.Model(&Order{}).Where("id = ? AND status = ?", stellar.OrderID, entity.OrderStatusStellarProcessing).Updates(map[string]any{
+		if err := tx.Model(&entity.OrderRecord{}).Where("id = ? AND status = ?", stellar.OrderID, entity.OrderStatusStellarProcessing).Updates(map[string]any{
 			"status": entity.OrderStatusStellarFailed, "failure_code": "stellar_permanent_failure", "failure_stage": "stellar",
 			"failure_retryable": false, "version": gorm.Expr("version + 1"), "updated_at": now,
 		}).Error; err != nil {
 			return err
 		}
-		return tx.Model(&OutboxMessage{}).Where("topic = ? AND aggregate_id = ? AND processed_at IS NULL", "stellar.settle_onramp", stellar.OrderID).
+		return tx.Model(&entity.OutboxMessage{}).Where("topic = ? AND aggregate_id = ? AND processed_at IS NULL", "stellar.settle_onramp", stellar.OrderID).
 			Updates(map[string]any{"processed_at": now, "lease_owner": nil, "lease_until": nil, "last_error": safeError}).Error
 	})
 }
 
 func (r *SettlementRepository) RetryLater(ctx context.Context, intentID string, availableAt time.Time, safeError string) error {
-	var stellar StellarTransaction
+	var stellar entity.StellarTransaction
 	if err := r.db.WithContext(ctx).Select("order_id").Where("intent_id = ?", intentID).First(&stellar).Error; err != nil {
 		return err
 	}
-	return r.db.WithContext(ctx).Model(&OutboxMessage{}).Where("topic = ? AND aggregate_id = ? AND processed_at IS NULL", "stellar.settle_onramp", stellar.OrderID).
+	return r.db.WithContext(ctx).Model(&entity.OutboxMessage{}).Where("topic = ? AND aggregate_id = ? AND processed_at IS NULL", "stellar.settle_onramp", stellar.OrderID).
 		Updates(map[string]any{"available_at": availableAt, "lease_owner": nil, "lease_until": nil, "last_error": safeError}).Error
 }
 
@@ -190,13 +190,13 @@ func parseStroops(amount string) (entity.Stroops, error) {
 	return entity.Stroops(value.Num().Int64()), nil
 }
 
-func appendSettlementEvent(tx *gorm.DB, order Order, now time.Time) error {
+func appendSettlementEvent(tx *gorm.DB, order entity.OrderRecord, now time.Time) error {
 	id, err := platform.NewID()
 	if err != nil {
 		return err
 	}
 	previous, next := order.Status, string(entity.OrderStatusCompleted)
-	event := OrderEvent{ID: id, OrderID: order.ID, AggregateVersion: order.Version + 1, EventType: "stellar.transfer_confirmed",
+	event := entity.OrderEvent{ID: id, OrderID: order.ID, AggregateVersion: order.Version + 1, EventType: "stellar.transfer_confirmed",
 		PreviousStatus: &previous, NewStatus: &next, Source: "worker", CorrelationID: order.ID, Metadata: []byte(`{}`), CreatedAt: now}
 	return tx.Create(&event).Error
 }

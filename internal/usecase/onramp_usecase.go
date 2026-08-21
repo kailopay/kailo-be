@@ -1,4 +1,4 @@
-package onramp
+package usecase
 
 import (
 	"context"
@@ -42,7 +42,7 @@ type PaymentGateway interface {
 	CreateCheckout(ctx context.Context, input CheckoutInput) (Checkout, error)
 }
 
-type Store interface {
+type OnrampStore interface {
 	FindReplay(ctx context.Context, clientID, idempotencyKeyHash, requestHash string) (OrderView, bool, error)
 	ReserveAndCreate(ctx context.Context, record CreateRecord, observedBalance entity.Stroops) error
 	AttachCheckout(ctx context.Context, orderID string, checkout Checkout) (OrderView, error)
@@ -52,8 +52,8 @@ type Store interface {
 	List(ctx context.Context, clientID string, limit int, cursor string) ([]OrderView, string, error)
 }
 
-type Dependencies struct {
-	Store        Store
+type OnrampDependencies struct {
+	Store        OnrampStore
 	Prices       PriceReader
 	Treasury     TreasuryReader
 	Gateway      PaymentGateway
@@ -134,21 +134,21 @@ type GatewayError struct {
 func (e *GatewayError) Error() string { return e.Err.Error() }
 func (e *GatewayError) Unwrap() error { return e.Err }
 
-type Service struct {
-	dependencies Dependencies
+type OnrampUsecase struct {
+	dependencies OnrampDependencies
 	config       ServiceConfig
 }
 
-func NewService(dependencies Dependencies, config ServiceConfig) (*Service, error) {
+func NewOnrampUsecase(dependencies OnrampDependencies, config ServiceConfig) (*OnrampUsecase, error) {
 	if dependencies.Store == nil || dependencies.Prices == nil || dependencies.Treasury == nil || dependencies.Gateway == nil || dependencies.Destinations == nil ||
 		config.NewID == nil || config.Now == nil || strings.TrimSpace(config.TreasuryAccount) == "" ||
 		config.MinIDR <= 0 || config.MaxIDR < config.MinIDR {
 		return nil, errors.New("valid onramp dependencies and configuration are required")
 	}
-	return &Service{dependencies: dependencies, config: config}, nil
+	return &OnrampUsecase{dependencies: dependencies, config: config}, nil
 }
 
-func (s *Service) Create(ctx context.Context, command Command) (OrderView, bool, error) {
+func (s *OnrampUsecase) Create(ctx context.Context, command Command) (OrderView, bool, error) {
 	command.ClientID = strings.TrimSpace(command.ClientID)
 	command.IdempotencyKey = strings.TrimSpace(command.IdempotencyKey)
 	command.Destination = strings.TrimSpace(command.Destination)
@@ -216,11 +216,11 @@ func (s *Service) Create(ctx context.Context, command Command) (OrderView, bool,
 	return view, false, nil
 }
 
-func (s *Service) Get(ctx context.Context, clientID, orderID string) (OrderView, error) {
+func (s *OnrampUsecase) Get(ctx context.Context, clientID, orderID string) (OrderView, error) {
 	return s.dependencies.Store.Get(ctx, clientID, orderID)
 }
 
-func (s *Service) List(ctx context.Context, clientID string, limit int, cursor string) ([]OrderView, string, error) {
+func (s *OnrampUsecase) List(ctx context.Context, clientID string, limit int, cursor string) ([]OrderView, string, error) {
 	if limit < 1 || limit > 100 {
 		limit = 20
 	}

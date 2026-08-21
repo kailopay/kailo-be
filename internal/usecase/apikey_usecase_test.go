@@ -1,4 +1,4 @@
-package apikey
+package usecase
 
 import (
 	"context"
@@ -127,18 +127,18 @@ func TestListAndRevokeRequireDeveloperMode(t *testing.T) {
 	}
 }
 
-func newTestService(t *testing.T, store *fakeStore) *Service {
+func newTestService(t *testing.T, store *fakeStore) *APIKeyUsecase {
 	t.Helper()
 	ids := []string{"00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000002"}
 	index := 0
-	service, err := New(Dependencies{
+	service, err := NewAPIKeyUsecase(APIKeyDependencies{
 		DeveloperMode: store,
 		Creator:       store,
 		Finder:        store,
 		UsageRecorder: store,
 		Lister:        store,
 		Revoker:       store,
-	}, Config{
+	}, APIKeyConfig{
 		Pepper: []byte("0123456789abcdef0123456789abcdef"),
 		Random: strings.NewReader(strings.Repeat("r", 128)),
 		NewID: func() (string, error) {
@@ -149,7 +149,7 @@ func newTestService(t *testing.T, store *fakeStore) *Service {
 		Now: func() time.Time { return time.Date(2026, 8, 20, 0, 0, 0, 0, time.UTC) },
 	})
 	if err != nil {
-		t.Fatalf("New() error = %v", err)
+		t.Fatalf("NewAPIKeyUsecase() error = %v", err)
 	}
 	return service
 }

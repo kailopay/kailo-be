@@ -13,7 +13,7 @@ import (
 	stellaradapter "github.com/febry3/kailopay-be/internal/adapter/stellar"
 	"github.com/febry3/kailopay-be/internal/platform"
 	"github.com/febry3/kailopay-be/internal/repository"
-	"github.com/febry3/kailopay-be/internal/service/settlement"
+	"github.com/febry3/kailopay-be/internal/usecase"
 )
 
 func main() {
@@ -54,7 +54,7 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("creating Stellar client: %w", err)
 	}
 	store := repository.NewSettlementRepository(db, cfg.Week1.Worker.MaxAttempts)
-	service, err := settlement.New(store, network, settlement.Config{LeaseDuration: cfg.Week1.Worker.LeaseDuration,
+	service, err := usecase.NewSettlementUsecase(store, network, usecase.SettlementConfig{LeaseDuration: cfg.Week1.Worker.LeaseDuration,
 		RetryDelay: cfg.Week1.Worker.RetryDelay, Now: time.Now})
 	if err != nil {
 		return fmt.Errorf("creating settlement service: %w", err)

@@ -110,7 +110,7 @@ type Clock interface {
 	Now() time.Time
 }
 
-type Config struct {
+type AuthConfig struct {
 	TransactionEncryptionKey []byte
 	SessionHMACKey           []byte
 	SessionAbsoluteLifetime  time.Duration
@@ -119,7 +119,7 @@ type Config struct {
 	AvatarMaxBytes           int64
 }
 
-type Dependencies struct {
+type AuthDependencies struct {
 	Provider       Provider
 	PasswordReset  PasswordResetRequester
 	Transactions   TransactionStore
@@ -178,10 +178,10 @@ type AuthUsecase struct {
 	sessionRevoker IdentitySessionRevoker
 	avatars        AvatarStore
 	clock          Clock
-	config         Config
+	config         AuthConfig
 }
 
-func NewAuthUsecase(deps Dependencies, clock Clock, config Config) (*AuthUsecase, error) {
+func NewAuthUsecase(deps AuthDependencies, clock Clock, config AuthConfig) (*AuthUsecase, error) {
 	if deps.Provider == nil || deps.PasswordReset == nil || deps.Transactions == nil || deps.Sessions == nil ||
 		deps.Profiles == nil || deps.SessionRevoker == nil || deps.Avatars == nil {
 		return nil, errors.New("auth usecase dependencies are required")

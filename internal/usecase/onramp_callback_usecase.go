@@ -1,4 +1,4 @@
-package onramp
+package usecase
 
 import (
 	"context"
@@ -66,19 +66,19 @@ type CallbackStore interface {
 	CompleteCallback(ctx context.Context, eventID, result string) error
 }
 
-type CallbackService struct {
+type OnrampCallbackUsecase struct {
 	gateway CallbackGateway
 	store   CallbackStore
 }
 
-func NewCallbackService(gateway CallbackGateway, store CallbackStore) (*CallbackService, error) {
+func NewOnrampCallbackUsecase(gateway CallbackGateway, store CallbackStore) (*OnrampCallbackUsecase, error) {
 	if gateway == nil || store == nil {
 		return nil, errors.New("callback gateway and store are required")
 	}
-	return &CallbackService{gateway: gateway, store: store}, nil
+	return &OnrampCallbackUsecase{gateway: gateway, store: store}, nil
 }
 
-func (s *CallbackService) Process(ctx context.Context, raw []byte, token string) error {
+func (s *OnrampCallbackUsecase) Process(ctx context.Context, raw []byte, token string) error {
 	callback, err := s.gateway.VerifyCallback(raw, token)
 	if err != nil {
 		return err
