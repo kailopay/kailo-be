@@ -18,13 +18,14 @@ const onrampCreateOperation = "onramp.create"
 
 type OnrampRepository struct {
 	db              *gorm.DB
+	tx              txManager
 	treasuryAccount string
 	network         string
 	operatingBuffer entity.Stroops
 }
 
 func NewOnrampRepository(db *gorm.DB, treasuryAccount, network string, operatingBuffer entity.Stroops) *OnrampRepository {
-	return &OnrampRepository{db: db, treasuryAccount: treasuryAccount, network: network, operatingBuffer: operatingBuffer}
+	return &OnrampRepository{db: db, tx: newTxManager(db), treasuryAccount: treasuryAccount, network: network, operatingBuffer: operatingBuffer}
 }
 
 func (r *OnrampRepository) FindReplay(ctx context.Context, clientID, keyHash, requestHash string) (usecase.OrderView, bool, error) {
@@ -50,7 +51,7 @@ func (r *OnrampRepository) FindReplay(ctx context.Context, clientID, keyHash, re
 }
 
 func (r *OnrampRepository) ReserveAndCreate(ctx context.Context, record usecase.CreateRecord, observedBalance entity.Stroops) error {
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return r.tx.do(ctx, func(tx *gorm.DB) error {
 		treasury, err := r.lockTreasury(ctx, tx, observedBalance, record.CreatedAt)
 		if err != nil {
 			return err
@@ -107,7 +108,7 @@ func (r *OnrampRepository) ReserveAndCreate(ctx context.Context, record usecase.
 }
 
 func (r *OnrampRepository) AttachCheckout(ctx context.Context, orderID string, checkout usecase.Checkout) (usecase.OrderView, error) {
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := r.tx.do(ctx, func(tx *gorm.DB) error {
 		var order entity.OrderRecord
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", orderID).First(&order).Error; err != nil {
 			return fmt.Errorf("locking order: %w", err)
@@ -204,7 +205,7 @@ func (r *OnrampRepository) ExpectedPayment(ctx context.Context, providerID strin
 }
 
 func (r *OnrampRepository) ConfirmPaymentAndEnqueue(ctx context.Context, confirmation usecase.PaymentConfirmation) error {
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return r.tx.do(ctx, func(tx *gorm.DB) error {
 		var order entity.OrderRecord
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", confirmation.Expected.OrderID).First(&order).Error; err != nil {
 			return fmt.Errorf("locking paid order: %w", err)
@@ -370,7 +371,7 @@ func (r *OnrampRepository) lockTreasury(ctx context.Context, tx *gorm.DB, observ
 }
 
 func (r *OnrampRepository) releaseFailedOrder(ctx context.Context, orderID string, status entity.OrderStatus, code, reason string) error {
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return r.tx.do(ctx, func(tx *gorm.DB) error {
 		var order entity.OrderRecord
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", orderID).First(&order).Error; err != nil {
 			return fmt.Errorf("locking failed order: %w", err)

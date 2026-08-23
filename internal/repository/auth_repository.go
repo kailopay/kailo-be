@@ -18,11 +18,12 @@ const activeUserStatus = "active"
 
 type AuthRepository struct {
 	db           *gorm.DB
+	tx           txManager
 	idleLifetime time.Duration
 }
 
 func NewAuthRepository(db *gorm.DB, idleLifetime time.Duration) *AuthRepository {
-	return &AuthRepository{db: db, idleLifetime: idleLifetime}
+	return &AuthRepository{db: db, tx: newTxManager(db), idleLifetime: idleLifetime}
 }
 
 func (r *AuthRepository) Create(ctx context.Context, transaction auth.LoginTransaction) error {
@@ -43,7 +44,7 @@ func (r *AuthRepository) Create(ctx context.Context, transaction auth.LoginTrans
 
 func (r *AuthRepository) Consume(ctx context.Context, stateHash []byte, now time.Time) (auth.LoginTransaction, error) {
 	var result auth.LoginTransaction
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := r.tx.do(ctx, func(tx *gorm.DB) error {
 		var row entity.AuthTransaction
 		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 			Where("state_hash = ? AND consumed_at IS NULL AND expires_at > ?", stateHash, now.UTC()).
@@ -79,7 +80,7 @@ func (r *AuthRepository) Consume(ctx context.Context, stateHash []byte, now time
 
 func (r *AuthRepository) UpsertIdentityAndCreateSession(ctx context.Context, identity auth.Identity, session auth.SessionRecord) (auth.UserProfile, error) {
 	var profile auth.UserProfile
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := r.tx.do(ctx, func(tx *gorm.DB) error {
 		var identityRow entity.UserIdentity
 		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 			Where("provider = ? AND subject = ?", identity.Provider, identity.Subject).
@@ -251,7 +252,7 @@ func (r *AuthRepository) FindActiveSession(ctx context.Context, tokenHash []byte
 
 func (r *AuthRepository) UpdateDisplayName(ctx context.Context, userID, displayName string) (auth.UserProfile, error) {
 	var profile auth.UserProfile
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := r.tx.do(ctx, func(tx *gorm.DB) error {
 		var user entity.User
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 			Where("id = ? AND status = ?", userID, activeUserStatus).
@@ -319,7 +320,7 @@ func (r *AuthRepository) ClearAvatarObjectKey(ctx context.Context, userID string
 func (r *AuthRepository) updateAvatarObjectKey(ctx context.Context, userID string, objectKey *string) (auth.UserProfile, string, error) {
 	var profile auth.UserProfile
 	var previousKey string
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := r.tx.do(ctx, func(tx *gorm.DB) error {
 		var user entity.User
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 			Where("id = ? AND status = ?", userID, activeUserStatus).
@@ -364,7 +365,7 @@ func (r *AuthRepository) RevokeSessionsForUser(ctx context.Context, userID strin
 // credentials identity, and the pending email-verification challenge in one
 // transaction. A duplicate email returns auth.ErrEmailTaken.
 func (r *AuthRepository) CreateUserWithCredential(ctx context.Context, record auth.RegisterRecord) error {
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := r.tx.do(ctx, func(tx *gorm.DB) error {
 		now := time.Now().UTC()
 		user := entity.User{
 			ID:          record.UserID,
@@ -514,7 +515,7 @@ func (r *AuthRepository) ResetLoginFailures(ctx context.Context, userID string, 
 // when the account previously had none (for example a Google-only account
 // that requested a password reset).
 func (r *AuthRepository) UpdatePasswordHash(ctx context.Context, userID, passwordHash string, now time.Time) error {
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return r.tx.do(ctx, func(tx *gorm.DB) error {
 		result := tx.Model(&entity.AuthCredential{}).Where("user_id = ?", userID).Updates(map[string]any{
 			"password_hash":       passwordHash,
 			"password_changed_at": now.UTC(),
@@ -583,7 +584,7 @@ func (r *AuthRepository) CreateChallenge(ctx context.Context, challenge auth.Cha
 
 func (r *AuthRepository) ConsumeChallenge(ctx context.Context, tokenHash []byte, purpose string, now time.Time) (string, error) {
 	var userID string
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := r.tx.do(ctx, func(tx *gorm.DB) error {
 		var row entity.AuthChallenge
 		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 			Where("token_hash = ? AND purpose = ? AND consumed_at IS NULL AND expires_at > ?", tokenHash, purpose, now.UTC()).

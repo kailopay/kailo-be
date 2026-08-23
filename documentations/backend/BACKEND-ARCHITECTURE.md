@@ -131,7 +131,9 @@ shapes or invariants diverge.
 
 ## 7. Consistency model
 
-PostgreSQL transactions guarantee atomicity only for local state. Payment gateway and Stellar effects are coordinated with:
+PostgreSQL transactions guarantee atomicity only for local state. All transaction bodies run through the shared repository transaction helper (`internal/repository/tx.go`), which propagates the request context and retries transient PostgreSQL lock conflicts (deadlock `40P01`, serialization failure `40001`, lock timeout `55P03`) up to two extra times with jittered backoff. This is safe because every transaction body is idempotent by construction: version-guarded updates, single-use consumption checks, and reservation status checks. Non-transient errors abort immediately.
+
+Payment gateway and Stellar effects are coordinated with:
 
 - Unique external event/reference constraints.
 - API idempotency records.

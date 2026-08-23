@@ -14,10 +14,11 @@ import (
 
 type APIKeyRepository struct {
 	db *gorm.DB
+	tx txManager
 }
 
 func NewAPIKeyRepository(db *gorm.DB) *APIKeyRepository {
-	return &APIKeyRepository{db: db}
+	return &APIKeyRepository{db: db, tx: newTxManager(db)}
 }
 
 func (r *APIKeyRepository) DeveloperModeEnabled(ctx context.Context, userID string) (bool, error) {
@@ -35,7 +36,7 @@ func (r *APIKeyRepository) CreateForOwner(
 	key usecase.Key,
 ) (string, error) {
 	var clientID string
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := r.tx.do(ctx, func(tx *gorm.DB) error {
 		var user entity.User
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 			Where("id = ? AND status = ? AND developer_enabled_at IS NOT NULL", ownerUserID, activeUserStatus).

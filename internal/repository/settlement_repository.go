@@ -17,16 +17,17 @@ import (
 
 type SettlementRepository struct {
 	db          *gorm.DB
+	tx          txManager
 	maxAttempts int
 }
 
 func NewSettlementRepository(db *gorm.DB, maxAttempts int) *SettlementRepository {
-	return &SettlementRepository{db: db, maxAttempts: maxAttempts}
+	return &SettlementRepository{db: db, tx: newTxManager(db), maxAttempts: maxAttempts}
 }
 
 func (r *SettlementRepository) Lease(ctx context.Context, workerID string, now time.Time, duration time.Duration) (usecase.Job, error) {
 	var job usecase.Job
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := r.tx.do(ctx, func(tx *gorm.DB) error {
 		var row entity.OutboxMessage
 		err := tx.Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).
 			Where("topic = ? AND processed_at IS NULL AND available_at <= ? AND attempts < ? AND (lease_until IS NULL OR lease_until < ?)",
@@ -89,7 +90,7 @@ func (r *SettlementRepository) MarkSubmitted(ctx context.Context, intentID, hash
 }
 
 func (r *SettlementRepository) Confirm(ctx context.Context, intentID, hash string, ledgerAt time.Time) error {
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return r.tx.do(ctx, func(tx *gorm.DB) error {
 		var stellar entity.StellarTransaction
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("intent_id = ?", intentID).First(&stellar).Error; err != nil {
 			return err
@@ -147,7 +148,7 @@ func (r *SettlementRepository) MarkUnknown(ctx context.Context, intentID, safeEr
 }
 
 func (r *SettlementRepository) FailPermanent(ctx context.Context, intentID, safeError string) error {
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return r.tx.do(ctx, func(tx *gorm.DB) error {
 		var stellar entity.StellarTransaction
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("intent_id = ?", intentID).First(&stellar).Error; err != nil {
 			return err
@@ -202,7 +203,7 @@ func (r *SettlementRepository) ResetSubmitted(ctx context.Context, intentID, saf
 // their inventory reserved by design.
 func (r *SettlementRepository) ReleaseExpiredReservations(ctx context.Context, now time.Time, limit int) (int, error) {
 	released := 0
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := r.tx.do(ctx, func(tx *gorm.DB) error {
 		var reservations []entity.TreasuryReservation
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).
 			Where("status = ? AND expires_at < ?", "reserved", now).
