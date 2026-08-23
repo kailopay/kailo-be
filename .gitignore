@@ -40,3 +40,4 @@ go.work
 go.work.sum
 
 /docs/*
+.zcode/
