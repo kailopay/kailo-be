@@ -39,53 +39,33 @@ type Principal struct {
 
 type CreatedKey struct {
 	ID        string    `json:"id"`
-	ClientID  string    `json:"clientId"`
+	ClientID  string    `json:"client_id"`
 	Prefix    string    `json:"prefix"`
 	Plaintext string    `json:"key"`
-	CreatedAt time.Time `json:"createdAt"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 type Metadata struct {
 	ID         string     `json:"id"`
-	ClientID   string     `json:"clientId"`
+	ClientID   string     `json:"client_id"`
 	Name       string     `json:"name"`
 	Prefix     string     `json:"prefix"`
-	CreatedAt  time.Time  `json:"createdAt"`
-	LastUsedAt *time.Time `json:"lastUsedAt,omitempty"`
-	RevokedAt  *time.Time `json:"revokedAt,omitempty"`
+	CreatedAt  time.Time  `json:"created_at"`
+	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
+	RevokedAt  *time.Time `json:"revoked_at,omitempty"`
 }
 
-type DeveloperModeReader interface {
+type APIKeyRepository interface {
 	DeveloperModeEnabled(ctx context.Context, userID string) (bool, error)
-}
-
-type Creator interface {
 	CreateForOwner(ctx context.Context, ownerUserID, suggestedClientID, clientName string, key Key) (string, error)
-}
-
-type ActiveFinder interface {
 	FindActiveByPublicID(ctx context.Context, publicID string) (Key, Principal, error)
-}
-
-type UsageRecorder interface {
 	TouchLastUsed(ctx context.Context, keyID string, usedAt time.Time) error
-}
-
-type Lister interface {
 	ListForOwner(ctx context.Context, ownerUserID string) ([]Metadata, error)
-}
-
-type Revoker interface {
 	RevokeForOwner(ctx context.Context, ownerUserID, keyID string, revokedAt time.Time) error
 }
 
 type APIKeyDependencies struct {
-	DeveloperMode DeveloperModeReader
-	Creator       Creator
-	Finder        ActiveFinder
-	UsageRecorder UsageRecorder
-	Lister        Lister
-	Revoker       Revoker
+	Repository APIKeyRepository
 }
 
 type APIKeyConfig struct {
@@ -101,9 +81,7 @@ type APIKeyUsecase struct {
 }
 
 func NewAPIKeyUsecase(dependencies APIKeyDependencies, config APIKeyConfig) (*APIKeyUsecase, error) {
-	if dependencies.DeveloperMode == nil || dependencies.Creator == nil ||
-		dependencies.Finder == nil || dependencies.UsageRecorder == nil ||
-		dependencies.Lister == nil || dependencies.Revoker == nil {
+	if dependencies.Repository == nil {
 		return nil, errors.New("api key dependencies are required")
 	}
 	if len(config.Pepper) < 32 || config.Random == nil || config.NewID == nil || config.Now == nil {
@@ -116,7 +94,7 @@ func (s *APIKeyUsecase) List(ctx context.Context, ownerUserID string) ([]Metadat
 	if err := s.requireDeveloperMode(ctx, ownerUserID); err != nil {
 		return nil, err
 	}
-	keys, err := s.dependencies.Lister.ListForOwner(ctx, ownerUserID)
+	keys, err := s.dependencies.Repository.ListForOwner(ctx, ownerUserID)
 	if err != nil {
 		return nil, fmt.Errorf("listing api keys: %w", err)
 	}
@@ -133,7 +111,7 @@ func (s *APIKeyUsecase) Revoke(ctx context.Context, ownerUserID, keyID string) e
 	if err := s.requireDeveloperMode(ctx, ownerUserID); err != nil {
 		return err
 	}
-	if err := s.dependencies.Revoker.RevokeForOwner(ctx, ownerUserID, keyID, s.config.Now().UTC()); err != nil {
+	if err := s.dependencies.Repository.RevokeForOwner(ctx, ownerUserID, keyID, s.config.Now().UTC()); err != nil {
 		return fmt.Errorf("revoking api key: %w", err)
 	}
 	return nil
@@ -145,7 +123,7 @@ func (s *APIKeyUsecase) Create(ctx context.Context, ownerUserID, name string) (C
 	if ownerUserID == "" || name == "" || len(name) > 100 {
 		return CreatedKey{}, ErrInvalidName
 	}
-	enabled, err := s.dependencies.DeveloperMode.DeveloperModeEnabled(ctx, ownerUserID)
+	enabled, err := s.dependencies.Repository.DeveloperModeEnabled(ctx, ownerUserID)
 	if err != nil {
 		return CreatedKey{}, fmt.Errorf("checking developer mode: %w", err)
 	}
@@ -182,7 +160,7 @@ func (s *APIKeyUsecase) Create(ctx context.Context, ownerUserID, name string) (C
 		SecretHash: hashSecret(s.config.Pepper, secret),
 		CreatedAt:  now,
 	}
-	clientID, err = s.dependencies.Creator.CreateForOwner(ctx, ownerUserID, clientID, name, key)
+	clientID, err = s.dependencies.Repository.CreateForOwner(ctx, ownerUserID, clientID, name, key)
 	if err != nil {
 		return CreatedKey{}, fmt.Errorf("creating api key: %w", err)
 	}
@@ -195,7 +173,7 @@ func (s *APIKeyUsecase) Authenticate(ctx context.Context, rawKey string) (Princi
 	if !ok {
 		return Principal{}, ErrInvalidKey
 	}
-	key, principal, err := s.dependencies.Finder.FindActiveByPublicID(ctx, publicID)
+	key, principal, err := s.dependencies.Repository.FindActiveByPublicID(ctx, publicID)
 	if err != nil {
 		return Principal{}, ErrInvalidKey
 	}
@@ -203,7 +181,7 @@ func (s *APIKeyUsecase) Authenticate(ctx context.Context, rawKey string) (Princi
 	if !hmac.Equal(key.SecretHash, providedHash) {
 		return Principal{}, ErrInvalidKey
 	}
-	if err := s.dependencies.UsageRecorder.TouchLastUsed(ctx, key.ID, s.config.Now().UTC()); err != nil {
+	if err := s.dependencies.Repository.TouchLastUsed(ctx, key.ID, s.config.Now().UTC()); err != nil {
 		return Principal{}, fmt.Errorf("recording api key usage: %w", err)
 	}
 	return principal, nil
@@ -213,7 +191,7 @@ func (s *APIKeyUsecase) requireDeveloperMode(ctx context.Context, ownerUserID st
 	if strings.TrimSpace(ownerUserID) == "" {
 		return ErrDeveloperModeRequired
 	}
-	enabled, err := s.dependencies.DeveloperMode.DeveloperModeEnabled(ctx, ownerUserID)
+	enabled, err := s.dependencies.Repository.DeveloperModeEnabled(ctx, ownerUserID)
 	if err != nil {
 		return fmt.Errorf("checking developer mode: %w", err)
 	}

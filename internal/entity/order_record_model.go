@@ -23,8 +23,8 @@ type OrderRecord struct {
 	QuoteAdjustedRate     string    `gorm:"type:numeric(30,18);not null"`
 	QuoteSpreadBPS        int       `gorm:"not null"`
 	QuoteExpiresAt        time.Time `gorm:"not null;index"`
-	PaymentMethod         string    `gorm:"type:text"`
-	GatewayProvider       string    `gorm:"type:text"`
+	PaymentMethod         string    `gorm:"type:text;not null"`
+	GatewayProvider       string    `gorm:"type:text;not null"`
 	StellarSource         *string   `gorm:"type:text"`
 	StellarDestination    *string   `gorm:"type:text"`
 	StellarMemo           *string   `gorm:"type:text"`

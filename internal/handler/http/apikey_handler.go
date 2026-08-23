@@ -47,7 +47,7 @@ func (h *APIKeyHandler) Create(c *gin.Context) {
 		h.writeError(c, "creating api key", err)
 		return
 	}
-	c.JSON(http.StatusCreated, gin.H{"apiKey": created})
+	c.JSON(http.StatusCreated, gin.H{"api_key": created})
 }
 
 func (h *APIKeyHandler) List(c *gin.Context) {
@@ -61,7 +61,7 @@ func (h *APIKeyHandler) List(c *gin.Context) {
 		h.writeError(c, "listing api keys", err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"apiKeys": keys})
+	c.JSON(http.StatusOK, gin.H{"api_keys": keys})
 }
 
 func (h *APIKeyHandler) Revoke(c *gin.Context) {

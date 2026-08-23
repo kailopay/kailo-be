@@ -46,16 +46,16 @@ type StellarConfig struct {
 	HorizonURL             string
 	NetworkPassphrase      string
 	TreasuryAccount        string
-	TreasurySecret         string
 	OperatingBufferStroops int64
 	Timeout                time.Duration
 }
 
 type WorkerConfig struct {
-	PollInterval  time.Duration
-	LeaseDuration time.Duration
-	RetryDelay    time.Duration
-	MaxAttempts   int
+	PollInterval      time.Duration
+	LeaseDuration     time.Duration
+	RetryDelay        time.Duration
+	SubmissionTimeout time.Duration
+	MaxAttempts       int
 }
 
 func (cfg Week1Config) Validate() error {
@@ -99,7 +99,7 @@ func (cfg Week1Config) Validate() error {
 		return errors.New("Stellar treasury configuration is invalid")
 	}
 	if cfg.Worker.PollInterval <= 0 || cfg.Worker.LeaseDuration <= 0 ||
-		cfg.Worker.RetryDelay <= 0 || cfg.Worker.MaxAttempts <= 0 {
+		cfg.Worker.RetryDelay <= 0 || cfg.Worker.SubmissionTimeout <= 0 || cfg.Worker.MaxAttempts <= 0 {
 		return errors.New("worker configuration is invalid")
 	}
 	return nil

@@ -47,9 +47,13 @@ func run(ctx context.Context) error {
 			logger.Error("closing worker database failed", slog.Any("error", err))
 		}
 	}()
+	treasurySecret, err := platform.LoadWorkerTreasurySecret()
+	if err != nil {
+		return fmt.Errorf("loading treasury secret: %w", err)
+	}
 	network, err := stellaradapter.New(stellaradapter.Config{HorizonURL: cfg.Week1.Stellar.HorizonURL,
-		NetworkPassphrase: cfg.Week1.Stellar.NetworkPassphrase, TreasurySecret: cfg.Week1.Stellar.TreasurySecret,
-		HTTPClient: &http.Client{Timeout: cfg.Week1.Stellar.Timeout}, TransactionTimeout: time.Minute})
+		NetworkPassphrase: cfg.Week1.Stellar.NetworkPassphrase, TreasurySecret: treasurySecret,
+		HTTPClient: &http.Client{Timeout: cfg.Week1.Stellar.Timeout}, TransactionTimeout: cfg.Week1.Worker.SubmissionTimeout})
 	if err != nil {
 		return fmt.Errorf("creating Stellar client: %w", err)
 	}
@@ -65,7 +69,17 @@ func run(ctx context.Context) error {
 	}
 	ticker := time.NewTicker(cfg.Week1.Worker.PollInterval)
 	defer ticker.Stop()
+	var lastSweep time.Time
 	for {
+		if time.Since(lastSweep) >= cfg.Week1.Worker.PollInterval {
+			released, err := service.ReleaseExpired(ctx)
+			if err != nil {
+				logger.ErrorContext(ctx, "releasing expired reservations failed", slog.Any("error", err))
+			} else if released > 0 {
+				logger.InfoContext(ctx, "released expired treasury reservations", slog.Int("released", released))
+			}
+			lastSweep = time.Now()
+		}
 		processed, err := service.RunOnce(ctx, workerID)
 		if err != nil && ctx.Err() == nil {
 			logger.ErrorContext(ctx, "settlement job failed", slog.Any("error", err))

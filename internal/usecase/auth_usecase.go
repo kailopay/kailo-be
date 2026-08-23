@@ -19,21 +19,17 @@ import (
 	"unicode/utf8"
 )
 
-type UserSessionStore interface {
+type AuthRepository interface {
+	Create(ctx context.Context, transaction LoginTransaction) error
+	Consume(ctx context.Context, stateHash []byte, now time.Time) (LoginTransaction, error)
 	UpsertIdentityAndCreateSession(ctx context.Context, identity Identity, session SessionRecord) (UserProfile, error)
 	RevokeSession(ctx context.Context, tokenHash []byte, now time.Time) error
 	FindActiveSession(ctx context.Context, tokenHash []byte, now time.Time) (AuthenticatedUser, error)
-}
-
-type ProfileStore interface {
 	UpdateDisplayName(ctx context.Context, userID, displayName string) (UserProfile, error)
 	SetDeveloperMode(ctx context.Context, userID string, enabled bool) (UserProfile, error)
 	FindProfile(ctx context.Context, userID string) (UserProfile, error)
 	ReplaceAvatarObjectKey(ctx context.Context, userID, objectKey string) (UserProfile, string, error)
 	ClearAvatarObjectKey(ctx context.Context, userID string) (UserProfile, string, error)
-}
-
-type IdentitySessionRevoker interface {
 	RevokeSessionsForIdentity(ctx context.Context, provider, subject string, now time.Time) error
 }
 
@@ -86,11 +82,11 @@ type SessionRecord struct {
 
 type UserProfile struct {
 	ID               string `json:"id"`
-	DisplayName      string `json:"displayName"`
+	DisplayName      string `json:"display_name"`
 	Email            string `json:"email"`
-	EmailVerified    bool   `json:"emailVerified"`
-	DeveloperEnabled bool   `json:"developerEnabled"`
-	AvatarURL        string `json:"avatarUrl,omitempty"`
+	EmailVerified    bool   `json:"email_verified"`
+	DeveloperEnabled bool   `json:"developer_enabled"`
+	AvatarURL        string `json:"avatar_url,omitempty"`
 	AvatarObjectKey  string `json:"-"`
 }
 
@@ -120,13 +116,10 @@ type AuthConfig struct {
 }
 
 type AuthDependencies struct {
-	Provider       Provider
-	PasswordReset  PasswordResetRequester
-	Transactions   TransactionStore
-	Sessions       UserSessionStore
-	Profiles       ProfileStore
-	SessionRevoker IdentitySessionRevoker
-	Avatars        AvatarStore
+	Provider      Provider
+	PasswordReset PasswordResetRequester
+	Repository    AuthRepository
+	Avatars       AvatarStore
 }
 
 type Provider interface {
@@ -159,31 +152,22 @@ type AvatarFile struct {
 	ETag        string
 }
 
-type TransactionStore interface {
-	Create(ctx context.Context, transaction LoginTransaction) error
-	Consume(ctx context.Context, stateHash []byte, now time.Time) (LoginTransaction, error)
-}
-
 const (
 	randomValueBytes  = 32
 	callbackSeparator = "\x00"
 )
 
 type AuthUsecase struct {
-	provider       Provider
-	passwordReset  PasswordResetRequester
-	transactions   TransactionStore
-	sessions       UserSessionStore
-	profiles       ProfileStore
-	sessionRevoker IdentitySessionRevoker
-	avatars        AvatarStore
-	clock          Clock
-	config         AuthConfig
+	provider      Provider
+	passwordReset PasswordResetRequester
+	repository    AuthRepository
+	avatars       AvatarStore
+	clock         Clock
+	config        AuthConfig
 }
 
 func NewAuthUsecase(deps AuthDependencies, clock Clock, config AuthConfig) (*AuthUsecase, error) {
-	if deps.Provider == nil || deps.PasswordReset == nil || deps.Transactions == nil || deps.Sessions == nil ||
-		deps.Profiles == nil || deps.SessionRevoker == nil || deps.Avatars == nil {
+	if deps.Provider == nil || deps.PasswordReset == nil || deps.Repository == nil || deps.Avatars == nil {
 		return nil, errors.New("auth usecase dependencies are required")
 	}
 	if clock == nil {
@@ -202,15 +186,12 @@ func NewAuthUsecase(deps AuthDependencies, clock Clock, config AuthConfig) (*Aut
 		return nil, errors.New("auth avatar maximum bytes must be positive")
 	}
 	return &AuthUsecase{
-		provider:       deps.Provider,
-		passwordReset:  deps.PasswordReset,
-		transactions:   deps.Transactions,
-		sessions:       deps.Sessions,
-		profiles:       deps.Profiles,
-		sessionRevoker: deps.SessionRevoker,
-		avatars:        deps.Avatars,
-		clock:          clock,
-		config:         config,
+		provider:      deps.Provider,
+		passwordReset: deps.PasswordReset,
+		repository:    deps.Repository,
+		avatars:       deps.Avatars,
+		clock:         clock,
+		config:        config,
 	}, nil
 }
 
@@ -239,7 +220,7 @@ func (s *AuthUsecase) BeginLogin(ctx context.Context) (string, error) {
 		CodeVerifierCiphertext: ciphertext,
 		ExpiresAt:              now.Add(s.config.TransactionLifetime),
 	}
-	if err := s.transactions.Create(ctx, transaction); err != nil {
+	if err := s.repository.Create(ctx, transaction); err != nil {
 		return "", fmt.Errorf("creating login transaction: %w", err)
 	}
 	redirectURL, err := s.provider.AuthorizationURL(ctx, state, nonce, pkceChallenge(verifier))
@@ -254,7 +235,7 @@ func (s *AuthUsecase) CompleteLogin(ctx context.Context, code, state string) (Se
 		return SessionResult{}, ErrInvalidTransaction
 	}
 	now := s.clock.Now().UTC()
-	transaction, err := s.transactions.Consume(ctx, hashValue(s.config.SessionHMACKey, state), now)
+	transaction, err := s.repository.Consume(ctx, hashValue(s.config.SessionHMACKey, state), now)
 	if err != nil {
 		return SessionResult{}, err
 	}
@@ -274,7 +255,7 @@ func (s *AuthUsecase) CompleteLogin(ctx context.Context, code, state string) (Se
 		return SessionResult{}, fmt.Errorf("generating session token: %w", err)
 	}
 	expiresAt := now.Add(s.config.SessionAbsoluteLifetime)
-	profile, err := s.sessions.UpsertIdentityAndCreateSession(ctx, identity, SessionRecord{
+	profile, err := s.repository.UpsertIdentityAndCreateSession(ctx, identity, SessionRecord{
 		TokenHash:  hashValue(s.config.SessionHMACKey, rawToken),
 		ExpiresAt:  expiresAt,
 		LastUsedAt: &now,
@@ -289,7 +270,7 @@ func (s *AuthUsecase) Logout(ctx context.Context, rawToken string) error {
 	if strings.TrimSpace(rawToken) == "" {
 		return nil
 	}
-	if err := s.sessions.RevokeSession(ctx, hashValue(s.config.SessionHMACKey, rawToken), s.clock.Now().UTC()); err != nil {
+	if err := s.repository.RevokeSession(ctx, hashValue(s.config.SessionHMACKey, rawToken), s.clock.Now().UTC()); err != nil {
 		return fmt.Errorf("revoking local session: %w", err)
 	}
 	return nil
@@ -299,7 +280,7 @@ func (s *AuthUsecase) Authenticate(ctx context.Context, rawToken string) (Authen
 	if strings.TrimSpace(rawToken) == "" {
 		return AuthenticatedUser{}, ErrInvalidSession
 	}
-	user, err := s.sessions.FindActiveSession(ctx, hashValue(s.config.SessionHMACKey, rawToken), s.clock.Now().UTC())
+	user, err := s.repository.FindActiveSession(ctx, hashValue(s.config.SessionHMACKey, rawToken), s.clock.Now().UTC())
 	if err != nil {
 		return AuthenticatedUser{}, err
 	}
@@ -315,13 +296,13 @@ func (s *AuthUsecase) UpdateProfile(ctx context.Context, userID string, input Up
 	var profile UserProfile
 	var err error
 	if displayName != "" {
-		profile, err = s.profiles.UpdateDisplayName(ctx, userID, displayName)
+		profile, err = s.repository.UpdateDisplayName(ctx, userID, displayName)
 		if err != nil {
 			return UserProfile{}, fmt.Errorf("updating profile: %w", err)
 		}
 	}
 	if input.DeveloperEnabled != nil {
-		profile, err = s.profiles.SetDeveloperMode(ctx, userID, *input.DeveloperEnabled)
+		profile, err = s.repository.SetDeveloperMode(ctx, userID, *input.DeveloperEnabled)
 		if err != nil {
 			return UserProfile{}, fmt.Errorf("updating developer mode: %w", err)
 		}
@@ -360,7 +341,7 @@ func (s *AuthUsecase) UpdateAvatar(ctx context.Context, userID string, upload Av
 	}); err != nil {
 		return UserProfile{}, fmt.Errorf("storing avatar: %w", err)
 	}
-	profile, previousKey, err := s.profiles.ReplaceAvatarObjectKey(ctx, userID, objectKey)
+	profile, previousKey, err := s.repository.ReplaceAvatarObjectKey(ctx, userID, objectKey)
 	if err != nil {
 		cleanupErr := s.avatars.Delete(ctx, objectKey)
 		return UserProfile{}, errors.Join(fmt.Errorf("updating avatar profile: %w", err), cleanupErr)
@@ -377,7 +358,7 @@ func (s *AuthUsecase) OpenAvatar(ctx context.Context, userID string) (AvatarFile
 	if strings.TrimSpace(userID) == "" {
 		return AvatarFile{}, ErrAvatarNotFound
 	}
-	profile, err := s.profiles.FindProfile(ctx, userID)
+	profile, err := s.repository.FindProfile(ctx, userID)
 	if err != nil {
 		return AvatarFile{}, fmt.Errorf("finding avatar profile: %w", err)
 	}
@@ -395,7 +376,7 @@ func (s *AuthUsecase) DeleteAvatar(ctx context.Context, userID string) (UserProf
 	if strings.TrimSpace(userID) == "" {
 		return UserProfile{}, ErrInvalidProfile
 	}
-	profile, objectKey, err := s.profiles.ClearAvatarObjectKey(ctx, userID)
+	profile, objectKey, err := s.repository.ClearAvatarObjectKey(ctx, userID)
 	if err != nil {
 		return UserProfile{}, fmt.Errorf("clearing avatar profile: %w", err)
 	}
@@ -412,7 +393,7 @@ func (s *AuthUsecase) CompletePasswordReset(ctx context.Context, subject string)
 	if subject == "" {
 		return ErrInvalidPasswordReset
 	}
-	if err := s.sessionRevoker.RevokeSessionsForIdentity(ctx, ProviderAuth0, subject, s.clock.Now().UTC()); err != nil {
+	if err := s.repository.RevokeSessionsForIdentity(ctx, ProviderAuth0, subject, s.clock.Now().UTC()); err != nil {
 		return fmt.Errorf("revoking password-reset sessions: %w", err)
 	}
 	return nil

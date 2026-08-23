@@ -59,23 +59,16 @@ type CallbackGateway interface {
 	GetPaymentRequest(ctx context.Context, providerID string) (PaymentState, error)
 }
 
-type CallbackStore interface {
-	RecordCallbackReceipt(ctx context.Context, receipt CallbackReceipt) (processed bool, err error)
-	ExpectedPayment(ctx context.Context, providerID string) (ExpectedPayment, error)
-	ConfirmPaymentAndEnqueue(ctx context.Context, confirmation PaymentConfirmation) error
-	CompleteCallback(ctx context.Context, eventID, result string) error
-}
-
 type OnrampCallbackUsecase struct {
-	gateway CallbackGateway
-	store   CallbackStore
+	gateway    CallbackGateway
+	repository OnrampRepository
 }
 
-func NewOnrampCallbackUsecase(gateway CallbackGateway, store CallbackStore) (*OnrampCallbackUsecase, error) {
-	if gateway == nil || store == nil {
+func NewOnrampCallbackUsecase(gateway CallbackGateway, repository OnrampRepository) (*OnrampCallbackUsecase, error) {
+	if gateway == nil || repository == nil {
 		return nil, errors.New("callback gateway and store are required")
 	}
-	return &OnrampCallbackUsecase{gateway: gateway, store: store}, nil
+	return &OnrampCallbackUsecase{gateway: gateway, repository: repository}, nil
 }
 
 func (s *OnrampCallbackUsecase) Process(ctx context.Context, raw []byte, token string) error {
@@ -85,7 +78,7 @@ func (s *OnrampCallbackUsecase) Process(ctx context.Context, raw []byte, token s
 	}
 	payloadDigest := sha256.Sum256(raw)
 	payloadHash := hex.EncodeToString(payloadDigest[:])
-	processed, err := s.store.RecordCallbackReceipt(ctx, CallbackReceipt{EventID: callback.EventID, EventType: callback.EventType,
+	processed, err := s.repository.RecordCallbackReceipt(ctx, CallbackReceipt{EventID: callback.EventID, EventType: callback.EventType,
 		PaymentRequestID: callback.PaymentRequestID, PayloadHash: payloadHash})
 	if err != nil {
 		return fmt.Errorf("recording callback receipt: %w", err)
@@ -93,9 +86,9 @@ func (s *OnrampCallbackUsecase) Process(ctx context.Context, raw []byte, token s
 	if processed {
 		return nil
 	}
-	expected, err := s.store.ExpectedPayment(ctx, callback.PaymentRequestID)
+	expected, err := s.repository.ExpectedPayment(ctx, callback.PaymentRequestID)
 	if err != nil {
-		_ = s.store.CompleteCallback(ctx, callback.EventID, "unmatched")
+		_ = s.repository.CompleteCallback(ctx, callback.EventID, "unmatched")
 		return fmt.Errorf("finding expected payment: %w", err)
 	}
 	actual, err := s.gateway.GetPaymentRequest(ctx, callback.PaymentRequestID)
@@ -104,12 +97,12 @@ func (s *OnrampCallbackUsecase) Process(ctx context.Context, raw []byte, token s
 	}
 	if callback.EventType != "payment.capture" || actual.Status != "SUCCEEDED" || actual.ProviderID != expected.ProviderID ||
 		actual.ReferenceID != expected.OrderID || actual.Currency != expected.Currency || actual.Amount != expected.Amount || actual.Channel != expected.Channel {
-		_ = s.store.CompleteCallback(ctx, callback.EventID, "mismatched")
+		_ = s.repository.CompleteCallback(ctx, callback.EventID, "mismatched")
 		return ErrPaymentMismatch
 	}
-	if err := s.store.ConfirmPaymentAndEnqueue(ctx, PaymentConfirmation{EventID: callback.EventID, EventType: callback.EventType,
+	if err := s.repository.ConfirmPaymentAndEnqueue(ctx, PaymentConfirmation{EventID: callback.EventID, EventType: callback.EventType,
 		PayloadHash: payloadHash, Expected: expected, Actual: actual}); err != nil {
 		return fmt.Errorf("confirming payment: %w", err)
 	}
-	return s.store.CompleteCallback(ctx, callback.EventID, "processed")
+	return s.repository.CompleteCallback(ctx, callback.EventID, "processed")
 }

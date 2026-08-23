@@ -123,6 +123,11 @@ func (c *Client) Submit(ctx context.Context, transaction usecase.BuiltTransactio
 		return usecase.Submission{Result: usecase.SubmissionUnknown, SafeError: "Horizon server error"}, nil
 	}
 	if status < 200 || status >= 300 {
+		// A rejected sequence is a definitive pre-application failure: the
+		// transaction never reached the ledger and rebuilding is safe.
+		if status < 500 && transactionResultCode(body) == "tx_bad_seq" {
+			return usecase.Submission{Result: usecase.SubmissionRetryable, SafeError: "Stellar sequence conflict"}, nil
+		}
 		return usecase.Submission{Result: usecase.SubmissionPermanent, SafeError: "Stellar transaction rejected"}, nil
 	}
 	var response struct {
@@ -160,11 +165,30 @@ func (c *Client) FindByHash(ctx context.Context, hash string) (usecase.Submissio
 	if err := json.Unmarshal(body, &response); err != nil {
 		return usecase.Submission{}, err
 	}
+	if response.Hash != hash {
+		return usecase.Submission{Result: usecase.SubmissionUnknown, SafeError: "Horizon reconciliation hash mismatch"}, nil
+	}
 	if !response.Successful {
 		return usecase.Submission{Result: usecase.SubmissionPermanent, SafeError: "Stellar transaction failed"}, nil
 	}
 	ledgerAt, _ := time.Parse(time.RFC3339Nano, response.CreatedAt)
 	return usecase.Submission{Result: usecase.SubmissionConfirmed, LedgerAt: ledgerAt.UTC()}, nil
+}
+
+func transactionResultCode(body []byte) string {
+	var payload struct {
+		Error struct {
+			Extras struct {
+				ResultCodes struct {
+					Transaction string `json:"transaction"`
+				} `json:"result_codes"`
+			} `json:"extras"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return ""
+	}
+	return payload.Error.Extras.ResultCodes.Transaction
 }
 
 func (c *Client) SpendableBalance(ctx context.Context, accountID string) (entity.Stroops, error) {

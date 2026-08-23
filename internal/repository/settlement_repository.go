@@ -152,16 +152,26 @@ func (r *SettlementRepository) FailPermanent(ctx context.Context, intentID, safe
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("intent_id = ?", intentID).First(&stellar).Error; err != nil {
 			return err
 		}
+		var order entity.OrderRecord
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", stellar.OrderID).First(&order).Error; err != nil {
+			return err
+		}
+		if order.Status != string(entity.OrderStatusStellarProcessing) {
+			return entity.ErrInvalidOrderState
+		}
 		now := time.Now().UTC()
 		if err := tx.Model(&entity.StellarTransaction{}).Where("id = ?", stellar.ID).Updates(map[string]any{
 			"status": "failed", "last_error": safeError, "updated_at": now,
 		}).Error; err != nil {
 			return err
 		}
-		if err := tx.Model(&entity.OrderRecord{}).Where("id = ? AND status = ?", stellar.OrderID, entity.OrderStatusStellarProcessing).Updates(map[string]any{
+		if err := tx.Model(&entity.OrderRecord{}).Where("id = ? AND version = ?", order.ID, order.Version).Updates(map[string]any{
 			"status": entity.OrderStatusStellarFailed, "failure_code": "stellar_permanent_failure", "failure_stage": "stellar",
-			"failure_retryable": false, "version": gorm.Expr("version + 1"), "updated_at": now,
+			"failure_retryable": false, "version": order.Version + 1, "updated_at": now,
 		}).Error; err != nil {
+			return err
+		}
+		if err := appendOrderEvent(tx, order.ID, order.Version+1, "stellar.failed", order.Status, string(entity.OrderStatusStellarFailed), now); err != nil {
 			return err
 		}
 		return tx.Model(&entity.OutboxMessage{}).Where("topic = ? AND aggregate_id = ? AND processed_at IS NULL", "stellar.settle_onramp", stellar.OrderID).
@@ -176,6 +186,58 @@ func (r *SettlementRepository) RetryLater(ctx context.Context, intentID string, 
 	}
 	return r.db.WithContext(ctx).Model(&entity.OutboxMessage{}).Where("topic = ? AND aggregate_id = ? AND processed_at IS NULL", "stellar.settle_onramp", stellar.OrderID).
 		Updates(map[string]any{"available_at": availableAt, "lease_owner": nil, "lease_until": nil, "last_error": safeError}).Error
+}
+
+// ResetSubmitted clears a persisted-but-rejected transaction hash so the next
+// attempt rebuilds from the current account sequence. It must only be used for
+// Horizon responses that prove the transaction was never applied.
+func (r *SettlementRepository) ResetSubmitted(ctx context.Context, intentID, safeError string) error {
+	return r.db.WithContext(ctx).Model(&entity.StellarTransaction{}).Where("intent_id = ?", intentID).
+		Updates(map[string]any{"transaction_hash": nil, "status": "pending", "last_error": safeError, "updated_at": time.Now().UTC()}).Error
+}
+
+// ReleaseExpiredReservations releases inventory held by reservations whose
+// expiry has passed. Only unpaid orders still awaiting payment expire; orders
+// held for operator resolution, such as an unknown checkout outcome, keep
+// their inventory reserved by design.
+func (r *SettlementRepository) ReleaseExpiredReservations(ctx context.Context, now time.Time, limit int) (int, error) {
+	released := 0
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var reservations []entity.TreasuryReservation
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).
+			Where("status = ? AND expires_at < ?", "reserved", now).
+			Order("expires_at").Limit(limit).Find(&reservations).Error; err != nil {
+			return fmt.Errorf("finding expired treasury reservations: %w", err)
+		}
+		for _, reservation := range reservations {
+			var order entity.OrderRecord
+			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", reservation.OrderID).First(&order).Error; err != nil {
+				return fmt.Errorf("locking expired order: %w", err)
+			}
+			if order.Status != string(entity.OrderStatusPaymentPending) {
+				continue
+			}
+			if err := tx.Model(&entity.TreasuryReservation{}).Where("id = ?", reservation.ID).
+				Updates(map[string]any{"status": "released", "released_at": now, "updated_at": now}).Error; err != nil {
+				return fmt.Errorf("releasing treasury reservation: %w", err)
+			}
+			if err := tx.Model(&entity.TreasuryAccount{}).Where("id = ?", reservation.TreasuryID).
+				Update("reserved_stroops", gorm.Expr("reserved_stroops - ?", reservation.AmountStroops)).Error; err != nil {
+				return fmt.Errorf("restoring treasury balance: %w", err)
+			}
+			if err := tx.Model(&entity.OrderRecord{}).Where("id = ? AND version = ?", order.ID, order.Version).Updates(map[string]any{
+				"status": entity.OrderStatusExpired, "version": order.Version + 1, "updated_at": now,
+			}).Error; err != nil {
+				return fmt.Errorf("expiring order: %w", err)
+			}
+			if err := appendOrderEvent(tx, order.ID, order.Version+1, "order.expired", order.Status, string(entity.OrderStatusExpired), now); err != nil {
+				return err
+			}
+			released++
+		}
+		return nil
+	})
+	return released, err
 }
 
 func parseStroops(amount string) (entity.Stroops, error) {

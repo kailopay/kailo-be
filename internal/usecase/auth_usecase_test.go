@@ -127,6 +127,11 @@ func (s *fakeUserSessionStore) RevokeSessionsForIdentity(_ context.Context, _, s
 	return s.err
 }
 
+type fakeAuthRepository struct {
+	*fakeTransactionStore
+	*fakeUserSessionStore
+}
+
 type fakeAvatarStore struct {
 	putObject   AvatarObject
 	openedKey   string
@@ -164,16 +169,14 @@ func testAuthUsecase(t *testing.T) (*AuthUsecase, *fakeProvider, *fakeTransactio
 	}}
 	transactions := &fakeTransactionStore{}
 	users := &fakeUserSessionStore{profile: UserProfile{ID: "user-id", DisplayName: "Test User", Email: "user@example.com", EmailVerified: true}}
+	repository := &fakeAuthRepository{fakeTransactionStore: transactions, fakeUserSessionStore: users}
 	avatars := &fakeAvatarStore{}
 	key := []byte("01234567890123456789012345678901")
 	service, err := NewAuthUsecase(AuthDependencies{
-		Provider:       provider,
-		PasswordReset:  provider,
-		Transactions:   transactions,
-		Sessions:       users,
-		Profiles:       users,
-		SessionRevoker: users,
-		Avatars:        avatars,
+		Provider:      provider,
+		PasswordReset: provider,
+		Repository:    repository,
+		Avatars:       avatars,
 	}, clock, AuthConfig{
 		TransactionEncryptionKey: key,
 		SessionHMACKey:           key,

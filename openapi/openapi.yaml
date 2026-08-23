@@ -247,9 +247,9 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [apiKeys]
+                required: [api_keys]
                 properties:
-                  apiKeys:
+                  api_keys:
                     type: array
                     items:
                       $ref: '#/components/schemas/APIKeyMetadata'
@@ -290,16 +290,52 @@ paths:
             schema:
               $ref: '#/components/schemas/CreateOnrampRequest'
       responses:
+        '200':
+          description: Idempotent replay of a previously completed request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
         '201':
           description: Treasury inventory reserved and Xendit checkout created
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/OrderResponse'
+        '202':
+          description: Checkout outcome is pending provider reconciliation (CHECKOUT_PENDING_RECONCILIATION)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OnrampError'
+        '400':
+          description: Malformed request (INVALID_REQUEST) or invalid Stellar destination (INVALID_STELLAR_ACCOUNT)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OnrampError'
+        '401':
+          description: Missing, malformed, invalid, or revoked API key
         '409':
-          description: Idempotency conflict or insufficient liquidity
+          description: Idempotency conflict (IDEMPOTENCY_KEY_REUSED) or insufficient liquidity (INSUFFICIENT_LIQUIDITY)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OnrampError'
+        '415':
+          description: Content type is not application/json
+        '422':
+          description: Amount outside the supported range (AMOUNT_OUT_OF_RANGE)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OnrampError'
         '503':
-          description: Quote, payment, or Stellar service unavailable
+          description: Quote unavailable (QUOTE_UNAVAILABLE) or an external service is unavailable (EXTERNAL_SERVICE_UNAVAILABLE)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OnrampError'
   /v1/orders:
     get:
       summary: List API-client-owned on-ramp orders
@@ -350,8 +386,14 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/OrderResponse'
+        '401':
+          description: Missing, malformed, invalid, or revoked API key
         '404':
-          description: Missing or cross-client order
+          description: Missing or cross-client order (ORDER_NOT_FOUND)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OnrampError'
   /callbacks/payments/xendit:
     post:
       summary: Receive an authenticated Xendit payment webhook
@@ -397,35 +439,35 @@ components:
           $ref: '#/components/schemas/UserProfile'
     UserProfile:
       type: object
-      required: [id, displayName, email, emailVerified, developerEnabled]
+      required: [id, display_name, email, email_verified, developer_enabled]
       properties:
         id:
           type: string
           format: uuid
-        displayName:
+        display_name:
           type: string
         email:
           type: string
           format: email
-        emailVerified:
+        email_verified:
           type: boolean
-        developerEnabled:
+        developer_enabled:
           type: boolean
-        avatarUrl:
+        avatar_url:
           type: string
           description: Authenticated relative URL for the private profile image; omitted when no avatar exists.
     UpdateProfileRequest:
       type: object
       additionalProperties: false
       anyOf:
-        - required: [displayName]
-        - required: [developerEnabled]
+        - required: [display_name]
+        - required: [developer_enabled]
       properties:
-        displayName:
+        display_name:
           type: string
           minLength: 1
           maxLength: 100
-        developerEnabled:
+        developer_enabled:
           type: boolean
     CreateAPIKeyRequest:
       type: object
@@ -438,30 +480,30 @@ components:
           maxLength: 100
     APIKeyMetadata:
       type: object
-      required: [id, clientId, name, prefix, createdAt]
+      required: [id, client_id, name, prefix, created_at]
       properties:
         id: {type: string, format: uuid}
-        clientId: {type: string, format: uuid}
+        client_id: {type: string, format: uuid}
         name: {type: string}
         prefix: {type: string}
-        createdAt: {type: string, format: date-time}
-        lastUsedAt: {type: string, format: date-time}
-        revokedAt: {type: string, format: date-time}
+        created_at: {type: string, format: date-time}
+        last_used_at: {type: string, format: date-time}
+        revoked_at: {type: string, format: date-time}
     CreateAPIKeyResponse:
       type: object
-      required: [apiKey]
+      required: [api_key]
       properties:
-        apiKey:
+        api_key:
           type: object
-          required: [id, clientId, prefix, key, createdAt]
+          required: [id, client_id, prefix, key, created_at]
           properties:
             id: {type: string, format: uuid}
-            clientId: {type: string, format: uuid}
+            client_id: {type: string, format: uuid}
             prefix: {type: string}
             key:
               type: string
               description: One-time plaintext sandbox key.
-            createdAt: {type: string, format: date-time}
+            created_at: {type: string, format: date-time}
     CreateOnrampRequest:
       type: object
       additionalProperties: false
@@ -563,4 +605,21 @@ components:
       required: [error]
       properties:
         error:
+          type: string
+    OnrampError:
+      type: object
+      required: [error, request_id]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum: [INVALID_REQUEST, INVALID_STELLAR_ACCOUNT, AMOUNT_OUT_OF_RANGE, INSUFFICIENT_LIQUIDITY,
+                     IDEMPOTENCY_KEY_REUSED, ORDER_NOT_FOUND, CHECKOUT_PENDING_RECONCILIATION,
+                     QUOTE_UNAVAILABLE, EXTERNAL_SERVICE_UNAVAILABLE]
+            message:
+              type: string
+        request_id:
           type: string

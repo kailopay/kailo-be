@@ -132,12 +132,7 @@ func newTestService(t *testing.T, store *fakeStore) *APIKeyUsecase {
 	ids := []string{"00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000002"}
 	index := 0
 	service, err := NewAPIKeyUsecase(APIKeyDependencies{
-		DeveloperMode: store,
-		Creator:       store,
-		Finder:        store,
-		UsageRecorder: store,
-		Lister:        store,
-		Revoker:       store,
+		Repository: store,
 	}, APIKeyConfig{
 		Pepper: []byte("0123456789abcdef0123456789abcdef"),
 		Random: strings.NewReader(strings.Repeat("r", 128)),

@@ -97,13 +97,10 @@ func run(ctx context.Context) error {
 	}
 	authRepository := repository.NewAuthRepository(db, cfg.Auth.SessionIdleLifetime)
 	authService, err := usecase.NewAuthUsecase(usecase.AuthDependencies{
-		Provider:       authProvider,
-		PasswordReset:  authProvider,
-		Transactions:   authRepository,
-		Sessions:       authRepository,
-		Profiles:       authRepository,
-		SessionRevoker: authRepository,
-		Avatars:        avatarStore,
+		Provider:      authProvider,
+		PasswordReset: authProvider,
+		Repository:    authRepository,
+		Avatars:       avatarStore,
 	}, nil, usecase.AuthConfig{
 		TransactionEncryptionKey: encryptionKey,
 		SessionHMACKey:           sessionHMACKey,
@@ -119,12 +116,7 @@ func run(ctx context.Context) error {
 	sessionMiddleware := middleware.RequireSessionWithCookie(authService, cfg.Auth.CookieName)
 	apiKeyRepository := repository.NewAPIKeyRepository(db)
 	apiKeyService, err := usecase.NewAPIKeyUsecase(usecase.APIKeyDependencies{
-		DeveloperMode: apiKeyRepository,
-		Creator:       apiKeyRepository,
-		Finder:        apiKeyRepository,
-		UsageRecorder: apiKeyRepository,
-		Lister:        apiKeyRepository,
-		Revoker:       apiKeyRepository,
+		Repository: apiKeyRepository,
 	}, usecase.APIKeyConfig{
 		Pepper: []byte(cfg.Week1.APIKeyPepper),
 		Random: rand.Reader,
@@ -153,7 +145,7 @@ func run(ctx context.Context) error {
 	}
 	onrampRepository := repository.NewOnrampRepository(db, cfg.Week1.Stellar.TreasuryAccount, "testnet",
 		entity.Stroops(cfg.Week1.Stellar.OperatingBufferStroops))
-	onrampService, err := usecase.NewOnrampUsecase(usecase.OnrampDependencies{Store: onrampRepository, Prices: priceClient,
+	onrampService, err := usecase.NewOnrampUsecase(usecase.OnrampDependencies{Repository: onrampRepository, Prices: priceClient,
 		Treasury: treasuryReader, Gateway: paymentClient, Destinations: treasuryReader}, usecase.ServiceConfig{
 		QuotePolicy: usecase.QuotePolicy{TTL: cfg.Week1.Onramp.QuoteTTL, MaxAge: cfg.Week1.Onramp.QuoteMaxAge,
 			SpreadBPS: cfg.Week1.Onramp.QuoteSpreadBPS}, MinIDR: entity.IDR(cfg.Week1.Onramp.MinIDR),

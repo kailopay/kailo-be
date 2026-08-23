@@ -13,12 +13,13 @@ import (
 )
 
 const (
-	PaymentMethodQRIS                       = entity.PaymentMethodQRIS
-	PaymentMethodBRIVA entity.PaymentMethod = "bri_va"
+	PaymentMethodQRIS  = entity.PaymentMethodQRIS
+	PaymentMethodBRIVA = entity.PaymentMethodBRIVA
 )
 
 var (
 	ErrInvalidCommand        = errors.New("invalid onramp command")
+	ErrInvalidDestination    = errors.New("invalid stellar destination")
 	ErrAmountOutOfRange      = errors.New("fiat amount is outside the supported range")
 	ErrInsufficientLiquidity = errors.New("insufficient treasury liquidity")
 	ErrIdempotencyConflict   = errors.New("idempotency key was reused with a different request")
@@ -42,7 +43,7 @@ type PaymentGateway interface {
 	CreateCheckout(ctx context.Context, input CheckoutInput) (Checkout, error)
 }
 
-type OnrampStore interface {
+type OnrampRepository interface {
 	FindReplay(ctx context.Context, clientID, idempotencyKeyHash, requestHash string) (OrderView, bool, error)
 	ReserveAndCreate(ctx context.Context, record CreateRecord, observedBalance entity.Stroops) error
 	AttachCheckout(ctx context.Context, orderID string, checkout Checkout) (OrderView, error)
@@ -50,10 +51,14 @@ type OnrampStore interface {
 	MarkCheckoutUnknown(ctx context.Context, orderID, reason string) error
 	Get(ctx context.Context, clientID, orderID string) (OrderView, error)
 	List(ctx context.Context, clientID string, limit int, cursor string) ([]OrderView, string, error)
+	RecordCallbackReceipt(ctx context.Context, receipt CallbackReceipt) (processed bool, err error)
+	ExpectedPayment(ctx context.Context, providerID string) (ExpectedPayment, error)
+	ConfirmPaymentAndEnqueue(ctx context.Context, confirmation PaymentConfirmation) error
+	CompleteCallback(ctx context.Context, eventID, result string) error
 }
 
 type OnrampDependencies struct {
-	Store        OnrampStore
+	Repository   OnrampRepository
 	Prices       PriceReader
 	Treasury     TreasuryReader
 	Gateway      PaymentGateway
@@ -111,19 +116,19 @@ type OrderView struct {
 	Status                 entity.OrderStatus   `json:"status"`
 	FiatAmountMinor        entity.IDR           `json:"-"`
 	AssetAmount            entity.Stroops       `json:"-"`
-	QuoteRate              string               `json:"quoteRate"`
-	QuoteAdjustedRate      string               `json:"quoteAdjustedRate"`
-	QuoteSpreadBPS         int                  `json:"quoteSpreadBps"`
-	QuoteSourceAt          time.Time            `json:"quoteSourceAt"`
-	QuoteExpiresAt         time.Time            `json:"quoteExpiresAt"`
-	PaymentMethod          entity.PaymentMethod `json:"paymentMethod"`
-	StellarDestination     string               `json:"stellarDestination"`
-	StellarMemo            string               `json:"stellarMemo,omitempty"`
+	QuoteRate              string               `json:"quote_rate"`
+	QuoteAdjustedRate      string               `json:"quote_adjusted_rate"`
+	QuoteSpreadBPS         int                  `json:"quote_spread_bps"`
+	QuoteSourceAt          time.Time            `json:"quote_source_at"`
+	QuoteExpiresAt         time.Time            `json:"quote_expires_at"`
+	PaymentMethod          entity.PaymentMethod `json:"payment_method"`
+	StellarDestination     string               `json:"stellar_destination"`
+	StellarMemo            string               `json:"stellar_memo,omitempty"`
 	Checkout               *Checkout            `json:"checkout,omitempty"`
-	StellarTransactionHash string               `json:"stellarTransactionHash,omitempty"`
-	FailureCode            string               `json:"failureCode,omitempty"`
-	CreatedAt              time.Time            `json:"createdAt"`
-	UpdatedAt              time.Time            `json:"updatedAt"`
+	StellarTransactionHash string               `json:"stellar_transaction_hash,omitempty"`
+	FailureCode            string               `json:"failure_code,omitempty"`
+	CreatedAt              time.Time            `json:"created_at"`
+	UpdatedAt              time.Time            `json:"updated_at"`
 }
 
 type GatewayError struct {
@@ -140,7 +145,7 @@ type OnrampUsecase struct {
 }
 
 func NewOnrampUsecase(dependencies OnrampDependencies, config ServiceConfig) (*OnrampUsecase, error) {
-	if dependencies.Store == nil || dependencies.Prices == nil || dependencies.Treasury == nil || dependencies.Gateway == nil || dependencies.Destinations == nil ||
+	if dependencies.Repository == nil || dependencies.Prices == nil || dependencies.Treasury == nil || dependencies.Gateway == nil || dependencies.Destinations == nil ||
 		config.NewID == nil || config.Now == nil || strings.TrimSpace(config.TreasuryAccount) == "" ||
 		config.MinIDR <= 0 || config.MaxIDR < config.MinIDR {
 		return nil, errors.New("valid onramp dependencies and configuration are required")
@@ -157,14 +162,14 @@ func (s *OnrampUsecase) Create(ctx context.Context, command Command) (OrderView,
 		return OrderView{}, false, err
 	}
 	if err := s.dependencies.Destinations.ValidateDestination(command.Destination); err != nil {
-		return OrderView{}, false, ErrInvalidCommand
+		return OrderView{}, false, ErrInvalidDestination
 	}
 	if command.Amount < s.config.MinIDR || command.Amount > s.config.MaxIDR {
 		return OrderView{}, false, ErrAmountOutOfRange
 	}
 	idempotencyHash := digest(command.IdempotencyKey)
 	requestHash := digest(fmt.Sprintf("%d|%s|%s|%s", command.Amount, command.PaymentMethod, command.Destination, command.Memo))
-	replayed, found, err := s.dependencies.Store.FindReplay(ctx, command.ClientID, idempotencyHash, requestHash)
+	replayed, found, err := s.dependencies.Repository.FindReplay(ctx, command.ClientID, idempotencyHash, requestHash)
 	if err != nil {
 		return OrderView{}, false, fmt.Errorf("checking idempotency: %w", err)
 	}
@@ -194,7 +199,7 @@ func (s *OnrampUsecase) Create(ctx context.Context, command Command) (OrderView,
 	record := CreateRecord{OrderID: orderID, ClientID: command.ClientID, IdempotencyKeyHash: idempotencyHash,
 		RequestHash: requestHash, PaymentMethod: command.PaymentMethod, Destination: command.Destination,
 		Memo: command.Memo, Quote: quote, CreatedAt: now}
-	if err := s.dependencies.Store.ReserveAndCreate(ctx, record, observedBalance); err != nil {
+	if err := s.dependencies.Repository.ReserveAndCreate(ctx, record, observedBalance); err != nil {
 		return OrderView{}, false, fmt.Errorf("reserving treasury inventory: %w", err)
 	}
 	checkout, err := s.dependencies.Gateway.CreateCheckout(ctx, CheckoutInput{
@@ -203,13 +208,13 @@ func (s *OnrampUsecase) Create(ctx context.Context, command Command) (OrderView,
 	if err != nil {
 		var gatewayError *GatewayError
 		if errors.As(err, &gatewayError) && gatewayError.Unknown {
-			_ = s.dependencies.Store.MarkCheckoutUnknown(ctx, orderID, "provider outcome unknown")
+			_ = s.dependencies.Repository.MarkCheckoutUnknown(ctx, orderID, "provider outcome unknown")
 			return OrderView{}, false, ErrCheckoutUnknown
 		}
-		_ = s.dependencies.Store.FailCheckout(ctx, orderID, "provider rejected checkout")
+		_ = s.dependencies.Repository.FailCheckout(ctx, orderID, "provider rejected checkout")
 		return OrderView{}, false, fmt.Errorf("creating payment checkout: %w", err)
 	}
-	view, err := s.dependencies.Store.AttachCheckout(ctx, orderID, checkout)
+	view, err := s.dependencies.Repository.AttachCheckout(ctx, orderID, checkout)
 	if err != nil {
 		return OrderView{}, false, fmt.Errorf("attaching payment checkout: %w", err)
 	}
@@ -217,14 +222,14 @@ func (s *OnrampUsecase) Create(ctx context.Context, command Command) (OrderView,
 }
 
 func (s *OnrampUsecase) Get(ctx context.Context, clientID, orderID string) (OrderView, error) {
-	return s.dependencies.Store.Get(ctx, clientID, orderID)
+	return s.dependencies.Repository.Get(ctx, clientID, orderID)
 }
 
 func (s *OnrampUsecase) List(ctx context.Context, clientID string, limit int, cursor string) ([]OrderView, string, error) {
 	if limit < 1 || limit > 100 {
 		limit = 20
 	}
-	return s.dependencies.Store.List(ctx, clientID, limit, cursor)
+	return s.dependencies.Repository.List(ctx, clientID, limit, cursor)
 }
 
 func validateCommand(command Command) error {

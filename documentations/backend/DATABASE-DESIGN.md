@@ -6,9 +6,17 @@
 migration. It includes Auth0-backed users/sessions, one test API client per
 developer/environment, hashed API keys, immutable quote fields, orders/events,
 Xendit checkout and callback receipts, treasury accounts/reservations,
-idempotency records, Stellar intents, and durable outbox leases. Runtime
-services use explicit transactions; `AutoMigrate` remains local/test bootstrap
-only.
+idempotency records, Stellar intents, and durable outbox leases.
+`migrations/000002_payment_method_bri_va.sql` realigns the stored
+`payment_method`/`method` enum with the public `qris`/`bri_va` contract.
+Runtime services use explicit transactions; `AutoMigrate` remains local/test
+bootstrap only.
+
+PostgreSQL integration tests in
+`internal/repository/onramp_integration_test.go` apply these migrations and
+verify constraints, reservations, settlement, and expiry behavior. They are
+gated on `TEST_DATABASE_DSN` pointing at a disposable database and skip
+otherwise.
 
 ## 1. Database principles
 
@@ -40,7 +48,12 @@ erDiagram
     WEBHOOK_EVENTS ||--o{ WEBHOOK_ATTEMPTS : delivers
     API_CLIENTS ||--o{ IDEMPOTENCY_RECORDS : scopes
     ORDERS ||--o{ OUTBOX_MESSAGES : emits
+    TREASURY_ACCOUNTS ||--o{ TREASURY_RESERVATIONS : reserves
+    ORDERS ||--o| TREASURY_RESERVATIONS : holds
 ```
+
+`auth_transactions` stores one-time OIDC login transactions and is not
+referenced by other tables.
 
 ## 3. Core tables
 
@@ -85,6 +98,24 @@ Unique: `(provider, subject)`. This permits future account linking without chang
 
 Unique: `token_hash`. Retail sessions are short-lived, revocable, and scoped to the user’s own orders.
 
+### `auth_transactions`
+
+One-time OIDC login transactions backing `GET /auth/login` and
+`GET /auth/callback`.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | `uuid` | Primary key |
+| `state_hash` | `bytea` | Unique; HMAC of the OIDC state value |
+| `nonce_hash` | `bytea` | HMAC of the OIDC nonce |
+| `code_verifier_ciphertext` | `bytea` | Encrypted PKCE verifier; never stored in plaintext |
+| `expires_at` | `timestamptz` | Transaction lifetime; indexed for cleanup |
+| `consumed_at` | `timestamptz` | Set exactly once; single-use enforcement |
+| `created_at` | `updated_at` | `timestamptz` |
+
+Unique: `state_hash`. A consumed or expired transaction can never complete a
+second login.
+
 ### `api_clients`
 
 | Column | Type | Notes |
@@ -117,14 +148,19 @@ Recommended key format: `pk_test_<public_id>_<random_secret>`. Parse `public_id`
 | `client_id` | `uuid` | Nullable FK for API-created orders |
 | `created_by_user_id` | `uuid` | Nullable actor/correlation user FK |
 | `retail_session_id` | `uuid` | Nullable FK for retail-created orders |
-| `direction` | `text` | `onramp`, `offramp` |
+| `direction` | `text` | Week 1 CHECK pins `onramp`; `offramp` arrives with the off-ramp migration |
 | `status` | `text` | State-machine value |
-| `version` | `integer` | Optimistic concurrency |
+| `version` | `integer` | Optimistic concurrency, positive check |
 | `currency` | `text` | `IDR` |
 | `fiat_amount_minor` | `bigint` | Positive check |
-| `asset_code`, `asset_issuer`, `network` | `text` | Network check: testnet |
-| `asset_amount` | `numeric(p,s)` or canonical string mapping | Precision configured for asset |
-| `payment_method`, `gateway_provider` | `text` | Supported enum/configuration |
+| `asset_code`, `asset_issuer`, `network` | `text` | `XLM`, pinned testnet network check |
+| `asset_amount` | `numeric(30,18)` | Canonical decimal rendering |
+| `asset_amount_stroops` | `bigint` | Exact stroops; positive check; authoritative for settlement |
+| `quote_provider`, `quote_source_at` | `text`, `timestamptz` | Price source and observation time |
+| `quote_rate`, `quote_adjusted_rate` | `numeric(30,18)` | Raw and spread-adjusted IDR per XLM; positive checks |
+| `quote_spread_bps` | `integer` | 0–10000 check |
+| `quote_expires_at` | `timestamptz` | Quote lock expiry; indexed |
+| `payment_method`, `gateway_provider` | `text` | `qris`/`bri_va` and `xendit` checks after migration 000002 |
 | `stellar_source`, `stellar_destination`, `stellar_memo` | `text` | Nullable by direction/stage |
 | `withdrawal_destination` | encrypted/minimized structured column | Synthetic sandbox data only |
 | `expires_at` | `timestamptz` | Optional lifecycle expiry |
@@ -160,11 +196,48 @@ Columns include ID, order ID, provider, provider checkout ID, method, expected c
 
 Unique: `(provider, provider_checkout_id)`. Index: `(order_id, created_at)`.
 
+### `treasury_accounts`
+
+One row per treasury hot wallet. No secret is ever stored here.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | `uuid` | Primary key |
+| `network` | `text` | Pinned to `stellar_testnet` |
+| `public_account` | `text` | Treasury distribution address; unique with network |
+| `observed_balance_stroops` | `bigint` | Last reconciled spendable native balance; non-negative |
+| `reserved_stroops` | `bigint` | Sum of active reservations; `reserved <= observed` check |
+| `operating_buffer_stroops` | `bigint` | Configured safety buffer; non-negative |
+| `last_reconciled_at` | `timestamptz` | When the observed balance was refreshed from Horizon |
+| `created_at`, `updated_at` | `timestamptz` | UTC |
+
+The row is locked and reconciled against a fresh Horizon balance inside the
+same transaction that creates a reservation. Available inventory is
+`observed - reserved - operating_buffer`.
+
+### `treasury_reservations`
+
+Exactly one reservation per order.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | `uuid` | Primary key |
+| `treasury_id` | `uuid` | FK to `treasury_accounts` |
+| `order_id` | `uuid` | Unique; the order holding this inventory |
+| `amount_stroops` | `bigint` | Positive check |
+| `status` | `text` | `reserved`, `consumed`, `released`; paired timestamp checks |
+| `reserved_at`, `consumed_at`, `released_at`, `expires_at` | `timestamptz` | Status transitions |
+| `created_at`, `updated_at` | `timestamptz` | UTC |
+
+Index: `(status, expires_at)` backs the worker sweep that expires unpaid
+orders and releases their inventory. Orders held for operator resolution,
+such as an unknown checkout outcome, keep their reservation.
+
 ### `gateway_events`
 
 Columns include ID, provider, provider event ID or deterministic fingerprint, event type, checkout/order reference, payload hash, signature/authentication result, matching result, received/processed timestamps, processing status, and safe error.
 
-Unique: `(provider, provider_event_id)` when provided; otherwise `(provider, payload_hash, event_type)` with a documented collision strategy.
+Unique: `(provider, provider_event_id)` when provided; otherwise `(provider, payload_hash, event_type)` with a documented collision strategy. Week 1 requires `provider_event_id` to be present (Xendit always supplies `payment_id`) and enforces the first uniqueness rule only; the fallback rule remains future work for providers without event IDs.
 
 ### `stellar_transactions`
 
@@ -204,7 +277,7 @@ Conflicting request hashes return `409 IDEMPOTENCY_KEY_REUSED`.
 
 Columns include ID, topic/type, aggregate type/ID, payload JSON, created time, available time, lease owner/until, attempts, processed time, and last safe error.
 
-Index unprocessed messages by `(processed_at, available_at)` and use atomic leasing.
+Week 1 leases with `FOR UPDATE SKIP LOCKED` and indexes unprocessed messages with a partial index on `(available_at) WHERE processed_at IS NULL`, which is equivalent to the composite `(processed_at, available_at)` plan because the predicate fixes `processed_at IS NULL`.
 
 ## 4. Transaction boundaries
 
@@ -225,16 +298,17 @@ Minimum indexes:
 - `user_identities(user_id)` for local-user identity management.
 - `retail_sessions(token_hash)` unique for session authentication.
 - `api_clients(owner_user_id, created_at desc)` for developer-management listing.
-- `orders(client_id, created_at desc)` for API-client listing.
-- `orders(retail_session_id, created_at desc)` for retail history.
-- `orders(status, updated_at)` for reconciliation/operations.
+- `orders(client_id, created_at desc, id desc)` for API-client cursor listing; implemented.
+- `orders(retail_session_id, created_at desc)` for retail history; deferred until the retail web flow ships.
+- `orders(status, updated_at)` for reconciliation/operations; implemented.
 - `orders(gateway_provider, payment_method)` if operational lookup requires it.
-- `order_events(order_id, aggregate_version)` unique.
-- Provider-reference indexes on payment and gateway tables.
-- `stellar_transactions(order_id, purpose)` and unique non-null hash.
-- `webhook_attempts(status, scheduled_at)` for delivery worker.
-- `outbox_messages(processed_at, available_at)` partial where unprocessed.
-- `idempotency_records(expires_at)` for retention cleanup.
+- `order_events(order_id, aggregate_version)` unique; implemented.
+- Provider-reference indexes on payment and gateway tables; implemented.
+- `stellar_transactions(order_id, purpose)` and unique non-null hash; implemented.
+- `treasury_reservations(status, expires_at)` for the reservation-expiry sweep; implemented.
+- `webhook_attempts(status, scheduled_at)` for delivery worker; deferred with the webhook pipeline.
+- `outbox_messages(available_at) where processed_at is null` partial; implemented.
+- `idempotency_records(expires_at)` for retention cleanup; deferred until the cleanup job ships.
 
 Review client-owner and session indexes with representative data before adding broader search indexes.
 

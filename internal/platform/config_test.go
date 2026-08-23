@@ -106,6 +106,20 @@ func TestLoadRejectsMissingDatabaseDSN(t *testing.T) {
 	}
 }
 
+func TestLoadWorkerTreasurySecretRequiresSecret(t *testing.T) {
+	if _, err := LoadWorkerTreasurySecret(); err == nil {
+		t.Fatal("LoadWorkerTreasurySecret() error = nil, want required-secret error")
+	}
+	t.Setenv("STELLAR_TREASURY_SECRET", "SCZANGBA5YHTNYVVV4C3U5HISTYVZKUCJ5CZ2YMYFX4F7TRISPVZZ5AL")
+	secret, err := LoadWorkerTreasurySecret()
+	if err != nil {
+		t.Fatalf("LoadWorkerTreasurySecret() error = %v", err)
+	}
+	if secret != "SCZANGBA5YHTNYVVV4C3U5HISTYVZKUCJ5CZ2YMYFX4F7TRISPVZZ5AL" {
+		t.Fatalf("secret = %q", secret)
+	}
+}
+
 func TestLoadReadsDotenvConfigFile(t *testing.T) {
 	setValidAuthEnv(t)
 	path := filepath.Join(t.TempDir(), ".env")

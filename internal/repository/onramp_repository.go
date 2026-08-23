@@ -89,7 +89,7 @@ func (r *OnrampRepository) ReserveAndCreate(ctx context.Context, record usecase.
 			Update("reserved_stroops", gorm.Expr("reserved_stroops + ?", record.Quote.AssetAmount)).Error; err != nil {
 			return fmt.Errorf("reserving treasury balance: %w", err)
 		}
-		if err := r.appendOrderEvent(tx, order.ID, 1, "order.created", "", string(entity.OrderStatusCreated), record.CreatedAt); err != nil {
+		if err := appendOrderEvent(tx, order.ID, 1, "order.created", "", string(entity.OrderStatusCreated), record.CreatedAt); err != nil {
 			return err
 		}
 		idempotencyID, err := platform.NewID()
@@ -98,7 +98,7 @@ func (r *OnrampRepository) ReserveAndCreate(ctx context.Context, record usecase.
 		}
 		idempotency := entity.IdempotencyRecord{ID: idempotencyID, ClientID: record.ClientID, Operation: onrampCreateOperation,
 			KeyHash: record.IdempotencyKeyHash, RequestHash: record.RequestHash, CreatedResourceID: &order.ID,
-			State: "in_progress", ExpiresAt: record.CreatedAt.Add(24 * time.Hour), CreatedAt: record.CreatedAt, UpdatedAt: record.CreatedAt}
+			State: "processing", ExpiresAt: record.CreatedAt.Add(24 * time.Hour), CreatedAt: record.CreatedAt, UpdatedAt: record.CreatedAt}
 		if err := tx.Create(&idempotency).Error; err != nil {
 			return fmt.Errorf("creating idempotency record: %w", err)
 		}
@@ -132,7 +132,7 @@ func (r *OnrampRepository) AttachCheckout(ctx context.Context, orderID string, c
 			Updates(map[string]any{"status": entity.OrderStatusPaymentPending, "version": order.Version + 1, "updated_at": now}).Error; err != nil {
 			return fmt.Errorf("moving order to payment pending: %w", err)
 		}
-		if err := r.appendOrderEvent(tx, order.ID, order.Version+1, "checkout.created", order.Status, string(entity.OrderStatusPaymentPending), now); err != nil {
+		if err := appendOrderEvent(tx, order.ID, order.Version+1, "checkout.created", order.Status, string(entity.OrderStatusPaymentPending), now); err != nil {
 			return err
 		}
 		return tx.Model(&entity.IdempotencyRecord{}).Where("created_resource_id = ? AND operation = ?", order.ID, onrampCreateOperation).
@@ -221,10 +221,10 @@ func (r *OnrampRepository) ConfirmPaymentAndEnqueue(ctx context.Context, confirm
 		}).Error; err != nil {
 			return fmt.Errorf("moving paid order to settlement: %w", err)
 		}
-		if err := r.appendOrderEvent(tx, order.ID, order.Version+1, "payment.confirmed", order.Status, string(entity.OrderStatusPaymentConfirmed), now); err != nil {
+		if err := appendOrderEvent(tx, order.ID, order.Version+1, "payment.confirmed", order.Status, string(entity.OrderStatusPaymentConfirmed), now); err != nil {
 			return err
 		}
-		if err := r.appendOrderEvent(tx, order.ID, order.Version+2, "stellar.transfer_requested", string(entity.OrderStatusPaymentConfirmed), string(entity.OrderStatusStellarProcessing), now); err != nil {
+		if err := appendOrderEvent(tx, order.ID, order.Version+2, "stellar.transfer_requested", string(entity.OrderStatusPaymentConfirmed), string(entity.OrderStatusStellarProcessing), now); err != nil {
 			return err
 		}
 		intentRowID, err := platform.NewID()
@@ -371,6 +371,13 @@ func (r *OnrampRepository) lockTreasury(ctx context.Context, tx *gorm.DB, observ
 
 func (r *OnrampRepository) releaseFailedOrder(ctx context.Context, orderID string, status entity.OrderStatus, code, reason string) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var order entity.OrderRecord
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", orderID).First(&order).Error; err != nil {
+			return fmt.Errorf("locking failed order: %w", err)
+		}
+		if order.Status != string(entity.OrderStatusCreated) {
+			return entity.ErrInvalidOrderState
+		}
 		var reservation entity.TreasuryReservation
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("order_id = ? AND status = ?", orderID, "reserved").First(&reservation).Error; err != nil {
 			return fmt.Errorf("locking treasury reservation: %w", err)
@@ -384,14 +391,17 @@ func (r *OnrampRepository) releaseFailedOrder(ctx context.Context, orderID strin
 			Update("reserved_stroops", gorm.Expr("reserved_stroops - ?", reservation.AmountStroops)).Error; err != nil {
 			return err
 		}
-		return tx.Model(&entity.OrderRecord{}).Where("id = ?", orderID).Updates(map[string]any{
+		if err := tx.Model(&entity.OrderRecord{}).Where("id = ? AND version = ?", order.ID, order.Version).Updates(map[string]any{
 			"status": status, "failure_code": code, "failure_stage": "payment", "failure_retryable": false,
-			"updated_at": now, "version": gorm.Expr("version + 1"),
-		}).Error
+			"updated_at": now, "version": order.Version + 1,
+		}).Error; err != nil {
+			return fmt.Errorf("failing order: %w", err)
+		}
+		return appendOrderEvent(tx, order.ID, order.Version+1, "checkout.failed", order.Status, string(status), now)
 	})
 }
 
-func (r *OnrampRepository) appendOrderEvent(tx *gorm.DB, orderID string, version int, eventType, previous, next string, now time.Time) error {
+func appendOrderEvent(tx *gorm.DB, orderID string, version int, eventType, previous, next string, now time.Time) error {
 	id, err := platform.NewID()
 	if err != nil {
 		return err

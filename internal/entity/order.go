@@ -22,9 +22,9 @@ const (
 type PaymentMethod string
 
 const (
-	PaymentMethodUnknown      PaymentMethod = ""
-	PaymentMethodQRIS         PaymentMethod = "qris"
-	PaymentMethodBankTransfer PaymentMethod = "bank_transfer"
+	PaymentMethodUnknown PaymentMethod = ""
+	PaymentMethodQRIS    PaymentMethod = "qris"
+	PaymentMethodBRIVA   PaymentMethod = "bri_va"
 )
 
 type Order struct {

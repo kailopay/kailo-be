@@ -191,13 +191,13 @@ func TestAuthHandlerUpdatesAuthenticatedProfile(t *testing.T) {
 	handler := testAuthHandler(t, service)
 	router := authenticatedAuthRouter(t, handler, http.MethodPatch, "/auth/me", handler.UpdateProfile)
 
-	request := httptest.NewRequest(http.MethodPatch, "/auth/me", strings.NewReader(`{"displayName":"New Name"}`))
+	request := httptest.NewRequest(http.MethodPatch, "/auth/me", strings.NewReader(`{"display_name":"New Name"}`))
 	request.Header.Set("Content-Type", "application/json")
 	request.AddCookie(&http.Cookie{Name: middleware.DefaultSessionCookieName, Value: "token"})
 	response := httptest.NewRecorder()
 	router.ServeHTTP(response, request)
 
-	if response.Code != http.StatusOK || service.updatedName != "New Name" || !strings.Contains(response.Body.String(), `"displayName":"New Name"`) {
+	if response.Code != http.StatusOK || service.updatedName != "New Name" || !strings.Contains(response.Body.String(), `"display_name":"New Name"`) {
 		t.Fatalf("profile response/name = %d/%q/%q", response.Code, response.Body.String(), service.updatedName)
 	}
 }
@@ -208,7 +208,7 @@ func TestAuthHandlerEnablesDeveloperMode(t *testing.T) {
 	handler := testAuthHandler(t, service)
 	router := authenticatedAuthRouter(t, handler, http.MethodPatch, "/auth/me", handler.UpdateProfile)
 
-	request := httptest.NewRequest(http.MethodPatch, "/auth/me", strings.NewReader(`{"developerEnabled":true}`))
+	request := httptest.NewRequest(http.MethodPatch, "/auth/me", strings.NewReader(`{"developer_enabled":true}`))
 	request.Header.Set("Content-Type", "application/json")
 	request.AddCookie(&http.Cookie{Name: middleware.DefaultSessionCookieName, Value: "token"})
 	response := httptest.NewRecorder()

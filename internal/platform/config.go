@@ -83,15 +83,10 @@ type AuthConfig struct {
 }
 
 func Load() (Config, error) {
-	v := viper.New()
-	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
-	v.AutomaticEnv()
-
-	setDefaults(v)
-	if err := readConfigFile(v); err != nil {
+	v, err := loadSettings()
+	if err != nil {
 		return Config{}, err
 	}
-	bindEnvironment(v)
 
 	cfg := Config{
 		App: AppConfig{
@@ -173,15 +168,15 @@ func Load() (Config, error) {
 				HorizonURL:             strings.TrimRight(v.GetString("stellar.horizon_url"), "/"),
 				NetworkPassphrase:      v.GetString("stellar.network_passphrase"),
 				TreasuryAccount:        v.GetString("stellar.treasury_account"),
-				TreasurySecret:         v.GetString("stellar.treasury_secret"),
 				OperatingBufferStroops: v.GetInt64("stellar.operating_buffer_stroops"),
 				Timeout:                v.GetDuration("stellar.timeout"),
 			},
 			Worker: WorkerConfig{
-				PollInterval:  v.GetDuration("worker.poll_interval"),
-				LeaseDuration: v.GetDuration("worker.lease_duration"),
-				RetryDelay:    v.GetDuration("worker.retry_delay"),
-				MaxAttempts:   v.GetInt("worker.max_attempts"),
+				PollInterval:      v.GetDuration("worker.poll_interval"),
+				LeaseDuration:     v.GetDuration("worker.lease_duration"),
+				RetryDelay:        v.GetDuration("worker.retry_delay"),
+				SubmissionTimeout: v.GetDuration("worker.submission_timeout"),
+				MaxAttempts:       v.GetInt("worker.max_attempts"),
 			},
 		},
 	}
@@ -190,6 +185,34 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	return cfg, nil
+}
+
+func loadSettings() (*viper.Viper, error) {
+	v := viper.New()
+	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	v.AutomaticEnv()
+
+	setDefaults(v)
+	if err := readConfigFile(v); err != nil {
+		return nil, err
+	}
+	bindEnvironment(v)
+	return v, nil
+}
+
+// LoadWorkerTreasurySecret reads the worker-only Stellar treasury signing key.
+// The secret is intentionally excluded from the shared configuration so the
+// API process never loads it into memory.
+func LoadWorkerTreasurySecret() (string, error) {
+	v, err := loadSettings()
+	if err != nil {
+		return "", err
+	}
+	secret := strings.TrimSpace(v.GetString("stellar.treasury_secret"))
+	if secret == "" {
+		return "", errors.New("STELLAR_TREASURY_SECRET is required for the settlement worker")
+	}
+	return secret, nil
 }
 
 func (c Config) Validate() error {
@@ -369,6 +392,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("worker.poll_interval", time.Second)
 	v.SetDefault("worker.lease_duration", 30*time.Second)
 	v.SetDefault("worker.retry_delay", 5*time.Second)
+	v.SetDefault("worker.submission_timeout", time.Minute)
 	v.SetDefault("worker.max_attempts", 5)
 }
 
@@ -445,6 +469,7 @@ func environmentBindings() map[string]string {
 		"worker.poll_interval":               "WORKER_POLL_INTERVAL",
 		"worker.lease_duration":              "WORKER_LEASE_DURATION",
 		"worker.retry_delay":                 "WORKER_RETRY_DELAY",
+		"worker.submission_timeout":          "WORKER_SUBMISSION_TIMEOUT",
 		"worker.max_attempts":                "WORKER_MAX_ATTEMPTS",
 	}
 }

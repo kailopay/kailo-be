@@ -18,6 +18,24 @@ func (callbackGatewayFake) GetPaymentRequest(context.Context, string) (PaymentSt
 
 type callbackStoreFake struct{ recorded, confirmed int }
 
+func (s *callbackStoreFake) FindReplay(context.Context, string, string, string) (OrderView, bool, error) {
+	return OrderView{}, false, nil
+}
+func (s *callbackStoreFake) ReserveAndCreate(context.Context, CreateRecord, entity.Stroops) error {
+	return nil
+}
+func (s *callbackStoreFake) AttachCheckout(context.Context, string, Checkout) (OrderView, error) {
+	return OrderView{}, nil
+}
+func (s *callbackStoreFake) FailCheckout(context.Context, string, string) error        { return nil }
+func (s *callbackStoreFake) MarkCheckoutUnknown(context.Context, string, string) error { return nil }
+func (s *callbackStoreFake) Get(context.Context, string, string) (OrderView, error) {
+	return OrderView{}, nil
+}
+func (s *callbackStoreFake) List(context.Context, string, int, string) ([]OrderView, string, error) {
+	return []OrderView{}, "", nil
+}
+
 func (s *callbackStoreFake) RecordCallbackReceipt(context.Context, CallbackReceipt) (bool, error) {
 	s.recorded++
 	return s.recorded > 1, nil

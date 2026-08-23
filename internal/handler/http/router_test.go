@@ -41,7 +41,7 @@ func TestRouterRegistersExpandedAuthEndpoints(t *testing.T) {
 		wantStatus    int
 	}{
 		{method: http.MethodPost, path: "/auth/password/forgot", body: `{"email":"user@example.com"}`, contentType: "application/json", wantStatus: http.StatusAccepted},
-		{method: http.MethodPatch, path: "/auth/me", body: `{"displayName":"Name"}`, contentType: "application/json", authenticated: true, wantStatus: http.StatusOK},
+		{method: http.MethodPatch, path: "/auth/me", body: `{"display_name":"Name"}`, contentType: "application/json", authenticated: true, wantStatus: http.StatusOK},
 		{method: http.MethodPut, path: "/auth/me/avatar", contentType: "multipart/form-data", authenticated: true, wantStatus: http.StatusBadRequest},
 		{method: http.MethodGet, path: "/auth/me/avatar", authenticated: true, wantStatus: http.StatusOK},
 		{method: http.MethodDelete, path: "/auth/me/avatar", authenticated: true, wantStatus: http.StatusOK},

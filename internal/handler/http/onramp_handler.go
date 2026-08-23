@@ -115,20 +115,58 @@ func (h *OnrampHandler) List(c *gin.Context) {
 }
 
 func (h *OnrampHandler) writeError(c *gin.Context, operation string, err error) {
-	switch {
-	case errors.Is(err, usecase.ErrInvalidCommand), errors.Is(err, usecase.ErrAmountOutOfRange):
-		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_REQUEST", "message": err.Error()}})
-	case errors.Is(err, usecase.ErrInsufficientLiquidity):
-		c.JSON(http.StatusConflict, gin.H{"error": gin.H{"code": "INSUFFICIENT_LIQUIDITY", "message": err.Error()}})
-	case errors.Is(err, usecase.ErrIdempotencyConflict):
-		c.JSON(http.StatusConflict, gin.H{"error": gin.H{"code": "IDEMPOTENCY_KEY_REUSED", "message": err.Error()}})
-	case errors.Is(err, usecase.ErrOrderNotFound):
-		c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"code": "ORDER_NOT_FOUND", "message": err.Error()}})
-	case errors.Is(err, usecase.ErrCheckoutUnknown):
-		c.JSON(http.StatusAccepted, gin.H{"error": gin.H{"code": "CHECKOUT_PENDING_RECONCILIATION", "message": err.Error()}})
-	default:
+	code, status := errorMapping(err)
+	if code == "" {
 		h.logger.ErrorContext(c.Request.Context(), operation+" failed", slog.Any("error", err))
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{"code": "SERVICE_UNAVAILABLE", "message": "service temporarily unavailable"}})
+		code, status = "EXTERNAL_SERVICE_UNAVAILABLE", http.StatusServiceUnavailable
+	}
+	c.JSON(status, gin.H{"error": gin.H{"code": code, "message": publicErrorMessage(code)},
+		"request_id": middleware.RequestIDFromContext(c)})
+}
+
+func errorMapping(err error) (string, int) {
+	switch {
+	case errors.Is(err, usecase.ErrInvalidCommand):
+		return "INVALID_REQUEST", http.StatusBadRequest
+	case errors.Is(err, usecase.ErrInvalidDestination):
+		return "INVALID_STELLAR_ACCOUNT", http.StatusBadRequest
+	case errors.Is(err, usecase.ErrAmountOutOfRange):
+		return "AMOUNT_OUT_OF_RANGE", http.StatusUnprocessableEntity
+	case errors.Is(err, usecase.ErrInsufficientLiquidity):
+		return "INSUFFICIENT_LIQUIDITY", http.StatusConflict
+	case errors.Is(err, usecase.ErrIdempotencyConflict):
+		return "IDEMPOTENCY_KEY_REUSED", http.StatusConflict
+	case errors.Is(err, usecase.ErrOrderNotFound):
+		return "ORDER_NOT_FOUND", http.StatusNotFound
+	case errors.Is(err, usecase.ErrCheckoutUnknown):
+		return "CHECKOUT_PENDING_RECONCILIATION", http.StatusAccepted
+	case errors.Is(err, usecase.ErrInvalidPrice), errors.Is(err, usecase.ErrStalePrice), errors.Is(err, usecase.ErrInvalidQuote):
+		return "QUOTE_UNAVAILABLE", http.StatusServiceUnavailable
+	default:
+		return "", 0
+	}
+}
+
+func publicErrorMessage(code string) string {
+	switch code {
+	case "INVALID_REQUEST":
+		return "The request payload is invalid."
+	case "INVALID_STELLAR_ACCOUNT":
+		return "The Stellar testnet destination is invalid."
+	case "AMOUNT_OUT_OF_RANGE":
+		return "The requested amount is outside the supported range."
+	case "INSUFFICIENT_LIQUIDITY":
+		return "Insufficient treasury liquidity is available for this order."
+	case "IDEMPOTENCY_KEY_REUSED":
+		return "This idempotency key was already used with a different request."
+	case "ORDER_NOT_FOUND":
+		return "The order does not exist or is not visible to this client."
+	case "CHECKOUT_PENDING_RECONCILIATION":
+		return "The checkout outcome is being reconciled with the payment provider."
+	case "QUOTE_UNAVAILABLE":
+		return "A fresh quote is currently unavailable; retry shortly."
+	default:
+		return "An external service is temporarily unavailable."
 	}
 }
 

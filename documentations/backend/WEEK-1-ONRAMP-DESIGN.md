@@ -262,18 +262,25 @@ CoinMarketCap, Xendit, or Horizon calls.
 API process secrets/configuration:
 
 - `API_KEY_PEPPER`
-- `COINMARKETCAP_BASE_URL`, `COINMARKETCAP_API_KEY`
+- `COINMARKETCAP_BASE_URL`, `COINMARKETCAP_API_KEY`, `COINMARKETCAP_TIMEOUT`
 - `QUOTE_TTL`, `QUOTE_MAX_AGE`, `QUOTE_SPREAD_BPS`
 - `ORDER_MIN_IDR`, `ORDER_MAX_IDR`
-- `XENDIT_BASE_URL`, `XENDIT_SECRET_KEY`, `XENDIT_CALLBACK_TOKEN`
+- `XENDIT_BASE_URL`, `XENDIT_SECRET_KEY`, `XENDIT_CALLBACK_TOKEN`,
+  `XENDIT_TIMEOUT`
 - `XENDIT_API_VERSION`, `XENDIT_QRIS_CHANNEL`, `XENDIT_VA_CHANNEL`
-- `STELLAR_HORIZON_URL`, `STELLAR_NETWORK_PASSPHRASE`
+- `STELLAR_HORIZON_URL`, `STELLAR_NETWORK_PASSPHRASE`, `STELLAR_TIMEOUT`
 - `STELLAR_TREASURY_ACCOUNT`, `STELLAR_OPERATING_BUFFER_STROOPS`
 
 Worker-only secret/configuration:
 
 - `STELLAR_TREASURY_SECRET`
-- lease, poll, submission timeout, and bounded retry settings
+- `WORKER_POLL_INTERVAL`, `WORKER_LEASE_DURATION`, `WORKER_RETRY_DELAY`,
+  `WORKER_MAX_ATTEMPTS`
+- `WORKER_SUBMISSION_TIMEOUT` bounding the Stellar transaction time condition
+
+`STELLAR_TREASURY_SECRET` is read only through the worker-only configuration
+loader; the shared configuration consumed by `cmd/api` does not contain the
+field, so a misconfigured API environment cannot load the signing key.
 
 Local/test configuration may use fake adapters in tests. Runtime configuration
 uses real sandbox/testnet adapters and fails startup on production/mainnet

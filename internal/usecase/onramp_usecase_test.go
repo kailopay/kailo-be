@@ -36,6 +36,16 @@ func (s *createStoreFake) Get(context.Context, string, string) (OrderView, error
 func (s *createStoreFake) List(context.Context, string, int, string) ([]OrderView, string, error) {
 	return []OrderView{}, "", nil
 }
+func (s *createStoreFake) RecordCallbackReceipt(context.Context, CallbackReceipt) (bool, error) {
+	return false, nil
+}
+func (s *createStoreFake) ExpectedPayment(context.Context, string) (ExpectedPayment, error) {
+	return ExpectedPayment{}, nil
+}
+func (s *createStoreFake) ConfirmPaymentAndEnqueue(context.Context, PaymentConfirmation) error {
+	return nil
+}
+func (s *createStoreFake) CompleteCallback(context.Context, string, string) error { return nil }
 
 type priceFake struct{ now time.Time }
 
@@ -64,7 +74,7 @@ func TestCreateReservesBeforeExposingCheckout(t *testing.T) {
 	now := time.Date(2026, 8, 20, 1, 0, 0, 0, time.UTC)
 	store := &createStoreFake{}
 	gateway := &gatewayFake{}
-	service, err := NewOnrampUsecase(OnrampDependencies{Store: store, Prices: priceFake{now: now}, Treasury: treasuryFake{}, Gateway: gateway, Destinations: destinationFake{}}, ServiceConfig{
+	service, err := NewOnrampUsecase(OnrampDependencies{Repository: store, Prices: priceFake{now: now}, Treasury: treasuryFake{}, Gateway: gateway, Destinations: destinationFake{}}, ServiceConfig{
 		QuotePolicy: QuotePolicy{TTL: 5 * time.Minute, MaxAge: 2 * time.Minute},
 		MinIDR:      10_000, MaxIDR: 10_000_000, TreasuryAccount: "G" + string(make([]byte, 55)),
 		NewID: func() (string, error) { return "order-1", nil }, Now: func() time.Time { return now },

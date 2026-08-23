@@ -31,6 +31,7 @@ recovery. Only a confirmed Stellar transaction consumes the reservation.
 stateDiagram-v2
     [*] --> created
     created --> payment_pending: checkout created
+    created --> payment_failed: provider permanently rejects checkout before creation
     payment_pending --> payment_confirmed: verified and reconciled callback
     payment_pending --> expired: checkout/order expired
     payment_pending --> payment_failed: provider reports permanent failure

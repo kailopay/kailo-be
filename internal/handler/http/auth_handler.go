@@ -98,8 +98,8 @@ func (h *AuthHandler) UpdateProfile(c *gin.Context) {
 		return
 	}
 	var request struct {
-		DisplayName      string `json:"displayName"`
-		DeveloperEnabled *bool  `json:"developerEnabled"`
+		DisplayName      string `json:"display_name"`
+		DeveloperEnabled *bool  `json:"developer_enabled"`
 	}
 	if err := decodeJSON(c, &request, 4<<10); err != nil {
 		writeRequestError(c, http.StatusBadRequest)

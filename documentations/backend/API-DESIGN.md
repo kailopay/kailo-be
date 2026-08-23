@@ -4,6 +4,7 @@
 
 - Base path: `/v1`.
 - JSON over HTTPS.
+- JSON object keys use `snake_case` everywhere (`amount_minor`, `display_name`, `client_id`), matching the PostgreSQL column names and the Xendit/Stellar ecosystems the API translates between. Go struct field names remain PascalCase; the `json` struct tags own the wire naming. The pre-release auth slice briefly shipped camelCase keys; they were unified to snake_case before any consumer existed, and the OpenAPI file reflects the unified contract.
 - All settlement amounts are strings or integer IDR minor units as defined by OpenAPI; never JSON floating-point numbers.
 - Timestamps use RFC 3339 UTC.
 - Public identifiers are opaque.
@@ -193,10 +194,20 @@ Minimum stable codes:
 | 404 | `ORDER_NOT_FOUND` | Resource absent or not visible to client |
 | 409 | `INVALID_ORDER_STATE` | Operation conflicts with current lifecycle |
 | 409 | `IDEMPOTENCY_KEY_REUSED` | Same key used with a different request |
+| 409 | `INSUFFICIENT_LIQUIDITY` | Treasury inventory cannot cover the order |
 | 422 | `AMOUNT_OUT_OF_RANGE` | Valid shape but unsupported amount |
 | 429 | `RATE_LIMITED` | Client exceeded sandbox limit |
+| 202 | `CHECKOUT_PENDING_RECONCILIATION` | Checkout transport outcome unknown; the order is held for provider reconciliation |
+| 503 | `QUOTE_UNAVAILABLE` | Market data missing, stale, or produced an invalid quote |
 | 502/503 | `EXTERNAL_SERVICE_UNAVAILABLE` | Provider/network unavailable; safe retry guidance required |
 | 500 | `INTERNAL_ERROR` | Unexpected server error; reference request ID |
+
+Week 1 implements `INVALID_REQUEST`, `INVALID_STELLAR_ACCOUNT`,
+`INSUFFICIENT_LIQUIDITY`, `IDEMPOTENCY_KEY_REUSED`, `AMOUNT_OUT_OF_RANGE`,
+`ORDER_NOT_FOUND`, `CHECKOUT_PENDING_RECONCILIATION`, `QUOTE_UNAVAILABLE`, and
+`EXTERNAL_SERVICE_UNAVAILABLE`. The remaining catalog entries
+(`UNSUPPORTED_ROUTE`, `INVALID_API_KEY` body, `INVALID_ORDER_STATE`,
+`RATE_LIMITED`, `INTERNAL_ERROR`) are Week 3 hardening work.
 
 Provider-specific errors map to stable KailoPay codes; raw provider bodies are not returned.
 

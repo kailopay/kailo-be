@@ -27,7 +27,7 @@ Testing must prove both business outcomes and failure safety:
 ## 3. Test environment strategy
 
 - Unit/integration CI uses deterministic fake gateway and Stellar adapters.
-- PostgreSQL tests run against the same supported major version as deployment.
+- PostgreSQL tests run against the same supported major version as deployment. Set `TEST_DATABASE_DSN` to a disposable database to run the repository integration suite in `internal/repository`; the tests apply the versioned migrations, verify constraints and transactions, and skip when the variable is unset.
 - Real provider sandbox tests are tagged and run manually or in protected CI with sandbox secrets.
 - Stellar testnet tests use dedicated accounts/assets and handle network flakiness explicitly.
 - No test requires production credentials, mainnet, real identity, or real bank data.
