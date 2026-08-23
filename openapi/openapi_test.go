@@ -17,13 +17,18 @@ func TestDocumentValidatesAuthContract(t *testing.T) {
 		t.Fatalf("validating OpenAPI document: %v", err)
 	}
 	for _, path := range []string{
+		"/auth/register",
 		"/auth/login",
-		"/auth/callback",
+		"/auth/google/login",
+		"/auth/google/callback",
 		"/auth/logout",
+		"/auth/email/verify",
+		"/auth/email/resend",
 		"/auth/password/forgot",
+		"/auth/password/reset",
+		"/auth/password/change",
 		"/auth/me",
 		"/auth/me/avatar",
-		"/internal/auth/password-reset-completed",
 		"/v1/api-keys",
 		"/v1/api-keys/{id}",
 		"/v1/onramps",
@@ -34,6 +39,9 @@ func TestDocumentValidatesAuthContract(t *testing.T) {
 		if document.Paths.Find(path) == nil {
 			t.Errorf("missing auth path %q", path)
 		}
+	}
+	if document.Paths.Find("/internal/auth/password-reset-completed") != nil {
+		t.Error("the Auth0 password-reset webhook path must not exist")
 	}
 	me := document.Paths.Find("/auth/me").Get
 	if me == nil || me.Security == nil || len(*me.Security) != 1 {

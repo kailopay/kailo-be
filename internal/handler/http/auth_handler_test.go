@@ -20,12 +20,30 @@ import (
 )
 
 type fakeAuthService struct {
-	loginURL           string
-	loginErr           error
+	registerInput      auth.RegisterInput
+	registerProfile    auth.UserProfile
+	registerErr        error
+	loginEmail         string
+	loginPassword      string
 	result             auth.SessionResult
-	completeErr        error
+	loginErr           error
+	googleAvailable    bool
+	googleLoginURL     string
+	googleLoginErr     error
+	googleCompleteErr  error
 	logoutErr          error
 	logoutToken        string
+	verifiedToken      string
+	verifyProfile      auth.UserProfile
+	verifyErr          error
+	resendEmail        string
+	resendErr          error
+	resetToken         string
+	resetPassword      string
+	resetErr           error
+	changeCurrent      string
+	changeNew          string
+	changeErr          error
 	updatedProfile     auth.UserProfile
 	updatedName        string
 	developerEnabled   *bool
@@ -37,14 +55,26 @@ type fakeAuthService struct {
 	avatarFile         auth.AvatarFile
 	avatarErr          error
 	avatarDeleted      bool
-	resetSubject       string
-	resetErr           error
 }
 
-func (s *fakeAuthService) BeginLogin(context.Context) (string, error) { return s.loginURL, s.loginErr }
+func (s *fakeAuthService) Register(_ context.Context, input auth.RegisterInput) (auth.UserProfile, error) {
+	s.registerInput = input
+	return s.registerProfile, s.registerErr
+}
 
-func (s *fakeAuthService) CompleteLogin(context.Context, string, string) (auth.SessionResult, error) {
-	return s.result, s.completeErr
+func (s *fakeAuthService) LoginWithPassword(_ context.Context, email, password string) (auth.SessionResult, error) {
+	s.loginEmail, s.loginPassword = email, password
+	return s.result, s.loginErr
+}
+
+func (s *fakeAuthService) GoogleAvailable() bool { return s.googleAvailable }
+
+func (s *fakeAuthService) BeginGoogleLogin(context.Context) (string, error) {
+	return s.googleLoginURL, s.googleLoginErr
+}
+
+func (s *fakeAuthService) CompleteGoogleLogin(context.Context, string, string) (auth.SessionResult, error) {
+	return s.result, s.googleCompleteErr
 }
 
 func (s *fakeAuthService) Logout(_ context.Context, token string) error {
@@ -56,15 +86,35 @@ func (s *fakeAuthService) Authenticate(context.Context, string) (auth.Authentica
 	return auth.AuthenticatedUser{}, nil
 }
 
-func (s *fakeAuthService) UpdateProfile(_ context.Context, _ string, input auth.UpdateProfileInput) (auth.UserProfile, error) {
-	s.updatedName = input.DisplayName
-	s.developerEnabled = input.DeveloperEnabled
-	return s.updatedProfile, s.profileErr
+func (s *fakeAuthService) VerifyEmail(_ context.Context, token string) (auth.UserProfile, error) {
+	s.verifiedToken = token
+	return s.verifyProfile, s.verifyErr
+}
+
+func (s *fakeAuthService) ResendVerification(_ context.Context, email string) error {
+	s.resendEmail = email
+	return s.resendErr
 }
 
 func (s *fakeAuthService) RequestPasswordReset(_ context.Context, email string) error {
 	s.passwordResetEmail = email
 	return s.passwordResetErr
+}
+
+func (s *fakeAuthService) ResetPassword(_ context.Context, token, newPassword string) error {
+	s.resetToken, s.resetPassword = token, newPassword
+	return s.resetErr
+}
+
+func (s *fakeAuthService) ChangePassword(_ context.Context, _, currentPassword, newPassword string) error {
+	s.changeCurrent, s.changeNew = currentPassword, newPassword
+	return s.changeErr
+}
+
+func (s *fakeAuthService) UpdateProfile(_ context.Context, _ string, input auth.UpdateProfileInput) (auth.UserProfile, error) {
+	s.updatedName = input.DisplayName
+	s.developerEnabled = input.DeveloperEnabled
+	return s.updatedProfile, s.profileErr
 }
 
 func (s *fakeAuthService) UpdateAvatar(_ context.Context, _ string, upload auth.AvatarUpload) (auth.UserProfile, error) {
@@ -81,26 +131,26 @@ func (s *fakeAuthService) DeleteAvatar(context.Context, string) (auth.UserProfil
 	return s.avatarProfile, s.avatarErr
 }
 
-func (s *fakeAuthService) CompletePasswordReset(_ context.Context, subject string) error {
-	s.resetSubject = subject
-	return s.resetErr
-}
-
 func testAuthHandler(t *testing.T, service *fakeAuthService) *AuthHandler {
 	t.Helper()
 	return NewAuthHandler(service, platform.AuthConfig{
-		SuccessRedirectURL:         "https://app.example.com/login-complete",
-		CookieName:                 "kailopay_session",
-		CookieSecure:               true,
-		PasswordResetWebhookSecret: "01234567890123456789012345678901",
-		AvatarMaxBytes:             5 << 20,
+		SuccessRedirectURL: "https://app.example.com/login-complete",
+		CookieName:         "kailopay_session",
+		CookieSecure:       true,
+		AvatarMaxBytes:     5 << 20,
 	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 }
 
-func TestAuthHandlerLoginAndCallback(t *testing.T) {
+func jsonRequest(method, path, body string) *http.Request {
+	request := httptest.NewRequest(method, path, strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	return request
+}
+
+func TestAuthHandlerRegisterAndLogin(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	service := &fakeAuthService{
-		loginURL: "https://tenant.example.com/authorize",
+		registerProfile: auth.UserProfile{ID: "user-id", Email: "user@example.com"},
 		result: auth.SessionResult{
 			RawToken:  "opaque-session-token",
 			User:      auth.UserProfile{ID: "user-id"},
@@ -108,23 +158,22 @@ func TestAuthHandlerLoginAndCallback(t *testing.T) {
 		},
 	}
 	handler := testAuthHandler(t, service)
-
 	router := gin.New()
-	router.GET("/auth/login", handler.Login)
-	router.GET("/auth/callback", handler.Callback)
+	router.POST("/auth/register", handler.Register)
+	router.POST("/auth/login", handler.Login)
+
+	registerResponse := httptest.NewRecorder()
+	router.ServeHTTP(registerResponse, jsonRequest(http.MethodPost, "/auth/register", `{"email":"user@example.com","password":"super-secret-1","display_name":"User"}`))
+	if registerResponse.Code != http.StatusCreated || service.registerInput.Email != "user@example.com" {
+		t.Fatalf("register response/input = %d/%+v", registerResponse.Code, service.registerInput)
+	}
 
 	loginResponse := httptest.NewRecorder()
-	router.ServeHTTP(loginResponse, httptest.NewRequest(http.MethodGet, "/auth/login", nil))
-	if loginResponse.Code != http.StatusFound || loginResponse.Header().Get("Location") != service.loginURL {
-		t.Fatalf("login response = %d/%q", loginResponse.Code, loginResponse.Header().Get("Location"))
+	router.ServeHTTP(loginResponse, jsonRequest(http.MethodPost, "/auth/login", `{"email":"user@example.com","password":"super-secret-1"}`))
+	if loginResponse.Code != http.StatusOK || service.loginPassword != "super-secret-1" {
+		t.Fatalf("login response/password = %d/%q", loginResponse.Code, service.loginPassword)
 	}
-
-	callbackResponse := httptest.NewRecorder()
-	router.ServeHTTP(callbackResponse, httptest.NewRequest(http.MethodGet, "/auth/callback?code=code-value&state=state-value", nil))
-	if callbackResponse.Code != http.StatusFound || callbackResponse.Header().Get("Location") != "https://app.example.com/login-complete" {
-		t.Fatalf("callback response = %d/%q", callbackResponse.Code, callbackResponse.Header().Get("Location"))
-	}
-	setCookie := callbackResponse.Header().Get("Set-Cookie")
+	setCookie := loginResponse.Header().Get("Set-Cookie")
 	for _, want := range []string{"kailopay_session=opaque-session-token", "Path=/", "HttpOnly", "Secure", "SameSite=Lax"} {
 		if !strings.Contains(setCookie, want) {
 			t.Errorf("Set-Cookie %q does not contain %q", setCookie, want)
@@ -132,18 +181,70 @@ func TestAuthHandlerLoginAndCallback(t *testing.T) {
 	}
 }
 
-func TestAuthHandlerCallbackAndLogoutSanitizeErrors(t *testing.T) {
+func TestAuthHandlerLoginErrorsDoNotLeak(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	service := &fakeAuthService{completeErr: errors.New("provider secret authorization code leaked")}
+	service := &fakeAuthService{loginErr: auth.ErrInvalidCredentials}
 	handler := testAuthHandler(t, service)
 	router := gin.New()
-	router.GET("/auth/callback", handler.Callback)
+	router.POST("/auth/login", handler.Login)
+
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, jsonRequest(http.MethodPost, "/auth/login", `{"email":"user@example.com","password":"wrong-password-9"}`))
+	if response.Code != http.StatusUnauthorized || response.Body.String() != "{\"error\":\"invalid email or password\"}" {
+		t.Fatalf("login error response = %d/%q", response.Code, response.Body.String())
+	}
+
+	unverified := httptest.NewRecorder()
+	service.loginErr = auth.ErrEmailNotVerified
+	router.ServeHTTP(unverified, jsonRequest(http.MethodPost, "/auth/login", `{"email":"user@example.com","password":"super-secret-1"}`))
+	if unverified.Code != http.StatusForbidden || !strings.Contains(unverified.Body.String(), "not verified") {
+		t.Fatalf("unverified response = %d/%q", unverified.Code, unverified.Body.String())
+	}
+}
+
+func TestAuthHandlerGoogleLoginAndCallback(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	service := &fakeAuthService{
+		googleLoginURL: "https://accounts.google.com/o/oauth2/v2/auth",
+		result: auth.SessionResult{
+			RawToken:  "opaque-session-token",
+			User:      auth.UserProfile{ID: "user-id"},
+			ExpiresAt: time.Now().Add(time.Hour),
+		},
+	}
+	handler := testAuthHandler(t, service)
+	router := gin.New()
+	router.GET("/auth/google/login", handler.GoogleLogin)
+	router.GET("/auth/google/callback", handler.GoogleCallback)
+
+	loginResponse := httptest.NewRecorder()
+	router.ServeHTTP(loginResponse, httptest.NewRequest(http.MethodGet, "/auth/google/login", nil))
+	if loginResponse.Code != http.StatusFound || loginResponse.Header().Get("Location") != service.googleLoginURL {
+		t.Fatalf("google login response = %d/%q", loginResponse.Code, loginResponse.Header().Get("Location"))
+	}
+
+	callbackResponse := httptest.NewRecorder()
+	router.ServeHTTP(callbackResponse, httptest.NewRequest(http.MethodGet, "/auth/google/callback?code=code-value&state=state-value", nil))
+	if callbackResponse.Code != http.StatusFound || callbackResponse.Header().Get("Location") != "https://app.example.com/login-complete" {
+		t.Fatalf("google callback response = %d/%q", callbackResponse.Code, callbackResponse.Header().Get("Location"))
+	}
+	if !strings.Contains(callbackResponse.Header().Get("Set-Cookie"), "kailopay_session=opaque-session-token") {
+		t.Fatal("google callback did not set the session cookie")
+	}
+}
+
+func TestAuthHandlerGoogleCallbackAndLogoutSanitizeErrors(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	service := &fakeAuthService{googleCompleteErr: errors.New("provider secret authorization code leaked")}
+	handler := testAuthHandler(t, service)
+	router := gin.New()
+	router.GET("/auth/google/callback", handler.GoogleCallback)
 	router.POST("/auth/logout", handler.Logout)
 
 	callbackResponse := httptest.NewRecorder()
-	router.ServeHTTP(callbackResponse, httptest.NewRequest(http.MethodGet, "/auth/callback?code=code&state=state", nil))
+	router.ServeHTTP(callbackResponse, httptest.NewRequest(http.MethodGet, "/auth/google/callback?code=code&state=state", nil))
 	if callbackResponse.Code != http.StatusBadRequest || strings.Contains(callbackResponse.Body.String(), "authorization code") {
-		t.Fatalf("callback error response = %d/%q", callbackResponse.Code, callbackResponse.Body.String())
+		t.Fatalf("google callback error response = %d/%q", callbackResponse.Code, callbackResponse.Body.String())
 	}
 
 	logoutRequest := httptest.NewRequest(http.MethodPost, "/auth/logout", nil)
@@ -152,6 +253,84 @@ func TestAuthHandlerCallbackAndLogoutSanitizeErrors(t *testing.T) {
 	router.ServeHTTP(logoutResponse, logoutRequest)
 	if logoutResponse.Code != http.StatusNoContent || service.logoutToken != "token" {
 		t.Fatalf("logout response/token = %d/%q", logoutResponse.Code, service.logoutToken)
+	}
+}
+
+func TestAuthHandlerGoogleNotConfiguredReportsUnavailable(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	service := &fakeAuthService{googleLoginErr: auth.ErrGoogleNotConfigured}
+	handler := testAuthHandler(t, service)
+	router := gin.New()
+	router.GET("/auth/google/login", handler.GoogleLogin)
+
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/auth/google/login", nil))
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("google unavailable status = %d", response.Code)
+	}
+}
+
+func TestAuthHandlerVerifyEmailAndResend(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	service := &fakeAuthService{verifyProfile: auth.UserProfile{ID: "user-id", EmailVerified: true}}
+	handler := testAuthHandler(t, service)
+	router := gin.New()
+	router.POST("/auth/email/verify", handler.VerifyEmail)
+	router.POST("/auth/email/resend", handler.ResendVerification)
+
+	verifyResponse := httptest.NewRecorder()
+	router.ServeHTTP(verifyResponse, jsonRequest(http.MethodPost, "/auth/email/verify", `{"token":"verification-token"}`))
+	if verifyResponse.Code != http.StatusOK || service.verifiedToken != "verification-token" {
+		t.Fatalf("verify response/token = %d/%q", verifyResponse.Code, service.verifiedToken)
+	}
+
+	invalid := httptest.NewRecorder()
+	service.verifyErr = auth.ErrInvalidChallenge
+	router.ServeHTTP(invalid, jsonRequest(http.MethodPost, "/auth/email/verify", `{"token":"used"}`))
+	if invalid.Code != http.StatusBadRequest || !strings.Contains(invalid.Body.String(), "invalid or expired token") {
+		t.Fatalf("invalid verify response = %d/%q", invalid.Code, invalid.Body.String())
+	}
+
+	resendResponse := httptest.NewRecorder()
+	router.ServeHTTP(resendResponse, jsonRequest(http.MethodPost, "/auth/email/resend", `{"email":"user@example.com"}`))
+	if resendResponse.Code != http.StatusAccepted || service.resendEmail != "user@example.com" {
+		t.Fatalf("resend response/email = %d/%q", resendResponse.Code, service.resendEmail)
+	}
+}
+
+func TestAuthHandlerPasswordResetFlow(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	service := &fakeAuthService{}
+	handler := testAuthHandler(t, service)
+	router := gin.New()
+	router.POST("/auth/password/forgot", handler.ForgotPassword)
+	router.POST("/auth/password/reset", handler.ResetPassword)
+
+	forgotResponse := httptest.NewRecorder()
+	router.ServeHTTP(forgotResponse, jsonRequest(http.MethodPost, "/auth/password/forgot", `{"email":"user@example.com"}`))
+	if forgotResponse.Code != http.StatusAccepted || service.passwordResetEmail != "user@example.com" {
+		t.Fatalf("forgot response/email = %d/%q", forgotResponse.Code, service.passwordResetEmail)
+	}
+
+	resetResponse := httptest.NewRecorder()
+	router.ServeHTTP(resetResponse, jsonRequest(http.MethodPost, "/auth/password/reset", `{"token":"reset-token","new_password":"fresh-password-1"}`))
+	if resetResponse.Code != http.StatusNoContent || service.resetToken != "reset-token" || service.resetPassword != "fresh-password-1" {
+		t.Fatalf("reset response/token/password = %d/%q/%q", resetResponse.Code, service.resetToken, service.resetPassword)
+	}
+}
+
+func TestAuthHandlerChangePasswordRequiresSession(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	service := &fakeAuthService{}
+	handler := testAuthHandler(t, service)
+	router := authenticatedAuthRouter(t, handler, http.MethodPost, "/auth/password/change", handler.ChangePassword)
+
+	response := httptest.NewRecorder()
+	changeRequest := jsonRequest(http.MethodPost, "/auth/password/change", `{"current_password":"old-password-00","new_password":"fresh-password-1"}`)
+	changeRequest.AddCookie(&http.Cookie{Name: middleware.DefaultSessionCookieName, Value: "token"})
+	router.ServeHTTP(response, changeRequest)
+	if response.Code != http.StatusNoContent || service.changeCurrent != "old-password-00" {
+		t.Fatalf("change response/current = %d/%q", response.Code, service.changeCurrent)
 	}
 }
 
@@ -221,20 +400,17 @@ func TestAuthHandlerEnablesDeveloperMode(t *testing.T) {
 
 func TestAuthHandlerForgotPasswordAlwaysReturnsAccepted(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	service := &fakeAuthService{passwordResetErr: errors.New("Auth0 user not found")}
+	service := &fakeAuthService{passwordResetErr: errors.New("unknown account")}
 	handler := testAuthHandler(t, service)
 	router := gin.New()
 	router.POST("/auth/password/forgot", handler.ForgotPassword)
 
-	request := httptest.NewRequest(http.MethodPost, "/auth/password/forgot", strings.NewReader(`{"email":"user@example.com"}`))
-	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
-	router.ServeHTTP(response, request)
-
+	router.ServeHTTP(response, jsonRequest(http.MethodPost, "/auth/password/forgot", `{"email":"user@example.com"}`))
 	if response.Code != http.StatusAccepted || service.passwordResetEmail != "user@example.com" {
 		t.Fatalf("forgot response/email = %d/%q", response.Code, service.passwordResetEmail)
 	}
-	if strings.Contains(response.Body.String(), "not found") {
+	if strings.Contains(response.Body.String(), "unknown account") {
 		t.Fatalf("forgot response leaked provider result: %q", response.Body.String())
 	}
 }
@@ -304,29 +480,6 @@ func TestAuthHandlerDeletesAuthenticatedUsersAvatar(t *testing.T) {
 
 	if response.Code != http.StatusOK || !service.avatarDeleted {
 		t.Fatalf("delete avatar status/called = %d/%t", response.Code, service.avatarDeleted)
-	}
-}
-
-func TestAuthHandlerPasswordResetCallbackRequiresConfiguredSecret(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	service := &fakeAuthService{}
-	handler := testAuthHandler(t, service)
-	router := gin.New()
-	router.POST("/internal/auth/password-reset-completed", handler.PasswordResetCompleted)
-
-	unauthorized := httptest.NewRecorder()
-	router.ServeHTTP(unauthorized, httptest.NewRequest(http.MethodPost, "/internal/auth/password-reset-completed", strings.NewReader(`{"subject":"auth0|user-1"}`)))
-	if unauthorized.Code != http.StatusUnauthorized {
-		t.Fatalf("unauthorized status = %d", unauthorized.Code)
-	}
-
-	request := httptest.NewRequest(http.MethodPost, "/internal/auth/password-reset-completed", strings.NewReader(`{"subject":"auth0|user-1"}`))
-	request.Header.Set("Authorization", "Bearer 01234567890123456789012345678901")
-	request.Header.Set("Content-Type", "application/json")
-	response := httptest.NewRecorder()
-	router.ServeHTTP(response, request)
-	if response.Code != http.StatusNoContent || service.resetSubject != "auth0|user-1" {
-		t.Fatalf("reset callback status/subject = %d/%q", response.Code, service.resetSubject)
 	}
 }
 

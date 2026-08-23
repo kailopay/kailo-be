@@ -65,21 +65,25 @@ type ObjectStorageConfig struct {
 }
 
 type AuthConfig struct {
-	IssuerURL                  string
-	ClientID                   string
-	ClientSecret               string
-	RedirectURL                string
-	EmailConnection            string
-	SuccessRedirectURL         string
-	TransactionEncryptionKey   string
-	SessionHMACKey             string
-	SessionAbsoluteLifetime    time.Duration
-	SessionIdleLifetime        time.Duration
-	TransactionLifetime        time.Duration
-	CookieName                 string
-	CookieSecure               bool
-	PasswordResetWebhookSecret string
-	AvatarMaxBytes             int64
+	Google                   GoogleConfig
+	EmailLinkBaseURL         string
+	SuccessRedirectURL       string
+	TransactionEncryptionKey string
+	SessionHMACKey           string
+	SessionAbsoluteLifetime  time.Duration
+	SessionIdleLifetime      time.Duration
+	TransactionLifetime      time.Duration
+	CookieName               string
+	CookieSecure             bool
+	AvatarMaxBytes           int64
+}
+
+// GoogleConfig holds the optional Google OIDC application. Empty credentials
+// disable Google sign-in.
+type GoogleConfig struct {
+	ClientID     string
+	ClientSecret string
+	RedirectURL  string
 }
 
 func Load() (Config, error) {
@@ -117,21 +121,21 @@ func Load() (Config, error) {
 			Format: strings.ToLower(strings.TrimSpace(v.GetString("logging.format"))),
 		},
 		Auth: AuthConfig{
-			IssuerURL:                  strings.TrimRight(strings.TrimSpace(v.GetString("auth0.issuer_url")), "/"),
-			ClientID:                   strings.TrimSpace(v.GetString("auth0.client_id")),
-			ClientSecret:               strings.TrimSpace(v.GetString("auth0.client_secret")),
-			RedirectURL:                strings.TrimSpace(v.GetString("auth0.redirect_url")),
-			EmailConnection:            strings.TrimSpace(v.GetString("auth0.email_connection")),
-			SuccessRedirectURL:         strings.TrimSpace(v.GetString("auth.success_redirect_url")),
-			TransactionEncryptionKey:   strings.TrimSpace(v.GetString("auth.transaction_encryption_key")),
-			SessionHMACKey:             strings.TrimSpace(v.GetString("auth.session_hmac_key")),
-			SessionAbsoluteLifetime:    v.GetDuration("auth.session_absolute_lifetime"),
-			SessionIdleLifetime:        v.GetDuration("auth.session_idle_lifetime"),
-			TransactionLifetime:        v.GetDuration("auth.transaction_lifetime"),
-			CookieName:                 strings.TrimSpace(v.GetString("auth.cookie_name")),
-			CookieSecure:               v.GetBool("auth.cookie_secure"),
-			PasswordResetWebhookSecret: strings.TrimSpace(v.GetString("auth.password_reset_webhook_secret")),
-			AvatarMaxBytes:             v.GetInt64("auth.avatar_max_bytes"),
+			Google: GoogleConfig{
+				ClientID:     strings.TrimSpace(v.GetString("google.client_id")),
+				ClientSecret: strings.TrimSpace(v.GetString("google.client_secret")),
+				RedirectURL:  strings.TrimSpace(v.GetString("google.redirect_url")),
+			},
+			EmailLinkBaseURL:         strings.TrimSpace(v.GetString("auth.email_link_base_url")),
+			SuccessRedirectURL:       strings.TrimSpace(v.GetString("auth.success_redirect_url")),
+			TransactionEncryptionKey: strings.TrimSpace(v.GetString("auth.transaction_encryption_key")),
+			SessionHMACKey:           strings.TrimSpace(v.GetString("auth.session_hmac_key")),
+			SessionAbsoluteLifetime:  v.GetDuration("auth.session_absolute_lifetime"),
+			SessionIdleLifetime:      v.GetDuration("auth.session_idle_lifetime"),
+			TransactionLifetime:      v.GetDuration("auth.transaction_lifetime"),
+			CookieName:               strings.TrimSpace(v.GetString("auth.cookie_name")),
+			CookieSecure:             v.GetBool("auth.cookie_secure"),
+			AvatarMaxBytes:           v.GetInt64("auth.avatar_max_bytes"),
 		},
 		ObjectStorage: ObjectStorageConfig{
 			Endpoint:  strings.TrimSpace(v.GetString("minio.endpoint")),
@@ -287,21 +291,19 @@ func (c ObjectStorageConfig) Validate(environment string) error {
 }
 
 func (c AuthConfig) Validate(environment string) error {
-	if strings.TrimSpace(c.IssuerURL) == "" || strings.TrimSpace(c.ClientID) == "" ||
-		strings.TrimSpace(c.ClientSecret) == "" {
-		return errors.New("auth0 issuer and client credentials are required")
+	if err := validateAuthURL("auth email link base URL", c.EmailLinkBaseURL, environment); err != nil {
+		return err
 	}
-	if strings.TrimSpace(c.EmailConnection) == "" {
-		return errors.New("auth0 email connection is required")
+	if err := validateAuthURL("auth success redirect URL", c.SuccessRedirectURL, environment); err != nil {
+		return err
 	}
-	for name, rawURL := range map[string]string{
-		"auth0 issuer URL":          c.IssuerURL,
-		"auth0 redirect URL":        c.RedirectURL,
-		"auth success redirect URL": c.SuccessRedirectURL,
-	} {
-		if err := validateAuthURL(name, rawURL, environment); err != nil {
-			return err
-		}
+	google := c.Google
+	if google.ClientID == "" && google.ClientSecret == "" {
+		// Google sign-in is optional; empty means disabled.
+	} else if google.ClientID == "" || google.ClientSecret == "" {
+		return errors.New("google client id and secret must be configured together")
+	} else if err := validateAuthURL("google redirect URL", google.RedirectURL, environment); err != nil {
+		return err
 	}
 	if err := validateKey("auth transaction encryption key", c.TransactionEncryptionKey); err != nil {
 		return err
@@ -317,9 +319,6 @@ func (c AuthConfig) Validate(environment string) error {
 	}
 	if strings.TrimSpace(c.CookieName) == "" {
 		return errors.New("auth cookie name is required")
-	}
-	if len(c.PasswordResetWebhookSecret) < 32 {
-		return errors.New("auth password reset webhook secret must be at least 32 bytes")
 	}
 	if c.AvatarMaxBytes <= 0 {
 		return errors.New("auth avatar maximum bytes must be positive")
@@ -370,6 +369,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("auth.cookie_name", "kailopay_session")
 	v.SetDefault("auth.cookie_secure", false)
 	v.SetDefault("auth.avatar_max_bytes", int64(5<<20))
+	v.SetDefault("auth.email_link_base_url", "http://localhost:3001")
 	v.SetDefault("minio.bucket", "kailopay-profile")
 	v.SetDefault("minio.region", "us-east-1")
 	v.SetDefault("minio.use_ssl", false)
@@ -406,71 +406,69 @@ func bindEnvironment(v *viper.Viper) {
 
 func environmentBindings() map[string]string {
 	return map[string]string{
-		"app.environment":                    "APP_ENV",
-		"app.version":                        "APP_VERSION",
-		"http.address":                       "HTTP_ADDRESS",
-		"http.read_header_timeout":           "HTTP_READ_HEADER_TIMEOUT",
-		"http.read_timeout":                  "HTTP_READ_TIMEOUT",
-		"http.write_timeout":                 "HTTP_WRITE_TIMEOUT",
-		"http.idle_timeout":                  "HTTP_IDLE_TIMEOUT",
-		"http.shutdown_timeout":              "HTTP_SHUTDOWN_TIMEOUT",
-		"health.check_timeout":               "HEALTH_CHECK_TIMEOUT",
-		"database.dsn":                       "DATABASE_DSN",
-		"database.max_open_conns":            "DATABASE_MAX_OPEN_CONNS",
-		"database.max_idle_conns":            "DATABASE_MAX_IDLE_CONNS",
-		"database.conn_max_lifetime":         "DATABASE_CONN_MAX_LIFETIME",
-		"database.conn_max_idle_time":        "DATABASE_CONN_MAX_IDLE_TIME",
-		"database.ping_timeout":              "DATABASE_PING_TIMEOUT",
-		"logging.level":                      "LOG_LEVEL",
-		"logging.format":                     "LOG_FORMAT",
-		"auth0.issuer_url":                   "AUTH0_ISSUER_URL",
-		"auth0.client_id":                    "AUTH0_CLIENT_ID",
-		"auth0.client_secret":                "AUTH0_CLIENT_SECRET",
-		"auth0.redirect_url":                 "AUTH0_REDIRECT_URL",
-		"auth0.email_connection":             "AUTH0_EMAIL_CONNECTION",
-		"auth.success_redirect_url":          "AUTH_SUCCESS_REDIRECT_URL",
-		"auth.transaction_encryption_key":    "AUTH_TRANSACTION_ENCRYPTION_KEY",
-		"auth.session_hmac_key":              "AUTH_SESSION_HMAC_KEY",
-		"auth.session_absolute_lifetime":     "AUTH_SESSION_ABSOLUTE_LIFETIME",
-		"auth.session_idle_lifetime":         "AUTH_SESSION_IDLE_LIFETIME",
-		"auth.transaction_lifetime":          "AUTH_TRANSACTION_LIFETIME",
-		"auth.cookie_name":                   "AUTH_COOKIE_NAME",
-		"auth.cookie_secure":                 "AUTH_COOKIE_SECURE",
-		"auth.password_reset_webhook_secret": "AUTH_PASSWORD_RESET_WEBHOOK_SECRET",
-		"auth.avatar_max_bytes":              "PROFILE_AVATAR_MAX_BYTES",
-		"minio.endpoint":                     "MINIO_ENDPOINT",
-		"minio.access_key":                   "MINIO_ACCESS_KEY",
-		"minio.secret_key":                   "MINIO_SECRET_KEY",
-		"minio.bucket":                       "MINIO_BUCKET",
-		"minio.region":                       "MINIO_REGION",
-		"minio.use_ssl":                      "MINIO_USE_SSL",
-		"api_key.pepper":                     "API_KEY_PEPPER",
-		"onramp.quote_ttl":                   "QUOTE_TTL",
-		"onramp.quote_max_age":               "QUOTE_MAX_AGE",
-		"onramp.quote_spread_bps":            "QUOTE_SPREAD_BPS",
-		"onramp.min_idr":                     "ORDER_MIN_IDR",
-		"onramp.max_idr":                     "ORDER_MAX_IDR",
-		"coinmarketcap.base_url":             "COINMARKETCAP_BASE_URL",
-		"coinmarketcap.api_key":              "COINMARKETCAP_API_KEY",
-		"coinmarketcap.timeout":              "COINMARKETCAP_TIMEOUT",
-		"xendit.base_url":                    "XENDIT_BASE_URL",
-		"xendit.secret_key":                  "XENDIT_SECRET_KEY",
-		"xendit.callback_token":              "XENDIT_CALLBACK_TOKEN",
-		"xendit.api_version":                 "XENDIT_API_VERSION",
-		"xendit.qris_channel":                "XENDIT_QRIS_CHANNEL",
-		"xendit.va_channel":                  "XENDIT_VA_CHANNEL",
-		"xendit.timeout":                     "XENDIT_TIMEOUT",
-		"stellar.horizon_url":                "STELLAR_HORIZON_URL",
-		"stellar.network_passphrase":         "STELLAR_NETWORK_PASSPHRASE",
-		"stellar.treasury_account":           "STELLAR_TREASURY_ACCOUNT",
-		"stellar.treasury_secret":            "STELLAR_TREASURY_SECRET",
-		"stellar.operating_buffer_stroops":   "STELLAR_OPERATING_BUFFER_STROOPS",
-		"stellar.timeout":                    "STELLAR_TIMEOUT",
-		"worker.poll_interval":               "WORKER_POLL_INTERVAL",
-		"worker.lease_duration":              "WORKER_LEASE_DURATION",
-		"worker.retry_delay":                 "WORKER_RETRY_DELAY",
-		"worker.submission_timeout":          "WORKER_SUBMISSION_TIMEOUT",
-		"worker.max_attempts":                "WORKER_MAX_ATTEMPTS",
+		"app.environment":                  "APP_ENV",
+		"app.version":                      "APP_VERSION",
+		"http.address":                     "HTTP_ADDRESS",
+		"http.read_header_timeout":         "HTTP_READ_HEADER_TIMEOUT",
+		"http.read_timeout":                "HTTP_READ_TIMEOUT",
+		"http.write_timeout":               "HTTP_WRITE_TIMEOUT",
+		"http.idle_timeout":                "HTTP_IDLE_TIMEOUT",
+		"http.shutdown_timeout":            "HTTP_SHUTDOWN_TIMEOUT",
+		"health.check_timeout":             "HEALTH_CHECK_TIMEOUT",
+		"database.dsn":                     "DATABASE_DSN",
+		"database.max_open_conns":          "DATABASE_MAX_OPEN_CONNS",
+		"database.max_idle_conns":          "DATABASE_MAX_IDLE_CONNS",
+		"database.conn_max_lifetime":       "DATABASE_CONN_MAX_LIFETIME",
+		"database.conn_max_idle_time":      "DATABASE_CONN_MAX_IDLE_TIME",
+		"database.ping_timeout":            "DATABASE_PING_TIMEOUT",
+		"logging.level":                    "LOG_LEVEL",
+		"logging.format":                   "LOG_FORMAT",
+		"auth.success_redirect_url":        "AUTH_SUCCESS_REDIRECT_URL",
+		"auth.email_link_base_url":         "AUTH_EMAIL_LINK_BASE_URL",
+		"auth.transaction_encryption_key":  "AUTH_TRANSACTION_ENCRYPTION_KEY",
+		"auth.session_hmac_key":            "AUTH_SESSION_HMAC_KEY",
+		"auth.session_absolute_lifetime":   "AUTH_SESSION_ABSOLUTE_LIFETIME",
+		"auth.session_idle_lifetime":       "AUTH_SESSION_IDLE_LIFETIME",
+		"auth.transaction_lifetime":        "AUTH_TRANSACTION_LIFETIME",
+		"auth.cookie_name":                 "AUTH_COOKIE_NAME",
+		"auth.cookie_secure":               "AUTH_COOKIE_SECURE",
+		"auth.avatar_max_bytes":            "PROFILE_AVATAR_MAX_BYTES",
+		"google.client_id":                 "GOOGLE_CLIENT_ID",
+		"google.client_secret":             "GOOGLE_CLIENT_SECRET",
+		"google.redirect_url":              "GOOGLE_REDIRECT_URL",
+		"minio.endpoint":                   "MINIO_ENDPOINT",
+		"minio.access_key":                 "MINIO_ACCESS_KEY",
+		"minio.secret_key":                 "MINIO_SECRET_KEY",
+		"minio.bucket":                     "MINIO_BUCKET",
+		"minio.region":                     "MINIO_REGION",
+		"minio.use_ssl":                    "MINIO_USE_SSL",
+		"api_key.pepper":                   "API_KEY_PEPPER",
+		"onramp.quote_ttl":                 "QUOTE_TTL",
+		"onramp.quote_max_age":             "QUOTE_MAX_AGE",
+		"onramp.quote_spread_bps":          "QUOTE_SPREAD_BPS",
+		"onramp.min_idr":                   "ORDER_MIN_IDR",
+		"onramp.max_idr":                   "ORDER_MAX_IDR",
+		"coinmarketcap.base_url":           "COINMARKETCAP_BASE_URL",
+		"coinmarketcap.api_key":            "COINMARKETCAP_API_KEY",
+		"coinmarketcap.timeout":            "COINMARKETCAP_TIMEOUT",
+		"xendit.base_url":                  "XENDIT_BASE_URL",
+		"xendit.secret_key":                "XENDIT_SECRET_KEY",
+		"xendit.callback_token":            "XENDIT_CALLBACK_TOKEN",
+		"xendit.api_version":               "XENDIT_API_VERSION",
+		"xendit.qris_channel":              "XENDIT_QRIS_CHANNEL",
+		"xendit.va_channel":                "XENDIT_VA_CHANNEL",
+		"xendit.timeout":                   "XENDIT_TIMEOUT",
+		"stellar.horizon_url":              "STELLAR_HORIZON_URL",
+		"stellar.network_passphrase":       "STELLAR_NETWORK_PASSPHRASE",
+		"stellar.treasury_account":         "STELLAR_TREASURY_ACCOUNT",
+		"stellar.treasury_secret":          "STELLAR_TREASURY_SECRET",
+		"stellar.operating_buffer_stroops": "STELLAR_OPERATING_BUFFER_STROOPS",
+		"stellar.timeout":                  "STELLAR_TIMEOUT",
+		"worker.poll_interval":             "WORKER_POLL_INTERVAL",
+		"worker.lease_duration":            "WORKER_LEASE_DURATION",
+		"worker.retry_delay":               "WORKER_RETRY_DELAY",
+		"worker.submission_timeout":        "WORKER_SUBMISSION_TIMEOUT",
+		"worker.max_attempts":              "WORKER_MAX_ATTEMPTS",
 	}
 }
 

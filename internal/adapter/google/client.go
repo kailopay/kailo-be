@@ -1,13 +1,9 @@
-package auth0
+package google
 
 import (
-	"bytes"
 	"context"
 	"crypto/subtle"
-	"encoding/json"
 	"errors"
-	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -20,15 +16,27 @@ import (
 
 const discoveryTimeout = 10 * time.Second
 
-type Client struct {
-	oauthConfig     oauth2.Config
-	verifier        *oidc.IDTokenVerifier
-	httpClient      *http.Client
-	emailConnection string
-	issuerURL       string
+// IssuerURL is Google's fixed OIDC issuer. The verifier requires the
+// configured issuer to match the discovery document exactly.
+const IssuerURL = "https://accounts.google.com"
+
+type Config struct {
+	ClientID     string
+	ClientSecret string
+	RedirectURL  string
+	HTTPClient   *http.Client
 }
 
-func NewClient(ctx context.Context, cfg platform.AuthConfig, httpClient *http.Client) (*Client, error) {
+type Client struct {
+	oauthConfig oauth2.Config
+	verifier    *oidc.IDTokenVerifier
+	httpClient  *http.Client
+}
+
+func NewClient(ctx context.Context, cfg platform.GoogleConfig, httpClient *http.Client) (*Client, error) {
+	if strings.TrimSpace(cfg.ClientID) == "" || strings.TrimSpace(cfg.ClientSecret) == "" {
+		return nil, errors.New("google client id and secret are required")
+	}
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: discoveryTimeout}
 	} else if httpClient.Timeout <= 0 {
@@ -36,17 +44,12 @@ func NewClient(ctx context.Context, cfg platform.AuthConfig, httpClient *http.Cl
 		copy.Timeout = discoveryTimeout
 		httpClient = &copy
 	}
-	if strings.TrimSpace(cfg.IssuerURL) == "" || strings.TrimSpace(cfg.ClientID) == "" {
-		return nil, errors.New("auth0 issuer and client id are required")
-	}
-
 	discoveryCtx, cancel := context.WithTimeout(ctx, httpClient.Timeout)
 	defer cancel()
-	provider, err := oidc.NewProvider(oidc.ClientContext(discoveryCtx, httpClient), cfg.IssuerURL)
+	provider, err := oidc.NewProvider(oidc.ClientContext(discoveryCtx, httpClient), IssuerURL)
 	if err != nil {
 		return nil, errors.Join(auth.ErrProvider, err)
 	}
-
 	return &Client{
 		oauthConfig: oauth2.Config{
 			ClientID:     cfg.ClientID,
@@ -55,46 +58,9 @@ func NewClient(ctx context.Context, cfg platform.AuthConfig, httpClient *http.Cl
 			RedirectURL:  cfg.RedirectURL,
 			Scopes:       []string{oidc.ScopeOpenID, "profile", "email"},
 		},
-		verifier:        provider.Verifier(&oidc.Config{ClientID: cfg.ClientID}),
-		httpClient:      httpClient,
-		emailConnection: cfg.EmailConnection,
-		issuerURL:       strings.TrimRight(cfg.IssuerURL, "/"),
+		verifier:   provider.Verifier(&oidc.Config{ClientID: cfg.ClientID}),
+		httpClient: httpClient,
 	}, nil
-}
-
-func (c *Client) RequestPasswordReset(ctx context.Context, email string) error {
-	payload, err := json.Marshal(struct {
-		ClientID   string `json:"client_id"`
-		Email      string `json:"email"`
-		Connection string `json:"connection"`
-	}{
-		ClientID:   c.oauthConfig.ClientID,
-		Email:      email,
-		Connection: c.emailConnection,
-	})
-	if err != nil {
-		return fmt.Errorf("encoding password reset request: %w", err)
-	}
-	request, err := http.NewRequestWithContext(
-		ctx,
-		http.MethodPost,
-		c.issuerURL+"/dbconnections/change_password",
-		bytes.NewReader(payload),
-	)
-	if err != nil {
-		return fmt.Errorf("creating password reset request: %w", err)
-	}
-	request.Header.Set("Content-Type", "application/json")
-	response, err := c.httpClient.Do(request)
-	if err != nil {
-		return fmt.Errorf("sending password reset request: %w", err)
-	}
-	defer response.Body.Close()
-	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4<<10))
-	if response.StatusCode != http.StatusOK {
-		return fmt.Errorf("password reset provider returned status %d", response.StatusCode)
-	}
-	return nil
 }
 
 func (c *Client) AuthorizationURL(ctx context.Context, state, nonce, codeChallenge string) (string, error) {
@@ -107,7 +73,6 @@ func (c *Client) AuthorizationURL(ctx context.Context, state, nonce, codeChallen
 	return c.oauthConfig.AuthCodeURL(
 		state,
 		oauth2.SetAuthURLParam("nonce", nonce),
-		oauth2.SetAuthURLParam("connection", c.emailConnection),
 		oauth2.SetAuthURLParam("code_challenge", codeChallenge),
 		oauth2.SetAuthURLParam("code_challenge_method", "S256"),
 	), nil
@@ -135,7 +100,6 @@ func (c *Client) Exchange(ctx context.Context, code, codeVerifier, nonce string)
 		Email         string `json:"email"`
 		EmailVerified bool   `json:"email_verified"`
 		Name          string `json:"name"`
-		Nickname      string `json:"nickname"`
 		Nonce         string `json:"nonce"`
 	}
 	if err := idToken.Claims(&claims); err != nil {
@@ -146,13 +110,10 @@ func (c *Client) Exchange(ctx context.Context, code, codeVerifier, nonce string)
 	}
 	displayName := strings.TrimSpace(claims.Name)
 	if displayName == "" {
-		displayName = strings.TrimSpace(claims.Nickname)
-	}
-	if displayName == "" {
 		displayName = strings.TrimSpace(claims.Email)
 	}
 	return auth.Identity{
-		Provider:      auth.ProviderAuth0,
+		Provider:      auth.ProviderGoogle,
 		Subject:       claims.Subject,
 		Email:         strings.TrimSpace(claims.Email),
 		EmailVerified: claims.EmailVerified,
@@ -161,4 +122,3 @@ func (c *Client) Exchange(ctx context.Context, code, codeVerifier, nonce string)
 }
 
 var _ auth.Provider = (*Client)(nil)
-var _ auth.PasswordResetRequester = (*Client)(nil)

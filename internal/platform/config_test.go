@@ -11,21 +11,16 @@ import (
 func validAuthConfig() AuthConfig {
 	key := base64.StdEncoding.EncodeToString(make([]byte, 32))
 	return AuthConfig{
-		IssuerURL:                  "https://tenant.example.com/",
-		ClientID:                   "client-id",
-		ClientSecret:               "client-secret",
-		RedirectURL:                "https://api.example.com/auth/callback",
-		EmailConnection:            "email",
-		SuccessRedirectURL:         "https://app.example.com/",
-		TransactionEncryptionKey:   key,
-		SessionHMACKey:             key,
-		SessionAbsoluteLifetime:    8 * time.Hour,
-		SessionIdleLifetime:        30 * time.Minute,
-		TransactionLifetime:        10 * time.Minute,
-		CookieName:                 "__Host-kailopay_session",
-		CookieSecure:               true,
-		PasswordResetWebhookSecret: "01234567890123456789012345678901",
-		AvatarMaxBytes:             5 << 20,
+		EmailLinkBaseURL:         "https://app.example.com/",
+		SuccessRedirectURL:       "https://app.example.com/",
+		TransactionEncryptionKey: key,
+		SessionHMACKey:           key,
+		SessionAbsoluteLifetime:  8 * time.Hour,
+		SessionIdleLifetime:      30 * time.Minute,
+		TransactionLifetime:      10 * time.Minute,
+		CookieName:               "__Host-kailopay_session",
+		CookieSecure:             true,
+		AvatarMaxBytes:           5 << 20,
 	}
 }
 
@@ -43,16 +38,11 @@ func validObjectStorageConfig() ObjectStorageConfig {
 func setValidAuthEnv(t *testing.T) {
 	t.Helper()
 	key := base64.StdEncoding.EncodeToString(make([]byte, 32))
-	t.Setenv("AUTH0_ISSUER_URL", "https://tenant.example.com/")
-	t.Setenv("AUTH0_CLIENT_ID", "client-id")
-	t.Setenv("AUTH0_CLIENT_SECRET", "client-secret")
-	t.Setenv("AUTH0_REDIRECT_URL", "https://api.example.com/auth/callback")
-	t.Setenv("AUTH0_EMAIL_CONNECTION", "email")
 	t.Setenv("AUTH_SUCCESS_REDIRECT_URL", "https://app.example.com/")
+	t.Setenv("AUTH_EMAIL_LINK_BASE_URL", "https://app.example.com/")
 	t.Setenv("AUTH_TRANSACTION_ENCRYPTION_KEY", key)
 	t.Setenv("AUTH_SESSION_HMAC_KEY", key)
 	t.Setenv("AUTH_COOKIE_SECURE", "true")
-	t.Setenv("AUTH_PASSWORD_RESET_WEBHOOK_SECRET", "01234567890123456789012345678901")
 	t.Setenv("MINIO_ENDPOINT", "minio.example.com:9000")
 	t.Setenv("MINIO_ACCESS_KEY", "access-key")
 	t.Setenv("MINIO_SECRET_KEY", "secret-key")
@@ -93,6 +83,37 @@ func TestLoadUsesEnvironmentOverrides(t *testing.T) {
 	}
 	if cfg.Logging.Level != "debug" {
 		t.Fatalf("log level = %q, want %q", cfg.Logging.Level, "debug")
+	}
+}
+
+func TestLoadAcceptsOptionalGoogleAndReadsOverrides(t *testing.T) {
+	setValidAuthEnv(t)
+	t.Setenv("APP_ENV", "test")
+	t.Setenv("DATABASE_DSN", "host=test-db user=tester password=secret dbname=test port=5432")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() without google error = %v", err)
+	}
+	if cfg.Auth.Google.ClientID != "" {
+		t.Fatalf("google client id = %q, want empty when unset", cfg.Auth.Google.ClientID)
+	}
+
+	t.Setenv("GOOGLE_CLIENT_ID", "google-client-id")
+	t.Setenv("GOOGLE_CLIENT_SECRET", "google-client-secret")
+	t.Setenv("GOOGLE_REDIRECT_URL", "https://api.example.com/auth/google/callback")
+	cfg, err = Load()
+	if err != nil {
+		t.Fatalf("Load() with google error = %v", err)
+	}
+	if cfg.Auth.Google.ClientID != "google-client-id" || cfg.Auth.Google.RedirectURL != "https://api.example.com/auth/google/callback" {
+		t.Fatalf("google config = %+v", cfg.Auth.Google)
+	}
+
+	// Half-configured google credentials must fail startup.
+	t.Setenv("GOOGLE_CLIENT_SECRET", "")
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() with google client id only error = nil, want both-or-neither validation")
 	}
 }
 
@@ -197,9 +218,12 @@ func TestAuthConfigValidateRejectsInvalidSettings(t *testing.T) {
 		name   string
 		mutate func(*AuthConfig)
 	}{
-		{name: "missing issuer", mutate: func(cfg *AuthConfig) { cfg.IssuerURL = "" }},
-		{name: "invalid issuer", mutate: func(cfg *AuthConfig) { cfg.IssuerURL = "http://tenant.example.com" }},
-		{name: "missing client credentials", mutate: func(cfg *AuthConfig) { cfg.ClientID = "" }},
+		{name: "missing email link base URL", mutate: func(cfg *AuthConfig) { cfg.EmailLinkBaseURL = "" }},
+		{name: "insecure email link base URL", mutate: func(cfg *AuthConfig) { cfg.EmailLinkBaseURL = "http://app.example.com" }},
+		{name: "google client id without secret", mutate: func(cfg *AuthConfig) {
+			cfg.Google = GoogleConfig{ClientID: "client-id", ClientSecret: "", RedirectURL: "https://api.example.com/callback"}
+		}},
+		{name: "google missing redirect URL", mutate: func(cfg *AuthConfig) { cfg.Google = GoogleConfig{ClientID: "client-id", ClientSecret: "client-secret"} }},
 		{name: "invalid encryption key", mutate: func(cfg *AuthConfig) { cfg.TransactionEncryptionKey = "a" }},
 		{name: "invalid hmac key", mutate: func(cfg *AuthConfig) { cfg.SessionHMACKey = "a" }},
 		{name: "non-positive lifetime", mutate: func(cfg *AuthConfig) { cfg.SessionIdleLifetime = 0 }},
@@ -222,16 +246,10 @@ func TestLoadReadsAuthEnvironmentOverrides(t *testing.T) {
 	key := base64.StdEncoding.EncodeToString(make([]byte, 32))
 	t.Setenv("APP_ENV", "local")
 	t.Setenv("DATABASE_DSN", "host=test-db user=tester password=secret dbname=test port=5432")
-	t.Setenv("AUTH0_ISSUER_URL", "https://tenant.example.com/")
-	t.Setenv("AUTH0_CLIENT_ID", "client-id")
-	t.Setenv("AUTH0_CLIENT_SECRET", "client-secret")
-	t.Setenv("AUTH0_REDIRECT_URL", "https://api.example.com/auth/callback")
-	t.Setenv("AUTH0_EMAIL_CONNECTION", "email")
 	t.Setenv("AUTH_SUCCESS_REDIRECT_URL", "http://localhost:3000/")
 	t.Setenv("AUTH_TRANSACTION_ENCRYPTION_KEY", key)
 	t.Setenv("AUTH_SESSION_HMAC_KEY", key)
 	t.Setenv("AUTH_COOKIE_SECURE", "false")
-	t.Setenv("AUTH_PASSWORD_RESET_WEBHOOK_SECRET", "01234567890123456789012345678901")
 	t.Setenv("MINIO_ENDPOINT", "localhost:9000")
 	t.Setenv("MINIO_ACCESS_KEY", "access-key")
 	t.Setenv("MINIO_SECRET_KEY", "secret-key")
@@ -242,8 +260,8 @@ func TestLoadReadsAuthEnvironmentOverrides(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if cfg.Auth.IssuerURL != "https://tenant.example.com" {
-		t.Fatalf("issuer = %q", cfg.Auth.IssuerURL)
+	if cfg.Auth.EmailLinkBaseURL != "http://localhost:3001" {
+		t.Fatalf("email link base URL = %q, want default", cfg.Auth.EmailLinkBaseURL)
 	}
 	if cfg.Auth.SessionAbsoluteLifetime != 8*time.Hour {
 		t.Fatalf("absolute lifetime = %v", cfg.Auth.SessionAbsoluteLifetime)

@@ -39,7 +39,7 @@ go run ./cmd/api       # serves on HTTP_ADDRESS (default :8080)
 ```
 
 Copy `.env.example` to `.env` first. The values a human must fill are listed
-in `.env.example` and the root `README.md`; everything else has defaults. Required for API startup: database DSN, Auth0 app credentials,
+in `.env.example` and the root `README.md`; everything else has defaults. Required for API startup: database DSN, the two AUTH crypto keys,
 `API_KEY_PEPPER`, `COINMARKETCAP_API_KEY`, `XENDIT_SECRET_KEY` +
 `XENDIT_CALLBACK_TOKEN`, `STELLAR_TREASURY_ACCOUNT`, and MinIO credentials.
 `STELLAR_TREASURY_SECRET` is only needed when also running `go run ./cmd/worker`
@@ -95,42 +95,62 @@ testnet account works; mainnet addresses are rejected by design.
 ### `AUTH_SUCCESS_REDIRECT_URL`
 
 When you run the backend locally, set `AUTH_SUCCESS_REDIRECT_URL` in `.env`
-to your frontend's post-login route (e.g. `http://localhost:5173/`). After the
-Auth0 round-trip the backend sets the session cookie and redirects there, so
-mount your landing or logged-in route at exactly that path.
+to your frontend's post-login route (e.g. `http://localhost:3001/`). Google
+sign-in redirects there after the backend sets the session cookie, so mount
+your logged-in route at exactly that path. `AUTH_EMAIL_LINK_BASE_URL` (same
+file) builds the verification and reset links; point it at the same frontend
+origin.
 
-## 3. Authentication model (retail web session)
+## 3. Authentication model (self-hosted email + Google)
 
-Auth is a server-side BFF flow through Auth0. The browser never sees an Auth0
-token; the backend owns opaque sessions.
+The frontend owns the auth forms. Email signup and login are plain JSON
+calls; Google sign-in stays a redirect. The backend owns opaque sessions and
+provider tokens never reach the browser.
 
 - Session cookie: `kailopay_session` (name is configurable; default shown).
   It is `HttpOnly` and `SameSite=Lax`, so JavaScript cannot read it; the
   browser sends it automatically on same-origin requests. Nothing to store in
   the frontend.
-- Login: do `window.location.href = GET /auth/login` (full navigation, not
-  fetch). The backend 302s to Auth0, and after the Auth0 callback the backend
-  sets the cookie and 302s to the configured success redirect URL. Mount a
-  route there; the backend env var `AUTH_SUCCESS_REDIRECT_URL` sets it.
-- Logout: `POST /auth/logout` (needs the cookie; same-origin fetch is fine).
+- Email login: `POST /auth/register` then verify, then `POST /auth/login`
+  sets the cookie and returns the user. No redirects involved.
+- Google login: `window.location.href = GET /auth/google/login` (full
+  navigation, not fetch). After Google, the backend sets the cookie and 302s
+  to `AUTH_SUCCESS_REDIRECT_URL`; mount a route there. If the deployment has
+  no Google credentials the endpoint returns 503, so offer the button only
+  when it works (try it once, or feature-flag it).
+- Verification and reset emails: in sandbox, links are logged to the backend
+  console instead of being emailed. The links point at
+  `{AUTH_EMAIL_LINK_BASE_URL}/auth/verify-email?token=...` and
+  `/auth/reset-password?token=...`; build those routes, extract the token,
+  and POST it to the API.
 
-### Session endpoints
+### Auth endpoints
 
 | Method & path | Auth | Purpose |
 |---|---|---|
+| `POST /auth/register` | none | Create account; password 10-128 chars; 409 if email taken |
+| `POST /auth/login` | none | Verify credentials; 401 invalid/locked, 403 unverified |
+| `GET /auth/google/login` | none | 302 to Google (503 when not configured) |
+| `GET /auth/google/callback` | none | Google redirect target; sets cookie, 302 to success URL |
+| `POST /auth/logout` | session cookie | End the session |
+| `POST /auth/email/verify` | none | Body `{"token"}`; 200 with user, 400 when used/expired |
+| `POST /auth/email/resend` | none | Body `{"email"}`; always 202 |
+| `POST /auth/password/forgot` | none | Body `{"email"}`; always 202 |
+| `POST /auth/password/reset` | none | Body `{"token","new_password"}`; 204, revokes sessions |
+| `POST /auth/password/change` | session cookie | Body `{"current_password","new_password"}`; 204 |
 | `GET /auth/me` | session cookie | Current user profile |
 | `PATCH /auth/me` | session cookie | Update `display_name` and/or `developer_enabled` |
 | `PUT /auth/me/avatar` | session cookie | Multipart upload, field name `avatar` |
 | `GET /auth/me/avatar` | session cookie | Streams the private image (respect `ETag`/`Cache-Control`) |
 | `DELETE /auth/me/avatar` | session cookie | Remove avatar |
-| `POST /auth/password/forgot` | none | Triggers Auth0 reset email |
 
 `GET /auth/me` returns `{"user": { "id", "display_name", "email",
 "email_verified", "developer_enabled", "avatar_url?" }}`.
 
 Auth errors use a simpler envelope than the order API:
-`{"error": "<message>"}` with 401/400. Treat 401 as "not signed in" and
-redirect to login.
+`{"error": "<message>"}` with 401/400/403/409. Treat 401 as "not signed in"
+and redirect to login; treat 403 "email is not verified" as a prompt to open
+the verification link.
 
 ## 4. Developer Mode and API keys (build this now)
 
@@ -330,7 +350,10 @@ the contract):
 | Route (suggested) | Auth | Content |
 |---|---|---|
 | `/` | public | Landing: what KailoPay is, sandbox/testnet disclaimers, "Sign in" |
-| `/auth/callback` | public | Post-login landing target (set as `AUTH_SUCCESS_REDIRECT_URL`); show profile bootstrap state |
+| `/login`, `/register` | public | Email login and signup forms (`POST /auth/login`, `POST /auth/register`); Google button links to `/auth/google/login` |
+| `/auth/google/callback` | public | Google post-login landing target (set as `AUTH_SUCCESS_REDIRECT_URL`) |
+| `/auth/verify-email` | public | Reads `?token=` from the console-emailed link, POSTs `/auth/email/verify` |
+| `/auth/reset-password` | public | Reads `?token=`, collects a new password, POSTs `/auth/password/reset` |
 | `/profile` | session | `GET/PATCH /auth/me` (display name, Developer Mode toggle), avatar upload/remove |
 | `/developer` | session + Developer Mode | API key list/create/revoke, one-time key reveal, playground entry |
 | `/developer/playground` | session + Developer Mode | Paste-your-own `pk_test_` key (memory only) → create order, show QRIS QR / BRI VA, poll status |
@@ -343,8 +366,9 @@ mapped as in §5.
 
 ## 10. Suggested build order
 
-1. App shell + login/logout via `/auth/login` redirect + `GET /auth/me`
-   (including avatar upload, profile edit).
+1. App shell + auth screens: register/login forms, Google button,
+   verify-email and reset-password token routes, `GET /auth/me`, logout,
+   profile edit, and avatar upload.
 2. Developer section: opt-in Developer Mode, API key create/list/revoke with
    one-time display.
 3. Developer playground (paste-your-own-key, in-memory only): create on-ramp
@@ -388,22 +412,49 @@ send `Cache-Control: no-store`.)
 ### Auth
 
 ```text
-GET /auth/login
-  -> 302 Location: <Auth0 universal login>
-     (navigate the full window; failures: 503 {"error":"authentication failed"})
+POST /auth/register
+  body  {"email":"user@example.com","password":"super-secret-1","display_name":"Febry"}
+  -> 201 {"user":{"id","display_name","email","email_verified":false,...}}
+     | 400 | 409 {"error":"email is already registered"}
 
-GET /auth/callback?code=...&state=...
+POST /auth/login
+  body  {"email":"user@example.com","password":"super-secret-1"}
+  -> 200 {"user":{...}}
+     Set-Cookie: kailopay_session=<opaque>; Path=/; HttpOnly; SameSite=Lax
+     | 401 {"error":"invalid email or password"}   (also when locked)
+     | 403 {"error":"email is not verified"}
+
+GET /auth/google/login
+  -> 302 Location: <Google>  | 503 {"error":"google sign-in is not configured"}
+
+GET /auth/google/callback?code=...&state=...
   -> 302 Location: <AUTH_SUCCESS_REDIRECT_URL>
      Set-Cookie: kailopay_session=<opaque>; Path=/; HttpOnly; SameSite=Lax
-     (failures: 400 {"error":"authentication failed"})
+     | 400 {"error":"authentication failed"}
 
 POST /auth/logout            (session cookie)
   -> 204 (clears the cookie) | 500
 
-POST /auth/password/forgot
-  body  {"email":"user@example.com"}
+POST /auth/email/verify      body  {"token":"<from console link>"}
+  -> 200 {"user":{...}}  | 400 {"error":"invalid or expired token"}
+
+POST /auth/email/resend      body  {"email":"user@example.com"}
+  -> 202 (always) | 400
+
+POST /auth/password/forgot   body  {"email":"user@example.com"}
   -> 202 (always; never reveals account existence) | 400
+
+POST /auth/password/reset    body  {"token":"...","new_password":"fresh-password-1"}
+  -> 204 (revokes all sessions) | 400
+
+POST /auth/password/change   (session cookie)
+  body  {"current_password":"...","new_password":"fresh-password-1"}
+  -> 204 (clears cookie; sign in again) | 400 | 401
 ```
+
+The sandbox backend logs verification/reset links to its console as
+`email verification link ... link=http://localhost:3001/auth/verify-email?token=...`.
+During local development, copy the token from that log line.
 
 ```text
 GET /auth/me                 (session cookie)

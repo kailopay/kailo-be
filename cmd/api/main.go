@@ -14,8 +14,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/febry3/kailopay-be/internal/adapter/auth0"
 	"github.com/febry3/kailopay-be/internal/adapter/coinmarketcap"
+	"github.com/febry3/kailopay-be/internal/adapter/google"
+	mail "github.com/febry3/kailopay-be/internal/adapter/mail"
 	"github.com/febry3/kailopay-be/internal/adapter/objectstorage"
 	stellaradapter "github.com/febry3/kailopay-be/internal/adapter/stellar"
 	"github.com/febry3/kailopay-be/internal/adapter/xendit"
@@ -91,16 +92,21 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("decoding auth session key: %w", err)
 	}
-	authProvider, err := auth0.NewClient(ctx, cfg.Auth, &http.Client{Timeout: 10 * time.Second})
-	if err != nil {
-		return fmt.Errorf("creating Auth0 client: %w", err)
+	// Google sign-in is optional: empty credentials disable the endpoints.
+	var authProvider usecase.Provider
+	if cfg.Auth.Google.ClientID != "" {
+		googleClient, err := google.NewClient(ctx, cfg.Auth.Google, &http.Client{Timeout: 10 * time.Second})
+		if err != nil {
+			return fmt.Errorf("creating Google client: %w", err)
+		}
+		authProvider = googleClient
 	}
 	authRepository := repository.NewAuthRepository(db, cfg.Auth.SessionIdleLifetime)
 	authService, err := usecase.NewAuthUsecase(usecase.AuthDependencies{
-		Provider:      authProvider,
-		PasswordReset: authProvider,
-		Repository:    authRepository,
-		Avatars:       avatarStore,
+		Provider:   authProvider,
+		Repository: authRepository,
+		Avatars:    avatarStore,
+		Mailer:     mail.NewConsoleSender(appLogger),
 	}, nil, usecase.AuthConfig{
 		TransactionEncryptionKey: encryptionKey,
 		SessionHMACKey:           sessionHMACKey,
@@ -108,6 +114,7 @@ func run(ctx context.Context) error {
 		SessionIdleLifetime:      cfg.Auth.SessionIdleLifetime,
 		TransactionLifetime:      cfg.Auth.TransactionLifetime,
 		AvatarMaxBytes:           cfg.Auth.AvatarMaxBytes,
+		EmailLinkBaseURL:         cfg.Auth.EmailLinkBaseURL,
 	})
 	if err != nil {
 		return fmt.Errorf("creating auth service: %w", err)

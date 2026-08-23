@@ -7,6 +7,8 @@ func MigrationModels() []any {
 		&entity.User{},
 		&entity.UserIdentity{},
 		&entity.AuthTransaction{},
+		&entity.AuthCredential{},
+		&entity.AuthChallenge{},
 		&entity.RetailSession{},
 		&entity.APIClient{},
 		&entity.APIKey{},

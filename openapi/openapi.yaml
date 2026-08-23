@@ -2,33 +2,96 @@ openapi: 3.0.3
 info:
   title: KailoPay Backend API
   version: 0.1.0
-  description: Sandbox/testnet payment API with Auth0 email login and KailoPay-owned sessions.
+  description: Sandbox/testnet payment API with self-hosted email and Google authentication behind KailoPay-owned sessions.
 servers:
   - url: http://localhost:8080
     description: Local development
 paths:
+  /auth/register:
+    post:
+      summary: Create an email account
+      description: Creates an unverified credentials account and issues a single-use verification token. The verification link is delivered by the configured sender (logged to the server console in sandbox).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: Account created; verification required before login
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '400':
+          description: Invalid JSON, email, or password (10-128 characters required)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Email already registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /auth/login:
+    post:
+      summary: Sign in with email and password
+      description: Verifies credentials and sets the opaque session cookie. Unknown emails and wrong passwords both return 401 without distinguishing the cause.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Authenticated user with session cookie
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+              description: HttpOnly, SameSite=Lax local session cookie.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '401':
+          description: Invalid email or password, or account locked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Email is not verified yet
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /auth/google/login:
     get:
-      summary: Start email login
-      description: Redirects the browser to Auth0 Universal Login using the configured email connection.
+      summary: Start Google sign-in
+      description: Redirects the browser to Google's OIDC authorization endpoint with PKCE. Returns 503 when Google credentials are not configured.
       responses:
         '302':
-          description: Redirect to Auth0
+          description: Redirect to Google
           headers:
             Location:
               schema:
                 type: string
                 format: uri
         '503':
-          description: Authentication provider unavailable
+          description: Google sign-in is not configured
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-  /auth/callback:
+  /auth/google/callback:
     get:
-      summary: Complete email login
-      description: Consumes the Auth0 authorization callback and redirects to the frontend with a local session cookie.
+      summary: Complete Google sign-in
+      description: Exchanges the Google authorization code and redirects to the frontend with a local session cookie. A Google identity whose verified email matches an existing account is linked to that account.
       responses:
         '302':
           description: Redirect to the configured frontend success URL
@@ -42,7 +105,7 @@ paths:
                 type: string
                 description: HttpOnly, SameSite=Lax local session cookie.
         '400':
-          description: Invalid or replayed authentication callback
+          description: Invalid, expired, or replayed authentication callback
           content:
             application/json:
               schema:
@@ -60,10 +123,33 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-  /auth/password/forgot:
+  /auth/email/verify:
     post:
-      summary: Request a password-reset email
-      description: Requests Auth0 to send its hosted password-reset link. A valid request always returns 202 regardless of whether the account exists.
+      summary: Verify an email address
+      description: Consumes the single-use verification token from the register or resend flow.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmailTokenRequest'
+      responses:
+        '200':
+          description: Verified profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '400':
+          description: Invalid, expired, or already used token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /auth/email/resend:
+    post:
+      summary: Resend the verification email
+      description: Always returns 202 regardless of whether the account exists or is already verified.
       requestBody:
         required: true
         content:
@@ -75,6 +161,71 @@ paths:
           description: The request was accepted without disclosing account existence
         '400':
           description: Invalid JSON or email syntax
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /auth/password/forgot:
+    post:
+      summary: Request a password-reset email
+      description: Issues a single-use reset token valid for one hour. A valid request always returns 202 regardless of whether the account exists.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ForgotPasswordRequest'
+      responses:
+        '202':
+          description: The request was accepted without disclosing account existence
+        '400':
+          description: Invalid JSON or email syntax
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /auth/password/reset:
+    post:
+      summary: Reset the password with a token
+      description: Consumes the reset token, stores a new Argon2id hash, and revokes every session for the account.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordResetRequest'
+      responses:
+        '204':
+          description: Password updated; all sessions revoked
+        '400':
+          description: Invalid token or password policy violation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /auth/password/change:
+    post:
+      summary: Change the password of the signed-in account
+      description: Requires the current password, stores the new hash, and revokes every session including the current one.
+      security:
+        - kailoSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordChangeRequest'
+      responses:
+        '204':
+          description: Password changed; sign in again
+        '401':
+          description: Missing session or wrong current password
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '400':
+          description: Invalid JSON or password policy violation
           content:
             application/json:
               schema:
@@ -103,7 +254,7 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
     patch:
       summary: Update the authenticated local profile
-      description: Updates the local display name. Email and verification status remain Auth0-managed.
+      description: Updates the local display name and Developer Mode opt-in. Email and verification status are managed by the authentication flows.
       security:
         - kailoSession: []
       requestBody:
@@ -198,23 +349,6 @@ paths:
                 $ref: '#/components/schemas/UserProfileResponse'
         '401':
           description: Missing or invalid local session
-  /internal/auth/password-reset-completed:
-    post:
-      summary: Revoke local sessions after an Auth0 password reset
-      description: Internal Auth0 Action callback. It is not intended for browser clients.
-      security:
-        - passwordResetWebhook: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/PasswordResetCompletedRequest'
-      responses:
-        '204':
-          description: All local sessions for the Auth0 identity were revoked
-        '401':
-          description: Missing or invalid callback secret
   /v1/api-keys:
     post:
       summary: Create a sandbox API key
@@ -417,11 +551,7 @@ components:
       type: apiKey
       in: cookie
       name: kailopay_session
-      description: Opaque KailoPay-owned session cookie. Auth0 tokens are never returned to the browser.
-    passwordResetWebhook:
-      type: http
-      scheme: bearer
-      description: Dedicated Auth0 Action callback secret; never use an end-user token.
+      description: Opaque KailoPay-owned session cookie. Provider tokens are never returned to the browser.
     kailoAPIKey:
       type: http
       scheme: bearer
@@ -585,14 +715,69 @@ components:
           type: string
           format: email
           maxLength: 254
-    PasswordResetCompletedRequest:
+    RegisterRequest:
       type: object
       additionalProperties: false
-      required: [subject]
+      required: [email, password]
       properties:
-        subject:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        password:
+          type: string
+          minLength: 10
+          maxLength: 128
+        display_name:
+          type: string
+          maxLength: 100
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+    EmailTokenRequest:
+      type: object
+      additionalProperties: false
+      required: [token]
+      properties:
+        token:
           type: string
           minLength: 1
+    PasswordResetRequest:
+      type: object
+      additionalProperties: false
+      required: [token, new_password]
+      properties:
+        token:
+          type: string
+          minLength: 1
+        new_password:
+          type: string
+          minLength: 10
+          maxLength: 128
+    PasswordChangeRequest:
+      type: object
+      additionalProperties: false
+      required: [current_password, new_password]
+      properties:
+        current_password:
+          type: string
+        new_password:
+          type: string
+          minLength: 10
+          maxLength: 128
+    UserResponse:
+      type: object
+      required: [user]
+      properties:
+        user:
+          $ref: '#/components/schemas/UserProfile'
     EnvironmentMetadata:
       type: object
       required: [environment]

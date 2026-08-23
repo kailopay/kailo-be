@@ -59,7 +59,7 @@ one file per table; repository queries remain in `internal/repository`.
 
 ## Local setup
 
-1. Copy `.env.example` to `.env` and set the Auth0 values.
+1. Copy `.env.example` to `.env` and set the authentication keys.
 2. Start the local PostgreSQL and MinIO services:
 
    ```powershell
@@ -101,7 +101,7 @@ one file per table; repository queries remain in `internal/repository`.
    go run ./cmd/worker
    ```
 
-Developer flow: sign in through Auth0, set `developerEnabled` with
+Developer flow: sign in (email or Google), set `developer_enabled` with
 `PATCH /auth/me`, create a one-time `pk_test_` key at `POST /v1/api-keys`, then
 use it as `Authorization: Bearer <key>` with `POST /v1/onramps`. The on-ramp
 requires `Idempotency-Key`, accepts QRIS or `bri_va`, reserves pre-funded XLM,
@@ -114,13 +114,14 @@ intentionally want to remove the PostgreSQL and MinIO development data.
 use GORM `AutoMigrate` as a production/shared-database migration mechanism;
 production changes must use reviewed, versioned migrations.
 
-Auth profile endpoints are `GET/PATCH /auth/me` and
-`GET/PUT/DELETE /auth/me/avatar`. `POST /auth/password/forgot` asks the
-configured Auth0 database connection to send its hosted reset email. Configure
-an Auth0 post-change-password Action to call
-`POST /internal/auth/password-reset-completed` with
-`Authorization: Bearer <AUTH_PASSWORD_RESET_WEBHOOK_SECRET>` and JSON
-`{"subject":"<event.user.user_id>"}` so existing local sessions are revoked.
+Authentication is self-hosted (ADR-002): `POST /auth/register` and
+`POST /auth/login` accept email and password (Argon2id), and
+`GET /auth/google/login` starts optional Google sign-in with PKCE. Email
+verification and password reset use single-use hashed tokens; in sandbox the
+links are logged to the server console instead of being emailed. Profile
+endpoints are `GET/PATCH /auth/me` and `GET/PUT/DELETE /auth/me/avatar`.
+Leave `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` empty to disable Google
+sign-in.
 
 ## Verification
 

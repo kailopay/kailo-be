@@ -40,12 +40,19 @@ func TestRouterRegistersExpandedAuthEndpoints(t *testing.T) {
 		authenticated bool
 		wantStatus    int
 	}{
+		{method: http.MethodPost, path: "/auth/register", body: `{"email":"user@example.com","password":"super-secret-1"}`, contentType: "application/json", wantStatus: http.StatusCreated},
+		{method: http.MethodPost, path: "/auth/login", body: `{"email":"user@example.com","password":"super-secret-1"}`, contentType: "application/json", wantStatus: http.StatusOK},
+		{method: http.MethodGet, path: "/auth/google/login", wantStatus: http.StatusFound},
+		{method: http.MethodPost, path: "/auth/email/verify", body: `{"token":"token"}`, contentType: "application/json", wantStatus: http.StatusOK},
+		{method: http.MethodPost, path: "/auth/email/resend", body: `{"email":"user@example.com"}`, contentType: "application/json", wantStatus: http.StatusAccepted},
 		{method: http.MethodPost, path: "/auth/password/forgot", body: `{"email":"user@example.com"}`, contentType: "application/json", wantStatus: http.StatusAccepted},
+		{method: http.MethodPost, path: "/auth/password/reset", body: `{"token":"token","new_password":"fresh-password-1"}`, contentType: "application/json", wantStatus: http.StatusNoContent},
+		{method: http.MethodPost, path: "/auth/password/change", body: `{"current_password":"old-password-00","new_password":"fresh-password-1"}`, contentType: "application/json", authenticated: true, wantStatus: http.StatusNoContent},
 		{method: http.MethodPatch, path: "/auth/me", body: `{"display_name":"Name"}`, contentType: "application/json", authenticated: true, wantStatus: http.StatusOK},
 		{method: http.MethodPut, path: "/auth/me/avatar", contentType: "multipart/form-data", authenticated: true, wantStatus: http.StatusBadRequest},
 		{method: http.MethodGet, path: "/auth/me/avatar", authenticated: true, wantStatus: http.StatusOK},
 		{method: http.MethodDelete, path: "/auth/me/avatar", authenticated: true, wantStatus: http.StatusOK},
-		{method: http.MethodPost, path: "/internal/auth/password-reset-completed", body: `{}`, contentType: "application/json", wantStatus: http.StatusUnauthorized},
+		{method: http.MethodGet, path: "/internal/auth/password-reset-completed", wantStatus: http.StatusNotFound},
 	}
 
 	for _, test := range tests {

@@ -3,12 +3,15 @@
 ## Week 1 migration status
 
 `migrations/000001_week1_onramp.up.sql` is the authoritative clean-schema
-migration. It includes Auth0-backed users/sessions, one test API client per
+migration. It includes users/sessions/credentials, one test API client per
 developer/environment, hashed API keys, immutable quote fields, orders/events,
 Xendit checkout and callback receipts, treasury accounts/reservations,
 idempotency records, Stellar intents, and durable outbox leases.
 `migrations/000002_payment_method_bri_va.sql` realigns the stored
 `payment_method`/`method` enum with the public `qris`/`bri_va` contract.
+`migrations/000003_self_hosted_auth.sql` adds Argon2id password credentials,
+single-use verification/reset challenge tokens, and a partial unique index on
+`users(email)` (ADR-002).
 Runtime services use explicit transactions; `AutoMigrate` remains local/test
 bootstrap only.
 
@@ -70,7 +73,7 @@ referenced by other tables.
 | `developer_enabled_at` | `timestamptz` | Nullable opt-in timestamp for developer-management access |
 | `created_at`, `updated_at` | `timestamptz` | UTC |
 
-One local user can act through retail sessions, opt into Developer Mode, or receive separately controlled internal operator access. Auth0 proves the external identity; KailoPay stores the stable provider subject separately and owns local authorization. Email is profile data and is not used as the identity key.
+One local user can act through retail sessions, opt into Developer Mode, or receive separately controlled internal operator access. A provider proves the external identity (Google subject, or the email itself for credentials login); KailoPay stores the stable provider subject separately and owns local authorization. Since ADR-002 the email is also the unique match key for credentials login and verified-email linking.
 
 ### `user_identities`
 
@@ -79,7 +82,7 @@ One local user can act through retail sessions, opt into Developer Mode, or rece
 | `id` | `uuid` | Primary key |
 | `user_id` | `uuid` | FK to `users` |
 | `provider` | `text` | `auth0` for `v0.1.0` |
-| `subject` | `text` | Stable provider subject, such as Auth0 `sub`; never an email address |
+| `subject` | `text` | Stable provider subject (Google `sub`, or the lowercased email for the `email` credentials provider) |
 | `created_at` | `timestamptz` | UTC |
 | `last_login_at` | `timestamptz` | Nullable UTC timestamp |
 
@@ -115,6 +118,40 @@ One-time OIDC login transactions backing `GET /auth/login` and
 
 Unique: `state_hash`. A consumed or expired transaction can never complete a
 second login.
+
+### `auth_credentials`
+
+Argon2id password credentials for email accounts (ADR-002).
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | `uuid` | Primary key |
+| `user_id` | `uuid` | Unique FK to `users` |
+| `password_hash` | `text` | Encoded Argon2id string; never a plaintext password |
+| `failed_login_count` | `integer` | Non-negative; reset on success and password change |
+| `locked_until` | `timestamptz` | Set when the failure count reaches the lockout threshold |
+| `password_changed_at` | `timestamptz` | Rotated on change and reset |
+| `created_at`, `updated_at` | `timestamptz` | UTC |
+
+Google-only accounts have no row until they set a password; `UpdatePasswordHash`
+upserts one.
+
+### `auth_challenges`
+
+Single-use hashed tokens for email verification (24h) and password reset (1h).
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | `uuid` | Primary key |
+| `user_id` | `uuid` | FK to `users` |
+| `token_hash` | `bytea` | Unique HMAC of the raw token; the raw token is never stored |
+| `purpose` | `text` | `email_verification` or `password_reset` check |
+| `expires_at` | `timestamptz` | Hard expiry |
+| `consumed_at` | `timestamptz` | Set exactly once; single-use enforcement |
+| `created_at` | `timestamptz` | UTC |
+
+Consumption is guarded like login transactions: lock, conditional update, and
+row-count verification.
 
 ### `api_clients`
 

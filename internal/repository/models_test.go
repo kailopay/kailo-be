@@ -24,6 +24,8 @@ func TestMigrationModelsAreExplicitlyRegistered(t *testing.T) {
 	for _, table := range []string{
 		"users",
 		"auth_transactions",
+		"auth_credentials",
+		"auth_challenges",
 		"retail_sessions",
 		"user_identities",
 		"api_clients",

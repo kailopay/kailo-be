@@ -31,6 +31,7 @@ type integrationStore struct {
 	db         *gorm.DB
 	onramp     *OnrampRepository
 	settlement *SettlementRepository
+	auth       *AuthRepository
 }
 
 func newIntegrationStore(t *testing.T) *integrationStore {
@@ -72,6 +73,7 @@ func newIntegrationStore(t *testing.T) *integrationStore {
 		db:         db,
 		onramp:     NewOnrampRepository(db, "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF", "stellar_testnet", 0),
 		settlement: NewSettlementRepository(db, 5),
+		auth:       NewAuthRepository(db, 30*time.Minute),
 	}
 }
 

@@ -8,9 +8,9 @@
 | Configuration | Viper with validated startup config |
 | Persistence | GORM PostgreSQL adapter; consumer-owned interfaces remain outside GORM |
 | Logging | Standard-library `log/slog` |
-| External environments | Auth0 tenant, one payment gateway sandbox, and Stellar testnet |
+| External environments | Optional Google sign-in, one payment gateway sandbox, and Stellar testnet |
 | Architecture | Modular monolith with asynchronous workers and transactional outbox |
-| Status | Auth0 backend authentication slice implemented; payment/order slices remain staged |
+| Status | Self-hosted authentication slice implemented (ADR-002); payment/order slices remain staged |
 
 ## Purpose
 
@@ -107,17 +107,18 @@ Material design changes require an ADR and synchronized updates to affected docu
 - Confirm test asset code, precision, issuer/distributor accounts, and retirement method.
 - Agree acceptable off-ramp evidence when the selected gateway cannot execute a true sandbox payout.
 - Select deployment topology, public hostnames, and managed-secret mechanism.
-- Configure the selected Auth0 OIDC tenant and the minimum developer-session mechanism used to create and revoke test API keys.
+- ~~Configure the selected Auth0 OIDC tenant~~ Resolved by ADR-002: authentication is self-hosted email + optional Google.
 
 Until those decisions are resolved, payment-provider classes, URLs, and secret names remain adapter/configuration concerns rather than embedded domain logic.
 
-## Implemented Auth0 backend slice
+## Implemented self-hosted authentication slice (ADR-002)
 
-The backend now implements the Auth0 email-login BFF flow:
+The backend implements email + password and optional Google authentication:
 
-- `GET /auth/login` redirects to Auth0 Universal Login using the configured email connection.
-- `GET /auth/callback` validates the one-time transaction and OIDC identity, then creates a local session.
-- `POST /auth/logout` revokes and clears the local session.
-- `GET /auth/me` returns the authenticated local user and requires the `kailopay_session` cookie.
+- `POST /auth/register` creates an unverified account and issues a single-use verification token.
+- `POST /auth/login` verifies Argon2id credentials and creates a local session.
+- `GET /auth/google/login` and `GET /auth/google/callback` run the Google OIDC flow with PKCE; a verified matching email links the Google identity to the existing account.
+- `POST /auth/email/verify` and `POST /auth/email/resend` complete or re-issue verification; `POST /auth/password/forgot`, `POST /auth/password/reset`, and protected `POST /auth/password/change` cover password recovery.
+- `POST /auth/logout` revokes and clears the local session; `GET /auth/me` returns the authenticated user and requires the `kailopay_session` cookie.
 
-Auth0 tokens never reach the browser. Local sessions are opaque, HTTP-only, SameSite=Lax cookies backed by PostgreSQL. Configure `.env` using [.env.example](../../.env.example); the checked-in contract is [openapi/openapi.yaml](../../openapi/openapi.yaml). Run `go run ./cmd/automigrate` in local/test environments after setting the database and Auth0 configuration.
+Provider tokens never reach the browser. Local sessions are opaque, HTTP-only, SameSite=Lax cookies backed by PostgreSQL. Verification and reset links are single-use hashed tokens; in sandbox the links are logged to the server console (an `EmailSender` port ready for SMTP later). Configure `.env` using [.env.example](../../.env.example); the checked-in contract is [openapi/openapi.yaml](../../openapi/openapi.yaml). Run `go run ./cmd/migrate` to apply the versioned schema.

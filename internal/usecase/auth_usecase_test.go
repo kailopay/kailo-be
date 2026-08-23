@@ -18,18 +18,16 @@ type fixedClock struct{ now time.Time }
 func (c fixedClock) Now() time.Time { return c.now }
 
 type fakeProvider struct {
-	identity           Identity
-	state              string
-	nonce              string
-	challenge          string
-	code               string
-	passwordResetEmail string
-	passwordResetErr   error
+	identity  Identity
+	state     string
+	nonce     string
+	challenge string
+	code      string
 }
 
 func (p *fakeProvider) AuthorizationURL(_ context.Context, state, nonce, challenge string) (string, error) {
 	p.state, p.nonce, p.challenge = state, nonce, challenge
-	return "https://tenant.example.com/authorize", nil
+	return "https://accounts.google.com/o/oauth2/v2/auth", nil
 }
 
 func (p *fakeProvider) Exchange(_ context.Context, code, _, nonce string) (Identity, error) {
@@ -40,96 +38,184 @@ func (p *fakeProvider) Exchange(_ context.Context, code, _, nonce string) (Ident
 	return p.identity, nil
 }
 
-func (p *fakeProvider) RequestPasswordReset(_ context.Context, email string) error {
-	p.passwordResetEmail = email
-	return p.passwordResetErr
-}
+type fakeAuthRepository struct {
+	created      []LoginTransaction
+	consumed     LoginTransaction
+	transactions error
 
-type fakeTransactionStore struct {
-	created  []LoginTransaction
-	consumed LoginTransaction
-	err      error
-}
-
-func (s *fakeTransactionStore) Create(_ context.Context, tx LoginTransaction) error {
-	s.created = append(s.created, tx)
-	return s.err
-}
-
-func (s *fakeTransactionStore) Consume(_ context.Context, _ []byte, _ time.Time) (LoginTransaction, error) {
-	if s.err != nil {
-		return LoginTransaction{}, s.err
-	}
-	return s.consumed, nil
-}
-
-type fakeUserSessionStore struct {
 	profile           UserProfile
-	created           SessionRecord
+	session           SessionRecord
 	authenticated     AuthenticatedUser
-	revoked           bool
-	revokedSubject    string
+	revokedSession    bool
 	updatedName       string
 	developerEnabled  *bool
 	avatarKey         string
 	previousAvatarKey string
-	err               error
+	storeErr          error
+
+	registered    []RegisterRecord
+	registerErr   error
+	credentials   map[string]CredentialState
+	usersByEmail  map[string]UserProfile
+	challenges    []ChallengeRecord
+	consumeErr    error
+	consumedToken []byte
+	consumedUser  string
+	failureCount  int
+	lockedUntil   *time.Time
+	updatedHash   string
+	verifiedUsers []string
+	revokedUsers  []string
 }
 
-func (s *fakeUserSessionStore) UpsertIdentityAndCreateSession(_ context.Context, _ Identity, session SessionRecord) (UserProfile, error) {
-	s.created = session
-	return s.profile, s.err
+func (s *fakeAuthRepository) Create(_ context.Context, transaction LoginTransaction) error {
+	s.created = append(s.created, transaction)
+	return s.transactions
 }
 
-func (s *fakeUserSessionStore) RevokeSession(_ context.Context, _ []byte, _ time.Time) error {
-	s.revoked = true
-	return s.err
+func (s *fakeAuthRepository) Consume(_ context.Context, _ []byte, _ time.Time) (LoginTransaction, error) {
+	if s.transactions != nil {
+		return LoginTransaction{}, s.transactions
+	}
+	return s.consumed, nil
 }
 
-func (s *fakeUserSessionStore) FindActiveSession(_ context.Context, _ []byte, _ time.Time) (AuthenticatedUser, error) {
-	return s.authenticated, s.err
+func (s *fakeAuthRepository) UpsertIdentityAndCreateSession(_ context.Context, _ Identity, session SessionRecord) (UserProfile, error) {
+	s.session = session
+	return s.profile, s.storeErr
 }
 
-func (s *fakeUserSessionStore) UpdateDisplayName(_ context.Context, _ string, displayName string) (UserProfile, error) {
+func (s *fakeAuthRepository) RevokeSession(context.Context, []byte, time.Time) error {
+	s.revokedSession = true
+	return s.storeErr
+}
+
+func (s *fakeAuthRepository) FindActiveSession(_ context.Context, _ []byte, _ time.Time) (AuthenticatedUser, error) {
+	return s.authenticated, s.storeErr
+}
+
+func (s *fakeAuthRepository) UpdateDisplayName(_ context.Context, _ string, displayName string) (UserProfile, error) {
 	s.updatedName = displayName
 	s.profile.DisplayName = displayName
-	return s.profile, s.err
+	return s.profile, s.storeErr
 }
 
-func (s *fakeUserSessionStore) SetDeveloperMode(_ context.Context, _ string, enabled bool) (UserProfile, error) {
+func (s *fakeAuthRepository) SetDeveloperMode(_ context.Context, _ string, enabled bool) (UserProfile, error) {
 	s.developerEnabled = &enabled
 	s.profile.DeveloperEnabled = enabled
-	return s.profile, s.err
+	return s.profile, s.storeErr
 }
 
-func (s *fakeUserSessionStore) FindProfile(_ context.Context, _ string) (UserProfile, error) {
-	return s.profile, s.err
+func (s *fakeAuthRepository) FindProfile(context.Context, string) (UserProfile, error) {
+	return s.profile, s.storeErr
 }
 
-func (s *fakeUserSessionStore) ReplaceAvatarObjectKey(_ context.Context, _ string, objectKey string) (UserProfile, string, error) {
+func (s *fakeAuthRepository) ReplaceAvatarObjectKey(_ context.Context, _ string, objectKey string) (UserProfile, string, error) {
 	s.avatarKey = objectKey
 	s.profile.AvatarObjectKey = objectKey
-	return s.profile, s.previousAvatarKey, s.err
+	return s.profile, s.previousAvatarKey, s.storeErr
 }
 
-func (s *fakeUserSessionStore) ClearAvatarObjectKey(_ context.Context, _ string) (UserProfile, string, error) {
+func (s *fakeAuthRepository) ClearAvatarObjectKey(_ context.Context, _ string) (UserProfile, string, error) {
 	previous := s.avatarKey
 	if previous == "" {
 		previous = s.previousAvatarKey
 	}
 	s.avatarKey = ""
 	s.profile.AvatarObjectKey = ""
-	return s.profile, previous, s.err
+	return s.profile, previous, s.storeErr
 }
 
-func (s *fakeUserSessionStore) RevokeSessionsForIdentity(_ context.Context, _, subject string, _ time.Time) error {
-	s.revokedSubject = subject
-	return s.err
+func (s *fakeAuthRepository) RevokeSessionsForUser(_ context.Context, userID string, _ time.Time) error {
+	s.revokedUsers = append(s.revokedUsers, userID)
+	return s.storeErr
 }
 
-type fakeAuthRepository struct {
-	*fakeTransactionStore
-	*fakeUserSessionStore
+func (s *fakeAuthRepository) CreateUserWithCredential(_ context.Context, record RegisterRecord) error {
+	if s.registerErr != nil {
+		return s.registerErr
+	}
+	s.registered = append(s.registered, record)
+	if s.credentials == nil {
+		s.credentials = map[string]CredentialState{}
+	}
+	s.credentials[record.Email] = CredentialState{
+		UserID:       record.UserID,
+		Email:        record.Email,
+		DisplayName:  record.DisplayName,
+		PasswordHash: record.PasswordHash,
+	}
+	return nil
+}
+
+func (s *fakeAuthRepository) FindCredentialByEmail(_ context.Context, email string) (CredentialState, bool, error) {
+	state, ok := s.credentials[email]
+	return state, ok, s.storeErr
+}
+
+func (s *fakeAuthRepository) FindCredentialByUserID(_ context.Context, userID string) (CredentialState, bool, error) {
+	for _, state := range s.credentials {
+		if state.UserID == userID {
+			return state, true, nil
+		}
+	}
+	return CredentialState{}, false, s.storeErr
+}
+
+func (s *fakeAuthRepository) FindUserByEmail(_ context.Context, email string) (UserProfile, bool, error) {
+	profile, ok := s.usersByEmail[email]
+	return profile, ok, s.storeErr
+}
+
+func (s *fakeAuthRepository) IncrementLoginFailures(context.Context, string, int, time.Duration, time.Time) error {
+	s.failureCount++
+	return nil
+}
+
+func (s *fakeAuthRepository) ResetLoginFailures(context.Context, string, time.Time) error {
+	s.failureCount = 0
+	return nil
+}
+
+func (s *fakeAuthRepository) UpdatePasswordHash(_ context.Context, _ string, passwordHash string, _ time.Time) error {
+	s.updatedHash = passwordHash
+	return s.storeErr
+}
+
+func (s *fakeAuthRepository) SetEmailVerified(_ context.Context, userID string, _ time.Time) (UserProfile, error) {
+	s.verifiedUsers = append(s.verifiedUsers, userID)
+	return s.profile, s.storeErr
+}
+
+func (s *fakeAuthRepository) CreateChallenge(_ context.Context, challenge ChallengeRecord) error {
+	s.challenges = append(s.challenges, challenge)
+	return s.storeErr
+}
+
+func (s *fakeAuthRepository) ConsumeChallenge(_ context.Context, tokenHash []byte, _ string, _ time.Time) (string, error) {
+	if s.consumeErr != nil {
+		return "", s.consumeErr
+	}
+	s.consumedToken = tokenHash
+	return s.consumedUser, nil
+}
+
+type fakeMailer struct {
+	verificationEmail string
+	verificationLink  string
+	resetEmail        string
+	resetLink         string
+	err               error
+}
+
+func (m *fakeMailer) SendEmailVerification(_ context.Context, email, link string) error {
+	m.verificationEmail, m.verificationLink = email, link
+	return m.err
+}
+
+func (m *fakeMailer) SendPasswordReset(_ context.Context, email, link string) error {
+	m.resetEmail, m.resetLink = email, link
+	return m.err
 }
 
 type fakeAvatarStore struct {
@@ -157,26 +243,25 @@ func (s *fakeAvatarStore) Delete(_ context.Context, objectKey string) error {
 	return s.deleteErr
 }
 
-func testAuthUsecase(t *testing.T) (*AuthUsecase, *fakeProvider, *fakeTransactionStore, *fakeUserSessionStore, *fakeAvatarStore, fixedClock) {
+func testAuthUsecase(t *testing.T) (*AuthUsecase, *fakeProvider, *fakeAuthRepository, *fakeAvatarStore, *fakeMailer, fixedClock) {
 	t.Helper()
 	clock := fixedClock{now: time.Date(2026, time.August, 19, 10, 0, 0, 0, time.UTC)}
 	provider := &fakeProvider{identity: Identity{
-		Provider:      ProviderAuth0,
-		Subject:       "auth0|user-1",
+		Provider:      ProviderGoogle,
+		Subject:       "google-user-1",
 		Email:         "user@example.com",
 		EmailVerified: true,
 		DisplayName:   "Test User",
 	}}
-	transactions := &fakeTransactionStore{}
-	users := &fakeUserSessionStore{profile: UserProfile{ID: "user-id", DisplayName: "Test User", Email: "user@example.com", EmailVerified: true}}
-	repository := &fakeAuthRepository{fakeTransactionStore: transactions, fakeUserSessionStore: users}
+	repository := &fakeAuthRepository{profile: UserProfile{ID: "user-id", DisplayName: "Test User", Email: "user@example.com", EmailVerified: true}}
 	avatars := &fakeAvatarStore{}
+	mailer := &fakeMailer{}
 	key := []byte("01234567890123456789012345678901")
 	service, err := NewAuthUsecase(AuthDependencies{
-		Provider:      provider,
-		PasswordReset: provider,
-		Repository:    repository,
-		Avatars:       avatars,
+		Provider:   provider,
+		Repository: repository,
+		Avatars:    avatars,
+		Mailer:     mailer,
 	}, clock, AuthConfig{
 		TransactionEncryptionKey: key,
 		SessionHMACKey:           key,
@@ -184,55 +269,56 @@ func testAuthUsecase(t *testing.T) (*AuthUsecase, *fakeProvider, *fakeTransactio
 		SessionIdleLifetime:      30 * time.Minute,
 		TransactionLifetime:      10 * time.Minute,
 		AvatarMaxBytes:           5 << 20,
+		EmailLinkBaseURL:         "http://localhost:3001",
 	})
 	if err != nil {
 		t.Fatalf("NewAuthUsecase() error = %v", err)
 	}
-	return service, provider, transactions, users, avatars, clock
+	return service, provider, repository, avatars, mailer, clock
 }
 
-func TestAuthUsecaseBeginLoginCreatesPKCETransaction(t *testing.T) {
-	service, provider, transactions, _, _, _ := testAuthUsecase(t)
+func TestAuthUsecaseBeginGoogleLoginCreatesPKCETransaction(t *testing.T) {
+	service, provider, repository, _, _, _ := testAuthUsecase(t)
 
-	redirect, err := service.BeginLogin(context.Background())
+	redirect, err := service.BeginGoogleLogin(context.Background())
 	if err != nil {
-		t.Fatalf("BeginLogin() error = %v", err)
+		t.Fatalf("BeginGoogleLogin() error = %v", err)
 	}
-	if redirect == "" || len(transactions.created) != 1 {
-		t.Fatalf("redirect/transaction = %q/%d, want a redirect and one transaction", redirect, len(transactions.created))
+	if redirect == "" || len(repository.created) != 1 {
+		t.Fatalf("redirect/transaction = %q/%d, want a redirect and one transaction", redirect, len(repository.created))
 	}
 	if provider.state == "" || provider.nonce == "" || provider.challenge == "" {
 		t.Fatal("provider did not receive generated authorization parameters")
 	}
-	if len(transactions.created[0].StateHash) == 0 || len(transactions.created[0].CodeVerifierCiphertext) == 0 {
+	if len(repository.created[0].StateHash) == 0 || len(repository.created[0].CodeVerifierCiphertext) == 0 {
 		t.Fatal("transaction contains empty protected values")
 	}
-	if string(transactions.created[0].StateHash) == provider.state {
+	if string(repository.created[0].StateHash) == provider.state {
 		t.Fatal("state was persisted in plaintext")
 	}
 }
 
-func TestAuthUsecaseCompleteLoginCreatesLocalSession(t *testing.T) {
-	service, provider, transactions, users, _, clock := testAuthUsecase(t)
-	if _, err := service.BeginLogin(context.Background()); err != nil {
-		t.Fatalf("BeginLogin() error = %v", err)
+func TestAuthUsecaseCompleteGoogleLoginCreatesLocalSession(t *testing.T) {
+	service, provider, repository, _, _, clock := testAuthUsecase(t)
+	if _, err := service.BeginGoogleLogin(context.Background()); err != nil {
+		t.Fatalf("BeginGoogleLogin() error = %v", err)
 	}
 	verifier := randomVerifier(t)
-	transactions.consumed = LoginTransaction{
+	repository.consumed = LoginTransaction{
 		StateHash:              hashValue(service.config.SessionHMACKey, provider.state),
 		NonceHash:              hashValue(service.config.SessionHMACKey, provider.nonce),
 		CodeVerifierCiphertext: testEncryptCallbackData(t, service.config.TransactionEncryptionKey, provider.nonce, verifier),
 		ExpiresAt:              clock.now.Add(service.config.TransactionLifetime),
 	}
 
-	result, err := service.CompleteLogin(context.Background(), "authorization-code", provider.state)
+	result, err := service.CompleteGoogleLogin(context.Background(), "authorization-code", provider.state)
 	if err != nil {
-		t.Fatalf("CompleteLogin() error = %v", err)
+		t.Fatalf("CompleteGoogleLogin() error = %v", err)
 	}
 	if provider.code != "authorization-code" || result.RawToken == "" {
 		t.Fatal("callback did not exchange the code and create a local token")
 	}
-	if len(users.created.TokenHash) == 0 || string(users.created.TokenHash) == result.RawToken {
+	if len(repository.session.TokenHash) == 0 || string(repository.session.TokenHash) == result.RawToken {
 		t.Fatal("raw session token was persisted")
 	}
 	if !result.ExpiresAt.Equal(clock.now.Add(8 * time.Hour)) {
@@ -248,41 +334,242 @@ func TestAuthUsecaseRejectsInvalidTransactionAndProviderIdentity(t *testing.T) {
 		want           error
 	}{
 		{name: "invalid transaction", transactionErr: ErrInvalidTransaction, want: ErrInvalidTransaction},
-		{name: "unverified email", identity: Identity{Provider: ProviderAuth0, Subject: "auth0|user", Email: "user@example.com"}, want: ErrInvalidIdentity},
+		{name: "unverified email", identity: Identity{Provider: ProviderGoogle, Subject: "google-user", Email: "user@example.com"}, want: ErrInvalidIdentity},
+		{name: "wrong provider", identity: Identity{Provider: "auth0", Subject: "auth0|user", Email: "user@example.com", EmailVerified: true}, want: ErrInvalidIdentity},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			service, provider, transactions, _, _, clock := testAuthUsecase(t)
-			transactions.err = tt.transactionErr
+			service, provider, repository, _, _, clock := testAuthUsecase(t)
+			repository.transactions = tt.transactionErr
 			if tt.transactionErr == nil {
 				provider.identity = tt.identity
-				if _, err := service.BeginLogin(context.Background()); err != nil {
-					t.Fatalf("BeginLogin() error = %v", err)
+				if _, err := service.BeginGoogleLogin(context.Background()); err != nil {
+					t.Fatalf("BeginGoogleLogin() error = %v", err)
 				}
 				verifier := randomVerifier(t)
-				transactions.consumed = LoginTransaction{
+				repository.consumed = LoginTransaction{
 					StateHash:              hashValue(service.config.SessionHMACKey, provider.state),
 					NonceHash:              hashValue(service.config.SessionHMACKey, provider.nonce),
 					CodeVerifierCiphertext: testEncryptCallbackData(t, service.config.TransactionEncryptionKey, provider.nonce, verifier),
 					ExpiresAt:              clock.now.Add(service.config.TransactionLifetime),
 				}
 			}
-			if _, err := service.CompleteLogin(context.Background(), "code", "state"); !errors.Is(err, tt.want) {
-				t.Fatalf("CompleteLogin() error = %v, want %v", err, tt.want)
+			if _, err := service.CompleteGoogleLogin(context.Background(), "code", "state"); !errors.Is(err, tt.want) {
+				t.Fatalf("CompleteGoogleLogin() error = %v, want %v", err, tt.want)
 			}
 		})
 	}
 }
 
+func TestAuthUsecaseRegisterCreatesCredentialAndVerificationChallenge(t *testing.T) {
+	service, _, repository, _, mailer, _ := testAuthUsecase(t)
+
+	profile, err := service.Register(context.Background(), RegisterInput{Email: " New@Example.com ", Password: "super-secret-1", DisplayName: "New User"})
+	if err != nil {
+		t.Fatalf("Register() error = %v", err)
+	}
+	if len(repository.registered) != 1 {
+		t.Fatalf("registered records = %d, want 1", len(repository.registered))
+	}
+	record := repository.registered[0]
+	if record.Email != "new@example.com" || record.UserID != profile.ID {
+		t.Fatalf("record email/user = %q/%q", record.Email, record.UserID)
+	}
+	if record.Challenge.Purpose != ChallengeEmailVerification || len(record.Challenge.TokenHash) == 0 {
+		t.Fatalf("challenge = %+v", record.Challenge)
+	}
+	if record.Challenge.UserID != record.UserID {
+		t.Fatalf("challenge user = %q, want %q", record.Challenge.UserID, record.UserID)
+	}
+	if mailer.verificationEmail != "new@example.com" || !strings.Contains(mailer.verificationLink, "/auth/verify-email?token=") {
+		t.Fatalf("verification delivery = %q / %q", mailer.verificationEmail, mailer.verificationLink)
+	}
+	if match, _, err := verifyPassword(record.PasswordHash, "super-secret-1"); err != nil || !match {
+		t.Fatalf("stored hash does not verify: match=%v err=%v", match, err)
+	}
+}
+
+func TestAuthUsecaseRegisterRejectsDuplicatesWeakPasswordsAndBadEmails(t *testing.T) {
+	service, _, repository, _, _, _ := testAuthUsecase(t)
+	repository.registerErr = ErrEmailTaken
+	if _, err := service.Register(context.Background(), RegisterInput{Email: "user@example.com", Password: "super-secret-1"}); !errors.Is(err, ErrEmailTaken) {
+		t.Fatalf("Register() duplicate error = %v, want %v", err, ErrEmailTaken)
+	}
+	repository.registerErr = nil
+	if _, err := service.Register(context.Background(), RegisterInput{Email: "user@example.com", Password: "short"}); !errors.Is(err, ErrWeakPassword) {
+		t.Fatalf("Register() weak password error = %v, want %v", err, ErrWeakPassword)
+	}
+	if _, err := service.Register(context.Background(), RegisterInput{Email: "not-an-email", Password: "super-secret-1"}); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("Register() bad email error = %v, want %v", err, ErrInvalidCredentials)
+	}
+}
+
+func TestAuthUsecasePasswordLoginLifecycle(t *testing.T) {
+	service, _, repository, _, _, clock := testAuthUsecase(t)
+	hash, err := hashPassword("correct-password-10")
+	if err != nil {
+		t.Fatalf("hashPassword() error = %v", err)
+	}
+	repository.credentials = map[string]CredentialState{
+		"user@example.com": {UserID: "user-id", Email: "user@example.com", DisplayName: "Test User", PasswordHash: hash, EmailVerified: true, Active: true},
+	}
+
+	result, err := service.LoginWithPassword(context.Background(), " USER@Example.COM ", "correct-password-10")
+	if err != nil {
+		t.Fatalf("LoginWithPassword() error = %v", err)
+	}
+	if result.RawToken == "" || len(repository.session.TokenHash) == 0 {
+		t.Fatal("login did not mint a session")
+	}
+	if !result.ExpiresAt.Equal(clock.now.Add(8 * time.Hour)) {
+		t.Fatalf("session expiry = %v", result.ExpiresAt)
+	}
+
+	if _, err := service.LoginWithPassword(context.Background(), "user@example.com", "wrong-password-99"); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("wrong password error = %v, want %v", err, ErrInvalidCredentials)
+	}
+	if repository.failureCount != 1 {
+		t.Fatalf("failure count = %d, want 1", repository.failureCount)
+	}
+
+	if _, err := service.LoginWithPassword(context.Background(), "unknown@example.com", "whatever-pass"); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("unknown email error = %v, want %v", err, ErrInvalidCredentials)
+	}
+}
+
+func TestAuthUsecasePasswordLoginRejectsUnverifiedAndLockedAccounts(t *testing.T) {
+	service, _, repository, _, _, clock := testAuthUsecase(t)
+	hash, err := hashPassword("correct-password-10")
+	if err != nil {
+		t.Fatalf("hashPassword() error = %v", err)
+	}
+	lockedUntil := clock.now.Add(10 * time.Minute)
+	repository.credentials = map[string]CredentialState{
+		"unverified@example.com": {UserID: "user-1", Email: "unverified@example.com", PasswordHash: hash, EmailVerified: false, Active: true},
+		"locked@example.com":     {UserID: "user-2", Email: "locked@example.com", PasswordHash: hash, EmailVerified: true, Active: true, LockedUntil: &lockedUntil},
+		"disabled@example.com":   {UserID: "user-3", Email: "disabled@example.com", PasswordHash: hash, EmailVerified: true, Active: false},
+	}
+
+	if _, err := service.LoginWithPassword(context.Background(), "unverified@example.com", "correct-password-10"); !errors.Is(err, ErrEmailNotVerified) {
+		t.Fatalf("unverified error = %v, want %v", err, ErrEmailNotVerified)
+	}
+	if _, err := service.LoginWithPassword(context.Background(), "locked@example.com", "correct-password-10"); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("locked error = %v, want %v", err, ErrInvalidCredentials)
+	}
+	if _, err := service.LoginWithPassword(context.Background(), "disabled@example.com", "correct-password-10"); !errors.Is(err, ErrUserDisabled) {
+		t.Fatalf("disabled error = %v, want %v", err, ErrUserDisabled)
+	}
+}
+
+func TestAuthUsecaseVerifyEmailConsumesChallengeAndMarksVerified(t *testing.T) {
+	service, _, repository, _, _, _ := testAuthUsecase(t)
+	repository.consumedUser = "user-id"
+
+	profile, err := service.VerifyEmail(context.Background(), " verification-token ")
+	if err != nil {
+		t.Fatalf("VerifyEmail() error = %v", err)
+	}
+	if len(repository.consumedToken) == 0 || string(repository.consumedToken) == "verification-token" {
+		t.Fatal("verification token was consumed in plaintext")
+	}
+	if len(repository.verifiedUsers) != 1 || repository.verifiedUsers[0] != "user-id" {
+		t.Fatalf("verified users = %#v", repository.verifiedUsers)
+	}
+	if profile.ID != "user-id" {
+		t.Fatalf("profile = %+v", profile)
+	}
+
+	repository.consumeErr = ErrInvalidChallenge
+	if _, err := service.VerifyEmail(context.Background(), "used-token"); !errors.Is(err, ErrInvalidChallenge) {
+		t.Fatalf("replay error = %v, want %v", err, ErrInvalidChallenge)
+	}
+}
+
+func TestAuthUsecasePasswordResetFlow(t *testing.T) {
+	service, _, repository, _, mailer, _ := testAuthUsecase(t)
+	repository.usersByEmail = map[string]UserProfile{"user@example.com": {ID: "user-id"}}
+
+	if err := service.RequestPasswordReset(context.Background(), "user@example.com"); err != nil {
+		t.Fatalf("RequestPasswordReset() error = %v", err)
+	}
+	if len(repository.challenges) != 1 || repository.challenges[0].Purpose != ChallengePasswordReset {
+		t.Fatalf("challenges = %+v", repository.challenges)
+	}
+	if mailer.resetEmail != "user@example.com" || !strings.Contains(mailer.resetLink, "/auth/reset-password?token=") {
+		t.Fatalf("reset delivery = %q / %q", mailer.resetEmail, mailer.resetLink)
+	}
+
+	// Unknown emails succeed silently and never send mail.
+	if err := service.RequestPasswordReset(context.Background(), "unknown@example.com"); err != nil {
+		t.Fatalf("RequestPasswordReset(unknown) error = %v", err)
+	}
+	if len(repository.challenges) != 1 || mailer.resetEmail != "user@example.com" {
+		t.Fatal("unknown email created a challenge or sent mail")
+	}
+
+	repository.consumedUser = "user-id"
+	if err := service.ResetPassword(context.Background(), "reset-token", "fresh-password-1"); err != nil {
+		t.Fatalf("ResetPassword() error = %v", err)
+	}
+	if repository.updatedHash == "" {
+		t.Fatal("ResetPassword() did not store a new hash")
+	}
+	if match, _, err := verifyPassword(repository.updatedHash, "fresh-password-1"); err != nil || !match {
+		t.Fatalf("reset hash does not verify: match=%v err=%v", match, err)
+	}
+	if len(repository.revokedUsers) != 1 || repository.revokedUsers[0] != "user-id" {
+		t.Fatalf("revoked users = %#v", repository.revokedUsers)
+	}
+}
+
+func TestAuthUsecaseChangePasswordRequiresCurrentPassword(t *testing.T) {
+	service, _, repository, _, _, _ := testAuthUsecase(t)
+	hash, err := hashPassword("current-password-1")
+	if err != nil {
+		t.Fatalf("hashPassword() error = %v", err)
+	}
+	repository.credentials = map[string]CredentialState{
+		"user@example.com": {UserID: "user-id", PasswordHash: hash, EmailVerified: true, Active: true},
+	}
+
+	if err := service.ChangePassword(context.Background(), "user-id", "wrong-current-00", "fresh-password-1"); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("ChangePassword() wrong current error = %v, want %v", err, ErrInvalidCredentials)
+	}
+	if err := service.ChangePassword(context.Background(), "user-id", "current-password-1", "fresh-password-1"); err != nil {
+		t.Fatalf("ChangePassword() error = %v", err)
+	}
+	if len(repository.revokedUsers) != 1 {
+		t.Fatalf("revoked users = %#v", repository.revokedUsers)
+	}
+}
+
+func TestPasswordHashingRoundTrip(t *testing.T) {
+	encoded, err := hashPassword("round-trip-password")
+	if err != nil {
+		t.Fatalf("hashPassword() error = %v", err)
+	}
+	match, rehash, err := verifyPassword(encoded, "round-trip-password")
+	if err != nil || !match || rehash {
+		t.Fatalf("verify = %v/%v/%v, want true/false/nil", match, rehash, err)
+	}
+	match, _, err = verifyPassword(encoded, "other-password-123")
+	if err != nil || match {
+		t.Fatalf("wrong password verify = %v/%v, want false/nil", match, err)
+	}
+	if _, _, err := verifyPassword("$bcrypt$v=1$nope", "x"); err == nil {
+		t.Fatal("unsupported hash format accepted")
+	}
+}
+
 func TestAuthUsecaseLogoutAndAuthenticateHashTokens(t *testing.T) {
-	service, _, _, users, _, clock := testAuthUsecase(t)
-	users.authenticated = AuthenticatedUser{User: users.profile, SessionID: "session-id", LastUsedAt: clock.now}
+	service, _, repository, _, _, clock := testAuthUsecase(t)
+	repository.authenticated = AuthenticatedUser{User: repository.profile, SessionID: "session-id", LastUsedAt: clock.now}
 
 	if err := service.Logout(context.Background(), "raw-session-token"); err != nil {
 		t.Fatalf("Logout() error = %v", err)
 	}
-	if !users.revoked {
+	if !repository.revokedSession {
 		t.Fatal("Logout() did not revoke the session")
 	}
 	got, err := service.Authenticate(context.Background(), "raw-session-token")
@@ -295,14 +582,14 @@ func TestAuthUsecaseLogoutAndAuthenticateHashTokens(t *testing.T) {
 }
 
 func TestAuthUsecaseUpdatesOnlyTheAuthenticatedUsersDisplayName(t *testing.T) {
-	service, _, _, users, _, _ := testAuthUsecase(t)
+	service, _, repository, _, _, _ := testAuthUsecase(t)
 
 	profile, err := service.UpdateProfile(context.Background(), "user-id", UpdateProfileInput{DisplayName: "  New Name  "})
 	if err != nil {
 		t.Fatalf("UpdateProfile() error = %v", err)
 	}
-	if users.updatedName != "New Name" || profile.DisplayName != "New Name" {
-		t.Fatalf("updated/profile display name = %q/%q, want New Name", users.updatedName, profile.DisplayName)
+	if repository.updatedName != "New Name" || profile.DisplayName != "New Name" {
+		t.Fatalf("updated/profile display name = %q/%q, want New Name", repository.updatedName, profile.DisplayName)
 	}
 	if profile.Email != "user@example.com" {
 		t.Fatalf("profile email = %q, want existing verified email", profile.Email)
@@ -320,35 +607,24 @@ func TestAuthUsecaseRejectsInvalidDisplayNames(t *testing.T) {
 }
 
 func TestAuthUsecaseEnablesDeveloperModeWithoutChangingDisplayName(t *testing.T) {
-	service, _, _, users, _, _ := testAuthUsecase(t)
+	service, _, repository, _, _, _ := testAuthUsecase(t)
 	enabled := true
 
 	profile, err := service.UpdateProfile(context.Background(), "user-id", UpdateProfileInput{DeveloperEnabled: &enabled})
 	if err != nil {
 		t.Fatalf("UpdateProfile() error = %v", err)
 	}
-	if users.developerEnabled == nil || !*users.developerEnabled || !profile.DeveloperEnabled {
-		t.Fatalf("developer mode = %v, profile = %+v", users.developerEnabled, profile)
+	if repository.developerEnabled == nil || !*repository.developerEnabled || !profile.DeveloperEnabled {
+		t.Fatalf("developer mode = %v, profile = %+v", repository.developerEnabled, profile)
 	}
-	if users.updatedName != "" {
-		t.Fatalf("display name unexpectedly updated to %q", users.updatedName)
-	}
-}
-
-func TestAuthUsecaseRequestsPasswordResetWithoutLookingUpLocalUsers(t *testing.T) {
-	service, provider, _, _, _, _ := testAuthUsecase(t)
-
-	if err := service.RequestPasswordReset(context.Background(), "  USER@Example.COM "); err != nil {
-		t.Fatalf("RequestPasswordReset() error = %v", err)
-	}
-	if provider.passwordResetEmail != "user@example.com" {
-		t.Fatalf("password reset email = %q, want normalized email", provider.passwordResetEmail)
+	if repository.updatedName != "" {
+		t.Fatalf("display name unexpectedly updated to %q", repository.updatedName)
 	}
 }
 
 func TestAuthUsecaseReplacesAvatarAndRemovesPreviousObject(t *testing.T) {
-	service, _, _, users, avatars, _ := testAuthUsecase(t)
-	users.previousAvatarKey = "avatars/user-id/old.png"
+	service, _, repository, avatars, _, _ := testAuthUsecase(t)
+	repository.previousAvatarKey = "avatars/user-id/old.png"
 
 	profile, err := service.UpdateAvatar(context.Background(), "user-id", AvatarUpload{
 		Body:        strings.NewReader("png-bytes"),
@@ -370,8 +646,8 @@ func TestAuthUsecaseReplacesAvatarAndRemovesPreviousObject(t *testing.T) {
 }
 
 func TestAuthUsecaseCleansUpNewAvatarWhenProfilePersistenceFails(t *testing.T) {
-	service, _, _, users, avatars, _ := testAuthUsecase(t)
-	users.err = errors.New("database unavailable")
+	service, _, repository, avatars, _, _ := testAuthUsecase(t)
+	repository.storeErr = errors.New("database unavailable")
 
 	_, err := service.UpdateAvatar(context.Background(), "user-id", AvatarUpload{
 		Body:        strings.NewReader("jpeg-bytes"),
@@ -387,8 +663,8 @@ func TestAuthUsecaseCleansUpNewAvatarWhenProfilePersistenceFails(t *testing.T) {
 }
 
 func TestAuthUsecaseOpensOnlyTheAuthenticatedUsersAvatar(t *testing.T) {
-	service, _, _, users, avatars, _ := testAuthUsecase(t)
-	users.profile.AvatarObjectKey = "avatars/user-id/avatar.webp"
+	service, _, repository, avatars, _, _ := testAuthUsecase(t)
+	repository.profile.AvatarObjectKey = "avatars/user-id/avatar.webp"
 	avatars.opened = AvatarFile{
 		Body:        io.NopCloser(strings.NewReader("avatar")),
 		Size:        6,
@@ -401,19 +677,8 @@ func TestAuthUsecaseOpensOnlyTheAuthenticatedUsersAvatar(t *testing.T) {
 		t.Fatalf("OpenAvatar() error = %v", err)
 	}
 	defer file.Body.Close()
-	if avatars.openedKey != users.profile.AvatarObjectKey || file.ContentType != "image/webp" {
+	if avatars.openedKey != repository.profile.AvatarObjectKey || file.ContentType != "image/webp" {
 		t.Fatalf("opened key/content type = %q/%q", avatars.openedKey, file.ContentType)
-	}
-}
-
-func TestAuthUsecaseRevokesAllLocalSessionsAfterAuth0PasswordReset(t *testing.T) {
-	service, _, _, users, _, _ := testAuthUsecase(t)
-
-	if err := service.CompletePasswordReset(context.Background(), "auth0|user-1"); err != nil {
-		t.Fatalf("CompletePasswordReset() error = %v", err)
-	}
-	if users.revokedSubject != "auth0|user-1" {
-		t.Fatalf("revoked subject = %q", users.revokedSubject)
 	}
 }
 
