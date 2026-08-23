@@ -10,6 +10,7 @@ This folder is the planning and delivery baseline derived from the KailoPay Inst
 | [Delivery Phases](PHASES.md) | Maps the committed 30-day Instaward delivery and separates future production/mainnet phases. | Draft for review |
 | [Product Backlog](BACKLOG.md) | Provides prioritized epics and stories with dependencies, story points, requirement traceability, and acceptance criteria. | Initial backlog |
 | [Documentation Plan](DOCUMENTATION-PLAN.md) | Defines all product, API, engineering, QA, operations, evidence, and future production documents required. | Draft for review |
+| [Frontend Guide](frontend/FRONTEND-GUIDE.md) | Handoff for frontend developers/agents: implemented API surface, contracts, UI rules, and current limitations. | Living document |
 
 ## Source-of-truth hierarchy
 
