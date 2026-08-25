@@ -222,6 +222,113 @@ func (c *Client) SpendableBalance(ctx context.Context, accountID string) (entity
 	return entity.Stroops(spendable), nil
 }
 
+// ObservedPayment is one successful native payment credited to an account,
+// as seen from Horizon's payment history.
+type ObservedPayment struct {
+	TransactionHash string
+	From            string
+	To              string
+	Amount          entity.Stroops
+	Memo            string
+	LedgerAt        time.Time
+}
+
+// RecentPayments returns successful native payments to accountID, newest
+// first, up to limit. It backs off-ramp deposit detection; the caller owns
+// memo/amount matching against its own order state.
+func (c *Client) RecentPayments(ctx context.Context, accountID string, limit int) ([]ObservedPayment, error) {
+	request, err := c.request(ctx, http.MethodGet,
+		fmt.Sprintf("/accounts/%s/payments?order=desc&limit=%d", url.PathEscape(accountID), limit), nil)
+	if err != nil {
+		return nil, err
+	}
+	status, body, err := c.do(request)
+	if err != nil {
+		return nil, err
+	}
+	if status < 200 || status >= 300 {
+		return nil, fmt.Errorf("reading Stellar payment history: status %d", status)
+	}
+	var payload struct {
+		Embedded struct {
+			Records []struct {
+				Type            string `json:"type"`
+				TransactionHash string `json:"transaction_hash"`
+				From            string `json:"from"`
+				To              string `json:"to"`
+				AssetType       string `json:"asset_type"`
+				Amount          string `json:"amount"`
+			} `json:"records"`
+		} `json:"_embedded"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, errors.New("invalid Horizon payments response")
+	}
+
+	transactions := make(map[string]paymentTxMeta)
+	payments := make([]ObservedPayment, 0, len(payload.Embedded.Records))
+	for _, record := range payload.Embedded.Records {
+		if record.Type != "payment" || record.AssetType != "native" {
+			continue
+		}
+		amount, err := stroops(record.Amount)
+		if err != nil {
+			continue
+		}
+		meta, err := c.transactionMeta(ctx, record.TransactionHash, transactions)
+		if err != nil {
+			return nil, err
+		}
+		payments = append(payments, ObservedPayment{
+			TransactionHash: record.TransactionHash,
+			From:            record.From,
+			To:              record.To,
+			Amount:          entity.Stroops(amount),
+			Memo:            meta.memo,
+			LedgerAt:        meta.ledgerAt,
+		})
+	}
+	return payments, nil
+}
+
+type paymentTxMeta struct {
+	memo       string
+	successful bool
+	ledgerAt   time.Time
+}
+
+func (c *Client) transactionMeta(ctx context.Context, hash string, cache map[string]paymentTxMeta) (paymentTxMeta, error) {
+	if meta, ok := cache[hash]; ok {
+		return meta, nil
+	}
+	request, err := c.request(ctx, http.MethodGet, "/transactions/"+url.PathEscape(hash), nil)
+	if err != nil {
+		return paymentTxMeta{}, err
+	}
+	status, body, err := c.do(request)
+	if err != nil {
+		return paymentTxMeta{}, err
+	}
+	if status == http.StatusNotFound {
+		return paymentTxMeta{}, nil
+	}
+	if status < 200 || status >= 300 {
+		return paymentTxMeta{}, fmt.Errorf("reading Stellar transaction %s: status %d", hash, status)
+	}
+	var payload struct {
+		Memo       string `json:"memo"`
+		Successful bool   `json:"successful"`
+		CreatedAt  string `json:"created_at"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return paymentTxMeta{}, errors.New("invalid Horizon transaction response")
+	}
+	ledgerAt, _ := time.Parse(time.RFC3339Nano, payload.CreatedAt)
+	meta := paymentTxMeta{memo: payload.Memo, successful: payload.Successful, ledgerAt: ledgerAt.UTC()}
+	cache[hash] = meta
+	return meta, nil
+}
+
 type horizonAccount struct {
 	Sequence                 int64 `json:"sequence,string"`
 	SubentryCount            int64 `json:"subentry_count"`
