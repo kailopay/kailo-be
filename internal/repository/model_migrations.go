@@ -24,5 +24,6 @@ func MigrationModels() []any {
 		&entity.OutboxMessage{},
 		&entity.TreasuryAccount{},
 		&entity.TreasuryReservation{},
+		&entity.OfframpPayout{},
 	}
 }
