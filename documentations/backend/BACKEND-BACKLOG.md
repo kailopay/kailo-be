@@ -41,12 +41,12 @@ Story points are not hours. Phase 0 must validate the P0 total against actual ve
 | ID | Story | Pri | SP | Target | Dependency | Status |
 |---|---|---:|---:|---|---|---|
 | BE-001 | Probe Xendit/Midtrans sandbox and record provider ADR. | P0 | 3 | Phase 0 | Sandbox accounts | Implemented (Xendit selected) |
-| BE-002 | Define Stellar test asset/accounts/retirement and record ADR. | P0 | 2 | Phase 0 | Testnet access | Ready |
+| BE-002 | Define Stellar test asset/accounts/retirement and record ADR. | P0 | 2 | Phase 0 | Testnet access | Partially resolved by ADR-001 (native XLM treasury); retirement model deferred to off-ramp design |
 | BE-003 | Decide off-ramp sandbox evidence fallback and document wording. | P0 | 1 | Phase 0 | BE-001 | Blocked |
 | BE-004 | Select Auth0 email login with KailoPay-owned PostgreSQL retail sessions for test-key management. | P0 | 2 | Phase 0 | Product decision | Superseded by ADR-002 self-hosted auth |
 | BE-005 | Decide hosting, public URL topology, and managed secrets. | P0 | 2 | Phase 0 | Hosting access | Ready |
-| BE-006 | Initialize Go module, dependency lock files, commands, license, and package layout. | P0 | 2 | Phase 0 | None | Ready |
-| BE-007 | Configure CI build, lint, unit/integration test, dependency, and secret scans. | P1 | 3 | Week 1 | BE-006 | Blocked |
+| BE-006 | Initialize Go module, dependency lock files, commands, license, and package layout. | P0 | 2 | Phase 0 | None | Implemented; license selection still open |
+| BE-007 | Configure CI build, lint, unit/integration test, dependency, and secret scans. | P1 | 3 | Week 1 | BE-006 | Implemented (build/vet/race tests, Postgres integration job, gitleaks); lint beyond gofmt pending |
 
 Acceptance: ADRs contain context/options/consequences; repository builds from clean checkout; no reusable credential exists in source/history.
 
