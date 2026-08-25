@@ -147,6 +147,10 @@ func Load() (Config, error) {
 		},
 		Week1: Week1Config{
 			APIKeyPepper: v.GetString("api_key.pepper"),
+			Offramp: OfframpConfig{
+				DepositAccount: strings.TrimSpace(v.GetString("offramp.deposit_account")),
+				DepositExpiry:  v.GetDuration("offramp.deposit_expiry"),
+			},
 			Onramp: OnrampConfig{
 				QuoteTTL:       v.GetDuration("onramp.quote_ttl"),
 				QuoteMaxAge:    v.GetDuration("onramp.quote_max_age"),
@@ -202,6 +206,20 @@ func loadSettings() (*viper.Viper, error) {
 	}
 	bindEnvironment(v)
 	return v, nil
+}
+
+// LoadWorkerDepositSecret reads the worker-only off-ramp deposit account
+// signing key used for burn-address retirement submissions.
+func LoadWorkerDepositSecret() (string, error) {
+	v, err := loadSettings()
+	if err != nil {
+		return "", err
+	}
+	secret := strings.TrimSpace(v.GetString("offramp.deposit_secret"))
+	if secret == "" {
+		return "", errors.New("OFFRAMP_DEPOSIT_SECRET is required for the settlement worker")
+	}
+	return secret, nil
 }
 
 // LoadWorkerTreasurySecret reads the worker-only Stellar treasury signing key.
@@ -373,6 +391,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("minio.bucket", "kailopay-profile")
 	v.SetDefault("minio.region", "us-east-1")
 	v.SetDefault("minio.use_ssl", false)
+	v.SetDefault("offramp.deposit_expiry", 24*time.Hour)
 	v.SetDefault("onramp.quote_ttl", 5*time.Minute)
 	v.SetDefault("onramp.quote_max_age", 2*time.Minute)
 	v.SetDefault("onramp.quote_spread_bps", 0)

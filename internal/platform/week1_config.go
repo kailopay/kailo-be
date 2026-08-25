@@ -12,10 +12,18 @@ const StellarTestnetPassphrase = "Test SDF Network ; September 2015"
 type Week1Config struct {
 	APIKeyPepper  string
 	Onramp        OnrampConfig
+	Offramp       OfframpConfig
 	CoinMarketCap CoinMarketCapConfig
 	Xendit        XenditConfig
 	Stellar       StellarConfig
 	Worker        WorkerConfig
+}
+
+// OfframpConfig holds the deposit-side settings. The deposit account secret
+// is worker-only and never part of this shared struct.
+type OfframpConfig struct {
+	DepositAccount string
+	DepositExpiry  time.Duration
 }
 
 type OnrampConfig struct {
@@ -97,6 +105,9 @@ func (cfg Week1Config) Validate() error {
 	if strings.TrimSpace(cfg.Stellar.TreasuryAccount) == "" ||
 		cfg.Stellar.OperatingBufferStroops < 0 || cfg.Stellar.Timeout <= 0 {
 		return errors.New("Stellar treasury configuration is invalid")
+	}
+	if strings.TrimSpace(cfg.Offramp.DepositAccount) == "" || cfg.Offramp.DepositExpiry <= 0 {
+		return errors.New("off-ramp deposit configuration is invalid")
 	}
 	if cfg.Worker.PollInterval <= 0 || cfg.Worker.LeaseDuration <= 0 ||
 		cfg.Worker.RetryDelay <= 0 || cfg.Worker.SubmissionTimeout <= 0 || cfg.Worker.MaxAttempts <= 0 {
