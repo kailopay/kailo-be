@@ -67,7 +67,7 @@ func (r *OnrampRepository) ReserveAndCreate(ctx context.Context, record usecase.
 			Network: r.network, AssetAmount: record.Quote.AssetAmount.String(), AssetAmountStroops: int64(record.Quote.AssetAmount),
 			QuoteProvider: "coinmarketcap", QuoteSourceAt: record.Quote.SourceAt, QuoteRate: record.Quote.Rate,
 			QuoteAdjustedRate: record.Quote.AdjustedRate, QuoteSpreadBPS: record.Quote.SpreadBPS, QuoteExpiresAt: record.Quote.ExpiresAt,
-			PaymentMethod: string(record.PaymentMethod), GatewayProvider: "xendit", StellarSource: &r.treasuryAccount,
+			PaymentMethod: strPtr(string(record.PaymentMethod)), GatewayProvider: strPtr("xendit"), StellarSource: &r.treasuryAccount,
 			StellarDestination: &record.Destination, CreatedAt: record.CreatedAt, UpdatedAt: record.CreatedAt,
 		}
 		if record.Memo != "" {
@@ -402,6 +402,32 @@ func (r *OnrampRepository) releaseFailedOrder(ctx context.Context, orderID strin
 	})
 }
 
+func baseOrderView(order entity.OrderRecord) usecase.OrderView {
+	view := usecase.OrderView{ID: order.ID, Status: entity.OrderStatus(order.Status),
+		FiatAmountMinor: entity.IDR(order.FiatAmountMinor), AssetAmount: entity.Stroops(order.AssetAmountStroops),
+		QuoteRate: order.QuoteRate, QuoteAdjustedRate: order.QuoteAdjustedRate,
+		QuoteSpreadBPS: order.QuoteSpreadBPS, QuoteSourceAt: order.QuoteSourceAt, QuoteExpiresAt: order.QuoteExpiresAt,
+		PaymentMethod: entity.PaymentMethod(derefStr(order.PaymentMethod)),
+		CreatedAt:     order.CreatedAt, UpdatedAt: order.UpdatedAt}
+	if order.StellarDestination != nil {
+		view.StellarDestination = *order.StellarDestination
+	}
+	if order.StellarMemo != nil {
+		view.StellarMemo = *order.StellarMemo
+	}
+	if order.FailureCode != nil {
+		view.FailureCode = *order.FailureCode
+	}
+	return view
+}
+
+func derefStr(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
+}
+
 func appendOrderEvent(tx *gorm.DB, orderID string, version int, eventType, previous, next string, now time.Time) error {
 	id, err := platform.NewID()
 	if err != nil {
@@ -426,7 +452,7 @@ func (r *OnrampRepository) orderView(ctx context.Context, order entity.OrderReco
 	view := usecase.OrderView{ID: order.ID, Status: entity.OrderStatus(order.Status), FiatAmountMinor: entity.IDR(order.FiatAmountMinor),
 		AssetAmount: entity.Stroops(order.AssetAmountStroops), QuoteRate: order.QuoteRate, QuoteAdjustedRate: order.QuoteAdjustedRate,
 		QuoteSpreadBPS: order.QuoteSpreadBPS, QuoteSourceAt: order.QuoteSourceAt, QuoteExpiresAt: order.QuoteExpiresAt,
-		PaymentMethod: entity.PaymentMethod(order.PaymentMethod), CreatedAt: order.CreatedAt, UpdatedAt: order.UpdatedAt}
+		PaymentMethod: entity.PaymentMethod(derefStr(order.PaymentMethod)), CreatedAt: order.CreatedAt, UpdatedAt: order.UpdatedAt}
 	if order.StellarDestination != nil {
 		view.StellarDestination = *order.StellarDestination
 	}

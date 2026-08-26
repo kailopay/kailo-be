@@ -126,6 +126,8 @@ type OrderView struct {
 	StellarMemo            string               `json:"stellar_memo,omitempty"`
 	Checkout               *Checkout            `json:"checkout,omitempty"`
 	StellarTransactionHash string               `json:"stellar_transaction_hash,omitempty"`
+	DepositTransactionHash string               `json:"deposit_transaction_hash,omitempty"`
+	Payout                 *PayoutView          `json:"payout,omitempty"`
 	FailureCode            string               `json:"failure_code,omitempty"`
 	CreatedAt              time.Time            `json:"created_at"`
 	UpdatedAt              time.Time            `json:"updated_at"`

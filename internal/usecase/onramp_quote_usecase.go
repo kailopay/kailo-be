@@ -71,3 +71,34 @@ func decimal(value *big.Rat) string {
 	formatted = strings.TrimRight(formatted, ".")
 	return formatted
 }
+
+// CreateReverse prices a sell order: exact XLM stroops in, whole IDR minor
+// units out. The adjusted rate applies identically to the buy side; the IDR
+// result is rounded down once so the platform never overquotes a payout.
+func (p QuotePolicy) CreateReverse(now time.Time, assetAmount entity.Stroops, market MarketPrice) (Quote, error) {
+	if p.TTL <= 0 || p.MaxAge <= 0 || p.SpreadBPS < 0 || p.SpreadBPS > 10_000 || assetAmount.Validate() != nil {
+		return Quote{}, ErrInvalidQuote
+	}
+	now = now.UTC()
+	observedAt := market.ObservedAt.UTC()
+	if observedAt.IsZero() || now.Sub(observedAt) > p.MaxAge || observedAt.After(now.Add(time.Minute)) {
+		return Quote{}, ErrStalePrice
+	}
+	rate, ok := new(big.Rat).SetString(strings.TrimSpace(market.IDRPerXLM))
+	if !ok || rate.Sign() <= 0 {
+		return Quote{}, ErrInvalidPrice
+	}
+	spreadMultiplier := new(big.Rat).SetFrac64(int64(10_000+p.SpreadBPS), 10_000)
+	adjustedRate := new(big.Rat).Mul(rate, spreadMultiplier)
+
+	numerator := new(big.Int).Mul(big.NewInt(int64(assetAmount)), adjustedRate.Num())
+	idrMinor := new(big.Int).Quo(numerator, new(big.Int).Mul(adjustedRate.Denom(), big.NewInt(int64(entity.StroopsPerXLM))))
+	if !idrMinor.IsInt64() || idrMinor.Sign() <= 0 {
+		return Quote{}, ErrInvalidQuote
+	}
+	return Quote{
+		FiatAmount: entity.IDR(idrMinor.Int64()), AssetAmount: assetAmount,
+		Rate: decimal(rate), AdjustedRate: decimal(adjustedRate), SpreadBPS: p.SpreadBPS,
+		SourceAt: observedAt, ExpiresAt: now.Add(p.TTL),
+	}, nil
+}
