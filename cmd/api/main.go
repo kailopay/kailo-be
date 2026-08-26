@@ -187,12 +187,18 @@ func run(ctx context.Context) error {
 		FederationURL:     publicBaseURL + "/federation",
 	}
 	sep24Handler := httpapi.NewSep24Handler(sep24Config)
+	webhookRepository := repository.NewWebhookRepository(db)
+	webhookService, err := usecase.NewWebhookUsecase(webhookRepository, platform.NewID, time.Now)
+	if err != nil {
+		return fmt.Errorf("creating webhook service: %w", err)
+	}
+	webhookHandler := httpapi.NewWebhookHandler(webhookService, appLogger)
 	callbackHandler := httpapi.NewXenditCallbackHandler(callbackService, appLogger)
 	apiKeyMiddleware := middleware.RequireAPIKey(apiKeyService)
 	router, err := httpapi.NewRouter(appLogger, health, authHandler, sessionMiddleware,
 		httpapi.WithAPIKeys(apiKeyHandler), httpapi.WithOnramp(onrampHandler, apiKeyMiddleware),
 		httpapi.WithOfframp(offrampHandler), httpapi.WithSep24(sep24Handler),
-		httpapi.WithXenditCallback(callbackHandler))
+		httpapi.WithWebhooks(webhookHandler), httpapi.WithXenditCallback(callbackHandler))
 	if err != nil {
 		return fmt.Errorf("creating http router: %w", err)
 	}

@@ -13,8 +13,19 @@ type routerOptions struct {
 	onramp         *OnrampHandler
 	offramp        *OfframpHandler
 	sep24          *Sep24Handler
+	webhooks       *WebhookHandler
 	requireAPIKey  gin.HandlerFunc
 	xenditCallback *XenditCallbackHandler
+}
+
+func WithWebhooks(handler *WebhookHandler) RouterOption {
+	return func(options *routerOptions) error {
+		if handler == nil {
+			return errors.New("webhook handler is required")
+		}
+		options.webhooks = handler
+		return nil
+	}
 }
 
 func WithSep24(handler *Sep24Handler) RouterOption {
@@ -127,6 +138,13 @@ func NewRouter(logger *slog.Logger, health *HealthHandler, authHandler *AuthHand
 		apiKeyRoutes.POST("", configured.apiKeys.Create)
 		apiKeyRoutes.GET("", configured.apiKeys.List)
 		apiKeyRoutes.DELETE("/:id", configured.apiKeys.Revoke)
+	}
+	if configured.webhooks != nil {
+		webhookRoutes := router.Group("/v1/webhook-endpoints")
+		webhookRoutes.Use(requireSession)
+		webhookRoutes.POST("", configured.webhooks.Create)
+		webhookRoutes.GET("", configured.webhooks.List)
+		webhookRoutes.DELETE("/:id", configured.webhooks.Disable)
 	}
 	if configured.onramp != nil {
 		onrampRoutes := router.Group("/v1")
