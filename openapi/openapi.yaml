@@ -470,6 +470,70 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/OnrampError'
+  /v1/offramps:
+    post:
+      summary: Create an XLM to IDR sandbox off-ramp (simulated payout)
+      description: |
+        Prices the sell order against current market data, then returns
+        deterministic deposit instructions: send exactly the quoted XLM amount
+        to the deposit account using the returned memo before expiry. After
+        verification and on-chain retirement, a simulated IDR payout reference
+        is recorded; no real IDR moves in the sandbox release.
+      security:
+        - kailoAPIKey: []
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 255
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOfframpRequest'
+      responses:
+        '200':
+          description: Idempotent replay of a previously completed request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+        '201':
+          description: Order created with deposit instructions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+        '400':
+          description: Malformed request or invalid withdrawal payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OnrampError'
+        '401':
+          description: Missing, malformed, invalid, or revoked API key
+        '409':
+          description: Idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OnrampError'
+        '422':
+          description: Resulting payout outside the supported range (AMOUNT_OUT_OF_RANGE)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OnrampError'
+        '503':
+          description: Quote unavailable or external service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OnrampError'
   /v1/orders:
     get:
       summary: List API-client-owned on-ramp orders
@@ -634,6 +698,40 @@ components:
               type: string
               description: One-time plaintext sandbox key.
             created_at: {type: string, format: date-time}
+    CreateOfframpRequest:
+      type: object
+      additionalProperties: false
+      required: [asset, withdrawal]
+      properties:
+        asset:
+          type: object
+          additionalProperties: false
+          required: [network, code, amount]
+          properties:
+            network:
+              type: string
+              enum: [stellar_testnet]
+            code:
+              type: string
+              enum: [XLM]
+            amount:
+              type: string
+              description: Exact decimal XLM amount with up to 7 fraction digits.
+        withdrawal:
+          type: object
+          additionalProperties: false
+          required: [currency, method]
+          properties:
+            currency:
+              type: string
+              enum: [IDR]
+            method:
+              type: string
+              enum: [sandbox_bank_transfer]
+            destination_token:
+              type: string
+              maxLength: 200
+              description: Synthetic sandbox destination reference; never real bank details.
     CreateOnrampRequest:
       type: object
       additionalProperties: false

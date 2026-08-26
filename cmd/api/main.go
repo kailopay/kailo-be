@@ -166,12 +166,24 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("creating payment callback service: %w", err)
 	}
+	offrampRepository := repository.NewOfframpRepository(db, cfg.Week1.Offramp.DepositAccount, "testnet")
+	offrampService, err := usecase.NewOfframpUsecase(usecase.OfframpDependencies{
+		Repository: offrampRepository, Prices: priceClient, Destinations: treasuryReader}, usecase.OfframpServiceConfig{
+		QuotePolicy: usecase.QuotePolicy{TTL: cfg.Week1.Onramp.QuoteTTL, MaxAge: cfg.Week1.Onramp.QuoteMaxAge,
+			SpreadBPS: cfg.Week1.Onramp.QuoteSpreadBPS}, MinIDR: entity.IDR(cfg.Week1.Onramp.MinIDR),
+		MaxIDR: entity.IDR(cfg.Week1.Onramp.MaxIDR), DepositAccount: cfg.Week1.Offramp.DepositAccount,
+		DepositExpiry: cfg.Week1.Offramp.DepositExpiry, NewID: platform.NewID, Now: time.Now,
+	})
+	if err != nil {
+		return fmt.Errorf("creating offramp service: %w", err)
+	}
+	offrampHandler := httpapi.NewOfframpHandler(offrampService, appLogger)
 	onrampHandler := httpapi.NewOnrampHandler(onrampService, appLogger)
 	callbackHandler := httpapi.NewXenditCallbackHandler(callbackService, appLogger)
 	apiKeyMiddleware := middleware.RequireAPIKey(apiKeyService)
 	router, err := httpapi.NewRouter(appLogger, health, authHandler, sessionMiddleware,
 		httpapi.WithAPIKeys(apiKeyHandler), httpapi.WithOnramp(onrampHandler, apiKeyMiddleware),
-		httpapi.WithXenditCallback(callbackHandler))
+		httpapi.WithOfframp(offrampHandler), httpapi.WithXenditCallback(callbackHandler))
 	if err != nil {
 		return fmt.Errorf("creating http router: %w", err)
 	}

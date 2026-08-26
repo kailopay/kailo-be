@@ -11,8 +11,19 @@ import (
 type routerOptions struct {
 	apiKeys        *APIKeyHandler
 	onramp         *OnrampHandler
+	offramp        *OfframpHandler
 	requireAPIKey  gin.HandlerFunc
 	xenditCallback *XenditCallbackHandler
+}
+
+func WithOfframp(handler *OfframpHandler) RouterOption {
+	return func(options *routerOptions) error {
+		if handler == nil {
+			return errors.New("offramp handler is required")
+		}
+		options.offramp = handler
+		return nil
+	}
 }
 
 func WithXenditCallback(handler *XenditCallbackHandler) RouterOption {
@@ -110,6 +121,9 @@ func NewRouter(logger *slog.Logger, health *HealthHandler, authHandler *AuthHand
 		onrampRoutes := router.Group("/v1")
 		onrampRoutes.Use(configured.requireAPIKey)
 		onrampRoutes.POST("/onramps", configured.onramp.Create)
+		if configured.offramp != nil {
+			onrampRoutes.POST("/offramps", configured.offramp.Create)
+		}
 		onrampRoutes.GET("/orders", configured.onramp.List)
 		onrampRoutes.GET("/orders/:id", configured.onramp.Get)
 	}
