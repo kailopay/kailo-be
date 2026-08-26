@@ -12,8 +12,19 @@ type routerOptions struct {
 	apiKeys        *APIKeyHandler
 	onramp         *OnrampHandler
 	offramp        *OfframpHandler
+	sep24          *Sep24Handler
 	requireAPIKey  gin.HandlerFunc
 	xenditCallback *XenditCallbackHandler
+}
+
+func WithSep24(handler *Sep24Handler) RouterOption {
+	return func(options *routerOptions) error {
+		if handler == nil {
+			return errors.New("sep24 handler is required")
+		}
+		options.sep24 = handler
+		return nil
+	}
 }
 
 func WithOfframp(handler *OfframpHandler) RouterOption {
@@ -129,6 +140,14 @@ func NewRouter(logger *slog.Logger, health *HealthHandler, authHandler *AuthHand
 	}
 	if configured.xenditCallback != nil {
 		router.POST("/callbacks/payments/xendit", gin.WrapH(configured.xenditCallback))
+	}
+	if configured.sep24 != nil {
+		router.GET("/.well-known/stellar.toml", configured.sep24.StellarToml)
+		router.GET("/federation", configured.sep24.Federation)
+		router.GET("/sep24/info", configured.sep24.Info)
+		router.POST("/sep24/deposit", configured.sep24.Deposit)
+		router.POST("/sep24/withdraw", configured.sep24.Withdraw)
+		router.GET("/sep24/transaction", configured.sep24.Transaction)
 	}
 	return router, nil
 }
