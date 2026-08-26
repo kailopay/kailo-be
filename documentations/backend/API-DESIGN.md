@@ -98,7 +98,7 @@ The reserved `.test` address and synthetic values are illustrative; released exa
 | `GET` | `/v1/orders/{order_id}` | Test key | N/A | Retrieve an order owned by the authenticated API client |
 | `GET` | `/v1/orders` | Test key | N/A | List only orders owned by the authenticated API client |
 
-Off-ramp and retail-session order access are explicitly deferred beyond Week 1.
+Retail-session order access is deferred. The off-ramp endpoint `POST /v1/offramps` is implemented as of Week 2 with simulated payout evidence.
 
 ### Developer configuration
 

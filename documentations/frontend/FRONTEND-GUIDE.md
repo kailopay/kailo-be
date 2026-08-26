@@ -27,7 +27,7 @@ The money is never real. Two product rules follow from that:
   `"network": "stellar_testnet"`.
 - The UI must never imply real-money settlement, KYC, or production readiness.
 
-What is deliberately out of scope for now: off-ramp (sell flow), webhooks,
+What remains out of scope for now: webhook delivery (endpoints manageable already),
 SEP-24 anchor flows, federation, rate limits, mainnet.
 
 ## 2. Running the backend locally
@@ -317,7 +317,7 @@ gently, e.g. every 3-5 seconds while `payment_pending`, and back off after.
 Do not build against any of these:
 
 - Retail-session order creation/reading (orders are API-key-scoped only).
-- Off-ramp / sell flow, withdrawal destinations.
+- ~~Off-ramp / sell flow~~ now implemented: `POST /v1/offramps` creates sell orders with deposit instructions and a simulated payout (`payout` object on the order, always `simulated:true`). A dedicated guide section will follow.
 - Outgoing developer webhooks (event subscription UI has no backend yet).
 - SEP-24 interactive flows, `stellar.toml`, federation.
 - Quote preview endpoint (`GET` quote). Quotes are only produced inline by

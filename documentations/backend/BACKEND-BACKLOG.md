@@ -74,7 +74,7 @@ Acceptance: state/event/outbox commit atomically; multiple workers cannot hold o
 | BE-022 | Implement order/order-event repositories with optimistic concurrency. | P0 | 5 | Week 1 | BE-011, BE-021 | Implemented for on-ramp |
 | BE-023 | Implement idempotency records and same-key conflicting-request detection. | P0 | 3 | Week 1 | BE-011 | Implemented |
 | BE-024 | Implement `POST /v1/onramps` with validation and checkout intent. | P0 | 5 | Week 1 | BE-020-BE-023 | Implemented |
-| BE-025 | Implement `POST /v1/offramps` with deposit instruction intent. | P0 | 5 | Week 1-2 | BE-020-BE-023 | Blocked |
+| BE-025 | Implement `POST /v1/offramps` with deposit instruction intent. | P0 | 5 | Week 1-2 | BE-020-BE-023 | Implemented |
 | BE-026 | Implement client-scoped `GET /v1/orders/{id}`. | P0 | 2 | Week 1 | BE-020, BE-022 | Implemented |
 | BE-027 | Implement cursor-paginated `GET /v1/orders`. | P1 | 3 | Week 3 | BE-026 | Implemented |
 | BE-028 | Publish and validate initial OpenAPI with auth, amounts, errors, and examples. | P0 | 3 | Week 1 | BE-024-BE-026 | Implemented |
@@ -93,7 +93,7 @@ Acceptance: exact amount round-trips; invalid/cross-client requests fail; duplic
 | BE-034 | Implement callback deduplication and amount/currency/reference/status reconciliation. | P0 | 5 | Week 1 | BE-033, BE-021 | Implemented |
 | BE-035 | Persist one settlement intent after verified payment and process asynchronously. | P0 | 3 | Week 1-2 | BE-015, BE-034 | Implemented |
 | BE-036 | Implement provider payment status reconciliation for timeout/late/unknown events. | P0 | 5 | Week 2 | BE-030, BE-034 | Blocked |
-| BE-037 | Implement off-ramp payout/simulation intent, provider adapter, and reconciliation. | P0 | 5 | Week 2 | BE-003, BE-030 | Blocked |
+| BE-037 | Implement off-ramp payout/simulation intent, provider adapter, and reconciliation. | P0 | 5 | Week 2 | BE-003, BE-030 | Implemented as simulated payout (ADR-003) |
 
 Acceptance: invalid/mismatched/replayed callback cannot duplicate state/settlement; QRIS and bank transfer produce real sandbox checkout evidence; payout language matches evidence.
 
@@ -105,9 +105,9 @@ Acceptance: invalid/mismatched/replayed callback cannot duplicate state/settleme
 | BE-041 | Implement serialized/account-locked transaction submission and persistent intent/result model. | P0 | 5 | Week 2 | BE-011, BE-040 | Implemented |
 | BE-042 | Implement on-ramp issuance/transfer worker with deterministic correlation. | P0 | 5 | Week 2 | BE-035, BE-041 | Implemented as pre-funded native-XLM transfer |
 | BE-043 | Implement unknown submission reconciliation before retry. | P0 | 5 | Week 2 | BE-041 | Implemented |
-| BE-044 | Generate off-ramp deposit instructions with exact asset/amount/memo and expiry. | P0 | 3 | Week 2 | BE-025, BE-040 | Blocked |
-| BE-045 | Detect/look up and validate off-ramp deposit transaction. | P0 | 5 | Week 2 | BE-044 | Blocked |
-| BE-046 | Implement burn/retirement worker and transaction correlation. | P0 | 5 | Week 2 | BE-045, BE-041 | Blocked |
+| BE-044 | Generate off-ramp deposit instructions with exact asset/amount/memo and expiry. | P0 | 3 | Week 2 | BE-025, BE-040 | Implemented |
+| BE-045 | Detect/look up and validate off-ramp deposit transaction. | P0 | 5 | Week 2 | BE-044 | Implemented (Horizon payment-history scan) |
+| BE-046 | Implement burn/retirement worker and transaction correlation. | P0 | 5 | Week 2 | BE-045, BE-041 | Implemented as burn-address retirement (ADR-003) |
 | BE-047 | Link transaction hashes/explorer metadata to public order result. | P0 | 2 | Week 2-3 | BE-042, BE-046 | Blocked |
 
 Acceptance: one paid order creates one testnet settlement; wrong deposits are rejected; unknown result reconciles before retry; off-ramp payout cannot precede confirmed retirement.
@@ -116,12 +116,12 @@ Acceptance: one paid order creates one testnet settlement; wrong deposits are re
 
 | ID | Story | Pri | SP | Target | Dependency | Status |
 |---|---|---:|---:|---|---|---|
-| BE-050 | Implement SEP-24 deposit initiation mapped to on-ramp order. | P0 | 5 | Week 2 | BE-024 | Blocked |
-| BE-051 | Implement SEP-24 withdrawal initiation mapped to off-ramp order. | P0 | 5 | Week 2 | BE-025 | Blocked |
-| BE-052 | Implement interactive synthetic KYC stub and explicit warning. | P0 | 2 | Week 2 | BE-050, BE-051 | Blocked |
-| BE-053 | Implement/document SEP-facing transaction status mapping. | P0 | 3 | Week 2 | BE-021, BE-050 | Blocked |
-| BE-054 | Publish and validate testnet `stellar.toml`. | P0 | 2 | Week 2 | BE-005, BE-040 | Blocked |
-| BE-055 | Implement minimal public federation lookup/configuration. | P0 | 3 | Week 2 | BE-005, BE-040 | Blocked |
+| BE-050 | Implement SEP-24 deposit initiation mapped to on-ramp order. | P0 | 5 | Week 2 | BE-024 | Implemented (skeleton) |
+| BE-051 | Implement SEP-24 withdrawal initiation mapped to off-ramp order. | P0 | 5 | Week 2 | BE-025 | Implemented (skeleton) |
+| BE-052 | Implement interactive synthetic KYC stub and explicit warning. | P0 | 2 | Week 2 | BE-050, BE-051 | Implemented |
+| BE-053 | Implement/document SEP-facing transaction status mapping. | P0 | 3 | Week 2 | BE-021, BE-050 | Implemented |
+| BE-054 | Publish and validate testnet `stellar.toml`. | P0 | 2 | Week 2 | BE-005, BE-040 | Implemented |
+| BE-055 | Implement minimal public federation lookup/configuration. | P0 | 3 | Week 2 | BE-005, BE-040 | Implemented |
 
 Acceptance: discovery resolves to implemented HTTPS endpoints; deposit/withdraw flows create valid orders; KYC never claims verification or stores real identity documents.
 
@@ -129,10 +129,10 @@ Acceptance: discovery resolves to implemented HTTPS endpoints; deposit/withdraw 
 
 | ID | Story | Pri | SP | Target | Dependency | Status |
 |---|---|---:|---:|---|---|---|
-| BE-060 | Implement webhook endpoint registration/list/disable with one-time signing secret. | P0 | 5 | Week 2-3 | BE-004, BE-020 | Blocked |
+| BE-060 | Implement webhook endpoint registration/list/disable with one-time signing secret. | P0 | 5 | Week 2-3 | BE-004, BE-020 | Implemented (delivery pending Week 3) |
 | BE-061 | Implement SSRF URL policy, DNS/IP revalidation, timeout, and redirect controls. | P0 | 5 | Week 2-3 | BE-060 | Blocked |
-| BE-062 | Define/version public event catalog and canonical payloads. | P0 | 3 | Week 2 | BE-021 | Blocked |
-| BE-063 | Persist public events transactionally from order events/outbox. | P0 | 3 | Week 2 | BE-015, BE-062 | Blocked |
+| BE-062 | Define/version public event catalog and canonical payloads. | P0 | 3 | Week 2 | BE-021 | Implemented |
+| BE-063 | Persist public events transactionally from order events/outbox. | P0 | 3 | Week 2 | BE-015, BE-062 | In progress; envelope builder done, transactional emission wiring next |
 | BE-064 | Implement HMAC signing and delivery worker with attempt logs. | P0 | 5 | Week 2-3 | BE-061, BE-063 | Blocked |
 | BE-065 | Implement bounded retry, exhaustion, and manual sandbox replay using the same event ID. | P1 | 3 | Week 3 | BE-064 | Blocked |
 | BE-066 | Publish signature verification sample/vector and at-least-once guidance. | P0 | 2 | Week 3 | BE-064 | Blocked |
