@@ -56,9 +56,11 @@ func (r *OfframpRepository) FindOfframpReplay(ctx context.Context, clientID, key
 func (r *OfframpRepository) CreateOfframp(ctx context.Context, record usecase.OfframpCreateRecord) error {
 	return r.tx.do(ctx, func(tx *gorm.DB) error {
 		now := record.CreatedAt
+		// Two events are appended below, so the aggregate starts at version 3
+		// keeping the row version in lockstep with order_events.
 		order := entity.OrderRecord{
 			ID: record.OrderID, ClientID: &record.ClientID, Direction: "offramp",
-			Status: string(entity.OrderStatusAssetPending), Version: 1,
+			Status: string(entity.OrderStatusAssetPending), Version: 3,
 			Currency: "IDR", FiatAmountMinor: int64(record.Quote.FiatAmount),
 			AssetCode: "XLM", AssetIssuer: "", Network: r.network,
 			AssetAmount: record.AssetAmount.String(), AssetAmountStroops: int64(record.AssetAmount),
@@ -81,6 +83,7 @@ func (r *OfframpRepository) CreateOfframp(ctx context.Context, record usecase.Of
 		if err := appendOrderEvent(tx, order.ID, 2, "deposit.instructions_issued", string(entity.OrderStatusCreated), string(entity.OrderStatusAssetPending), now); err != nil {
 			return err
 		}
+		_ = order
 		idempotencyID, err := platform.NewID()
 		if err != nil {
 			return err
@@ -334,8 +337,12 @@ func (r *OfframpRepository) LoadOfframpOrderAmount(ctx context.Context, orderID 
 // presented as simulation.
 func (r *OfframpRepository) CompleteSimulatedPayout(ctx context.Context, orderID string, amountMinor int64, now time.Time) (string, error) {
 	reference := "payout_" + orderID
+	payoutRowID, idErr := platform.NewID()
+	if idErr != nil {
+		return "", idErr
+	}
 	err := r.tx.do(ctx, func(tx *gorm.DB) error {
-		payout := entity.OfframpPayout{ID: reference, OrderID: orderID,
+		payout := entity.OfframpPayout{ID: payoutRowID, OrderID: orderID,
 			Method: string(entity.WithdrawalMethodSandboxTransfer), AmountMinor: amountMinor,
 			ReferenceID: reference, State: "completed", CompletedAt: &now, CreatedAt: now, UpdatedAt: now}
 		if err := tx.Create(&payout).Error; err != nil {

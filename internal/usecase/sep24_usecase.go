@@ -26,7 +26,8 @@ func Sep24Status(status string) (string, bool) {
 	case entity.OrderStatusExpired:
 		return "expired", true
 	case entity.OrderStatusPaymentFailed, entity.OrderStatusStellarFailed,
-		entity.OrderStatusAssetInvalid, entity.OrderStatusRetirementFailed, entity.OrderStatusWithdrawalFailed:
+		entity.OrderStatusAssetInvalid, entity.OrderStatusRetirementFailed,
+		entity.OrderStatusWithdrawalFailed, entity.OrderStatusCancelled:
 		return "error", true
 	default:
 		return "", false
