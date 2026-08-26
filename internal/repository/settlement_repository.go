@@ -25,6 +25,39 @@ func NewSettlementRepository(db *gorm.DB, maxAttempts int) *SettlementRepository
 	return &SettlementRepository{db: db, tx: newTxManager(db), maxAttempts: maxAttempts}
 }
 
+// LeaseOutbox leases one message of the given topic. The payload is decoded
+// into the job via the supplied decoder so multiple topics share the
+// leasing machinery.
+func (r *SettlementRepository) LeaseOutbox(ctx context.Context, topic, workerID string, now time.Time, duration time.Duration, decode func([]byte) (usecase.Job, error)) (usecase.Job, error) {
+	var job usecase.Job
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var row entity.OutboxMessage
+		jobErr := tx.Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).
+			Where("topic = ? AND processed_at IS NULL AND available_at <= ? AND attempts < ? AND (lease_until IS NULL OR lease_until < ?)",
+				topic, now, r.maxAttempts, now).
+			Order("available_at, created_at").First(&row).Error
+		if errors.Is(jobErr, gorm.ErrRecordNotFound) {
+			return usecase.ErrNoJob
+		}
+		if jobErr != nil {
+			return fmt.Errorf("selecting outbox message: %w", jobErr)
+		}
+		leaseUntil := now.Add(duration)
+		if err := tx.Model(&entity.OutboxMessage{}).Where("id = ?", row.ID).Updates(map[string]any{
+			"lease_owner": workerID, "lease_until": leaseUntil, "attempts": gorm.Expr("attempts + 1"),
+		}).Error; err != nil {
+			return fmt.Errorf("leasing outbox message: %w", err)
+		}
+		decoded, decodeErr := decode(row.Payload)
+		if decodeErr != nil || decoded.OutboxID == "" {
+			return fmt.Errorf("invalid %s outbox payload", topic)
+		}
+		job = decoded
+		return nil
+	})
+	return job, err
+}
+
 func (r *SettlementRepository) Lease(ctx context.Context, workerID string, now time.Time, duration time.Duration) (usecase.Job, error) {
 	var job usecase.Job
 	err := r.tx.do(ctx, func(tx *gorm.DB) error {
@@ -187,6 +220,14 @@ func (r *SettlementRepository) RetryLater(ctx context.Context, intentID string, 
 	}
 	return r.db.WithContext(ctx).Model(&entity.OutboxMessage{}).Where("topic = ? AND aggregate_id = ? AND processed_at IS NULL", "stellar.settle_onramp", stellar.OrderID).
 		Updates(map[string]any{"available_at": availableAt, "lease_owner": nil, "lease_until": nil, "last_error": safeError}).Error
+}
+
+// FinishOutbox marks a generic-topic outbox message processed without a
+// domain transition of its own (used by jobs whose effect lives elsewhere).
+func (r *SettlementRepository) FinishOutbox(ctx context.Context, topic, aggregateID string, now time.Time) error {
+	return r.db.WithContext(ctx).Model(&entity.OutboxMessage{}).
+		Where("topic = ? AND aggregate_id = ? AND processed_at IS NULL", topic, aggregateID).
+		Updates(map[string]any{"processed_at": now.UTC(), "lease_owner": nil, "lease_until": nil}).Error
 }
 
 // ResetSubmitted clears a persisted-but-rejected transaction hash so the next

@@ -271,8 +271,21 @@ func (r *OfframpRepository) ConfirmRetirement(ctx context.Context, intentID, has
 		if err := appendOrderEvent(tx, order.ID, order.Version+1, "retirement.confirmed", order.Status, string(entity.OrderStatusWithdrawalProcessing), now); err != nil {
 			return err
 		}
-		return tx.Model(&entity.OutboxMessage{}).Where("topic = ? AND aggregate_id = ? AND processed_at IS NULL", "stellar.retire_offramp", order.ID).
-			Updates(map[string]any{"processed_at": now, "lease_owner": nil, "lease_until": nil, "last_error": nil}).Error
+		if err := tx.Model(&entity.OutboxMessage{}).Where("topic = ? AND aggregate_id = ? AND processed_at IS NULL", "stellar.retire_offramp", order.ID).
+			Updates(map[string]any{"processed_at": now, "lease_owner": nil, "lease_until": nil, "last_error": nil}).Error; err != nil {
+			return err
+		}
+		outboxID, outboxErr := platform.NewID()
+		if outboxErr != nil {
+			return outboxErr
+		}
+		payload, payloadErr := json.Marshal(map[string]string{"order_id": order.ID})
+		if payloadErr != nil {
+			return payloadErr
+		}
+		payoutJob := entity.OutboxMessage{ID: outboxID, Topic: "stellar.pay_offramp", AggregateType: "order",
+			AggregateID: order.ID, Payload: payload, CreatedAt: now, AvailableAt: now}
+		return tx.Create(&payoutJob).Error
 	})
 }
 
@@ -305,6 +318,15 @@ func (r *OfframpRepository) FailRetirement(ctx context.Context, intentID, safeEr
 		return tx.Model(&entity.OutboxMessage{}).Where("topic = ? AND aggregate_id = ? AND processed_at IS NULL", "stellar.retire_offramp", order.ID).
 			Updates(map[string]any{"processed_at": now, "lease_owner": nil, "lease_until": nil, "last_error": safeError}).Error
 	})
+}
+
+// LoadOfframpOrderAmount returns the IDR minor amount of an off-ramp order.
+func (r *OfframpRepository) LoadOfframpOrderAmount(ctx context.Context, orderID string) (int64, error) {
+	var order entity.OrderRecord
+	if err := r.db.WithContext(ctx).Select("fiat_amount_minor").Where("id = ?", orderID).First(&order).Error; err != nil {
+		return 0, fmt.Errorf("finding off-ramp order amount: %w", err)
+	}
+	return order.FiatAmountMinor, nil
 }
 
 // CompleteSimulatedPayout records the deterministic sandbox payout and
