@@ -13,8 +13,10 @@ KailoPay is an Indonesia-first fiat on-ramp/off-ramp for Stellar. The first
 release (`v0.1.0`, 30-day sandbox sprint) proves one corridor in
 **sandbox/testnet form only**:
 
-1. A developer creates an IDR→XLM order and pays through a **Xendit sandbox**
-   QRIS or BRI virtual-account checkout.
+1. A developer creates an IDR→XLM order and is redirected to a **Xendit
+   sandbox hosted checkout**. The customer can choose any payment channel
+   activated for the merchant account; an order may optionally restrict the
+   hosted page to QRIS or BRI virtual account.
 2. Xendit calls the backend; payment is verified and reconciled.
 3. A worker transfers reserved **Stellar testnet XLM** from a treasury account
    to the customer's testnet address.
@@ -45,6 +47,9 @@ in `.env.example` and the root `README.md`; everything else has defaults. Requir
 `STELLAR_TREASURY_SECRET` is only needed when also running `go run ./cmd/worker`
 (the XLM transfer worker; without it, paid orders stay in
 `stellar_processing`).
+Email verification and password-reset links use the console provider by default.
+Set `EMAIL_PROVIDER=gmail`, `GMAIL_USERNAME`, and `GMAIL_APP_PASSWORD` to send
+them through Gmail SMTP.
 
 ### CORS: there is none (by design)
 
@@ -75,9 +80,9 @@ backend receives the Xendit callback. To see paid → `stellar_processing` →
 
 1. A public tunnel (ngrok / Cloudflare Tunnel) exposing the API, with the
    tunnel URL configured as the payment callback URL in the Xendit dashboard,
-   then pay the QRIS/VA in the Xendit sandbox flow.
+   then pay through the hosted Xendit sandbox flow.
 2. Xendit's sandbox payment simulator (dashboard) to fire the payment event
-   for your payment request.
+   for your payment session.
 
 The backend has no manual "simulate payment" endpoint; do not look for one.
 The XLM transfer itself needs `cmd/worker` running with
@@ -118,8 +123,9 @@ provider tokens never reach the browser.
   to `AUTH_SUCCESS_REDIRECT_URL`; mount a route there. If the deployment has
   no Google credentials the endpoint returns 503, so offer the button only
   when it works (try it once, or feature-flag it).
-- Verification and reset emails: in sandbox, links are logged to the backend
-  console instead of being emailed. The links point at
+- Verification and reset emails: with the default console provider, links are
+  logged to the backend console. With `EMAIL_PROVIDER=gmail`, they are sent by
+  Gmail. The links point at
   `{AUTH_EMAIL_LINK_BASE_URL}/auth/verify-email?token=...` and
   `/auth/reset-password?token=...`; build those routes, extract the token,
   and POST it to the API.
@@ -200,7 +206,7 @@ Request body:
 ```json
 {
   "fiat": { "currency": "IDR", "amount_minor": "100000" },
-  "payment_method": "qris",
+  "payment_method": "xendit",
   "stellar_destination": { "account": "G...", "memo": null }
 }
 ```
@@ -209,7 +215,9 @@ Rules the frontend must enforce client-side (the server re-validates):
 
 - `amount_minor` is a **decimal string** of IDR minor units (1 rupiah =
   1 unit). Never send a JS number; format from user input to a string.
-- `payment_method` ∈ `qris` | `bri_va`.
+- `payment_method` may be `xendit`, `qris`, or `bri_va`; omit it to use
+  `xendit`. `xendit` lets the customer choose any activated Xendit channel on
+  the hosted checkout page.
 - `stellar_destination.account` is a 56-char `G...` base32 testnet address;
   validate the shape before sending.
 - `memo` optional, max 28 chars.
@@ -255,13 +263,14 @@ echoes `X-Request-ID` as a header.
     "asset": { "code": "XLM", "amount": "40.0000000" },
     "quote": { "rate": "...", "adjusted_rate": "...", "spread_bps": 0,
                "source_at": "...", "expires_at": "..." },
-    "payment_method": "qris",
+    "payment_method": "xendit",
     "stellar_destination": { "account": "G...", "memo": null },
     "checkout": {
-      "id": "pr-...",
-      "status": "REQUIRES_ACTION",
-      "presentation_type": "QR_STRING",
-      "presentation_value": "000201...",
+      "id": "ps-...",
+      "status": "ACTIVE",
+      "presentation_type": "PAYMENT_LINK",
+      "presentation_value": "https://checkout-staging.xendit.co/sessions/ps-...",
+      "payment_link_url": "https://checkout-staging.xendit.co/sessions/ps-...",
       "expires_at": "..."
     },
     "stellar_transaction_hash": "only-when-confirmed",
@@ -273,11 +282,12 @@ echoes `X-Request-ID` as a header.
 
 - `asset.amount` is a decimal string with exactly 7 fraction digits (stroops).
   Parse with a decimal library or keep as string; never `parseFloat`.
-- Checkout presentation:
-  - `presentation_type: "QR_STRING"` (QRIS): render `presentation_value`
-    as a QR code.
-  - `presentation_type: "VIRTUAL_ACCOUNT_NUMBER"` (`bri_va`): display the
-    VA number for manual bank transfer, with copy-to-clipboard.
+- Hosted checkout: when `presentation_type` is `PAYMENT_LINK`, redirect the
+  browser to `payment_link_url` (or `presentation_value`). Xendit displays the
+  available payment methods and handles the payment UI.
+- Restricted legacy presentation values may still appear for previously
+  created orders: render `QR_STRING` as a QR code and
+  `VIRTUAL_ACCOUNT_NUMBER` as a copyable VA number.
 - Quote is locked at creation (immutable); `quote.expires_at` bounds the
   payment window. Use it for a countdown, and stop accepting payment after
   expiry (the backend expires the order and releases the XLM reservation
@@ -296,7 +306,7 @@ echoes `X-Request-ID` as a header.
 | Status | Meaning | Suggested UI |
 |---|---|---|
 | `created` | Order persisted, checkout being established (or held in unknown-checkout reconciliation) | Brief "preparing" state |
-| `payment_pending` | Checkout ready | Show QR/VA instructions + quote countdown |
+| `payment_pending` | Hosted checkout ready | Show a payment button/link to the Xendit hosted checkout + quote countdown |
 | `payment_confirmed` → `stellar_processing` | Paid; XLM transfer in flight (usually brief) | "Sending your XLM…" spinner |
 | `completed` | Done | Success + link `https://stellar.expert/lumen/testnet/tx/<stellar_transaction_hash>` |
 | `expired` | Unpaid past expiry | Explain + offer new order |
@@ -339,7 +349,7 @@ Do not build against any of these:
   new one for a new intent.
 6. Treat the API as at-least-once: a 200 replay response is normal, not an
   error.
-6. Do not expose raw error text from network failures; use the stable `code`
+7. Do not expose raw error text from network failures; use the stable `code`
    and keep `request_id` available for support.
 
 ## 9. Screen map
@@ -356,7 +366,7 @@ the contract):
 | `/auth/reset-password` | public | Reads `?token=`, collects a new password, POSTs `/auth/password/reset` |
 | `/profile` | session | `GET/PATCH /auth/me` (display name, Developer Mode toggle), avatar upload/remove |
 | `/developer` | session + Developer Mode | API key list/create/revoke, one-time key reveal, playground entry |
-| `/developer/playground` | session + Developer Mode | Paste-your-own `pk_test_` key (memory only) → create order, show QRIS QR / BRI VA, poll status |
+| `/developer/playground` | session + Developer Mode | Paste-your-own `pk_test_` key (memory only) → create order, redirect to hosted checkout, then poll status |
 | `/developer/orders/:id` | session + Developer Mode (key) | Order detail: quote, checkout, status timeline, testnet explorer link on completion |
 | `/auth/expired`, error states | public | Session-expired / generic error routes |
 
@@ -371,9 +381,9 @@ mapped as in §5.
    profile edit, and avatar upload.
 2. Developer section: opt-in Developer Mode, API key create/list/revoke with
    one-time display.
-3. Developer playground (paste-your-own-key, in-memory only): create on-ramp
-   order → render QRIS QR / BRI VA → poll order status → success screen with
-   the testnet explorer link.
+3. Developer playground (paste-your-own-key, in-memory only): create an
+   on-ramp order → redirect to the hosted Xendit checkout → poll order status
+   → success screen with the testnet explorer link.
 4. Polish: error states per §5, sandbox labels, amount input that formats
    IDR with thousand separators and serializes as a minor-unit string.
 
@@ -452,9 +462,11 @@ POST /auth/password/change   (session cookie)
   -> 204 (clears cookie; sign in again) | 400 | 401
 ```
 
-The sandbox backend logs verification/reset links to its console as
-`email verification link ... link=http://localhost:3001/auth/verify-email?token=...`.
-During local development, copy the token from that log line.
+With `EMAIL_PROVIDER=console`, the sandbox backend logs verification/reset
+links to its console as `email verification link ...
+link=http://localhost:3001/auth/verify-email?token=...`. During local
+development, copy the token from that log line. With `EMAIL_PROVIDER=gmail`,
+the link is delivered to the account email instead.
 
 ```text
 GET /auth/me                 (session cookie)
@@ -540,16 +552,17 @@ DELETE /v1/api-keys/{id}
 ```text
 POST /v1/onramps
   headers: Idempotency-Key: <uuid>, Content-Type: application/json
-  body (QRIS):
+  body (hosted checkout with all activated Xendit channels):
 {
   "fiat": { "currency": "IDR", "amount_minor": "100000" },
-  "payment_method": "qris",
+  "payment_method": "xendit",
   "stellar_destination": {
     "account": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
     "memo": null
   }
 }
-  body (BRI VA): identical but "payment_method": "bri_va"
+  body (QRIS-only): identical but "payment_method": "qris"
+  body (BRI VA-only): identical but "payment_method": "bri_va"
 
   -> 201 (new) | 200 (idempotent replay)
 {
@@ -567,13 +580,14 @@ POST /v1/onramps
       "source_at": "2026-08-22T09:58:12Z",
       "expires_at": "2026-08-22T10:03:12Z"
     },
-    "payment_method": "qris",
+    "payment_method": "xendit",
     "stellar_destination": { "account": "GAAAA...", "memo": null },
     "checkout": {
-      "id": "pr_9f8e7d6c-...",
-      "status": "REQUIRES_ACTION",
-      "presentation_type": "QR_STRING",
-      "presentation_value": "00020101021226600...5802ID59...",
+      "id": "ps-9f8e7d6c-...",
+      "status": "ACTIVE",
+      "presentation_type": "PAYMENT_LINK",
+      "presentation_value": "https://checkout-staging.xendit.co/sessions/ps-9f8e7d6c-...",
+      "payment_link_url": "https://checkout-staging.xendit.co/sessions/ps-9f8e7d6c-...",
       "expires_at": "2026-08-22T10:03:12Z"
     },
     "created_at": "2026-08-22T09:58:12Z",
@@ -588,9 +602,9 @@ POST /v1/onramps
 }
 ```
 
-For `bri_va`, `checkout.presentation_type` is `"VIRTUAL_ACCOUNT_NUMBER"` and
-`presentation_value` is the VA number to display with copy-to-clipboard. On
-completion the order also carries
+For `xendit`, redirect to `checkout.payment_link_url`; the Xendit hosted page
+offers the activated payment channels. For restricted `qris`/`bri_va` sessions,
+the same hosted page is limited to the requested channel. On completion the order also carries
 `"stellar_transaction_hash": "<hex>"`; on failure `"failure_code": "..."`.
 
 ```text

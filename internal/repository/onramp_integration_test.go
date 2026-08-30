@@ -18,7 +18,7 @@ import (
 // a real PostgreSQL instance. Set TEST_DATABASE_DSN to a disposable database;
 // the schema is migrated once and every test truncates all tables first.
 //
-//	TEST_DATABASE_DSN="host=localhost user=postgres password=postgres dbname=kailopay_test port=5432 sslmode=disable"
+//	TEST_DATABASE_DSN="postgres://postgres:postgres@localhost:5432/kailopay_test?sslmode=disable&TimeZone=UTC"
 
 var integrationTables = []string{
 	"webhook_attempts", "webhook_events", "webhook_endpoints", "outbox_messages",
@@ -61,8 +61,15 @@ func newIntegrationStore(t *testing.T) *integrationStore {
 	seed := []string{
 		`INSERT INTO users (id, status, display_name, created_at, updated_at)
 		 VALUES ('00000000-0000-4000-8000-0000000000aa', 'active', 'Integration Tester', now(), now())`,
+		`INSERT INTO users (id, status, display_name, created_at, updated_at)
+		 VALUES ('00000000-0000-4000-8000-0000000000ab', 'active', 'Second Integration Tester', now(), now())`,
 		`INSERT INTO api_clients (id, owner_user_id, name, environment, status, created_at, updated_at)
 		 VALUES ('00000000-0000-4000-8000-0000000000c1', '00000000-0000-4000-8000-0000000000aa', 'integration', 'test', 'active', now(), now())`,
+		`INSERT INTO retail_sessions (id, user_id, token_hash, expires_at, created_at, updated_at)
+		 VALUES
+		 ('00000000-0000-4000-8000-0000000000d1', '00000000-0000-4000-8000-0000000000aa', decode('01', 'hex'), now() + interval '1 day', now(), now()),
+		 ('00000000-0000-4000-8000-0000000000d2', '00000000-0000-4000-8000-0000000000aa', decode('02', 'hex'), now() + interval '1 day', now(), now()),
+		 ('00000000-0000-4000-8000-0000000000d3', '00000000-0000-4000-8000-0000000000ab', decode('03', 'hex'), now() + interval '1 day', now(), now())`,
 	}
 	for _, statement := range seed {
 		if err := db.Exec(statement).Error; err != nil {
@@ -84,7 +91,7 @@ func testDestination(n int) string {
 func testCreateRecord(orderID string, method entity.PaymentMethod, amount entity.IDR, stroops entity.Stroops, expiresAt time.Time) usecase.CreateRecord {
 	now := time.Date(2026, 8, 22, 1, 0, 0, 0, time.UTC)
 	return usecase.CreateRecord{
-		OrderID: orderID, ClientID: "00000000-0000-4000-8000-0000000000c1",
+		OrderID: orderID, Principal: integrationAPIPrincipal(),
 		IdempotencyKeyHash: "keyhash-" + orderID, RequestHash: "requesthash-" + orderID,
 		PaymentMethod: method, Destination: testDestination(1), Quote: usecase.Quote{
 			FiatAmount: amount, AssetAmount: stroops, Rate: "2500", AdjustedRate: "2500",
@@ -92,6 +99,15 @@ func testCreateRecord(orderID string, method entity.PaymentMethod, amount entity
 		},
 		CreatedAt: now,
 	}
+}
+
+func integrationAPIPrincipal() usecase.OrderPrincipal {
+	return usecase.OrderPrincipal{Kind: usecase.OrderPrincipalAPIClient,
+		ClientID: "00000000-0000-4000-8000-0000000000c1", OwnerUserID: "00000000-0000-4000-8000-0000000000aa"}
+}
+
+func integrationRetailPrincipal(userID, sessionID string) usecase.OrderPrincipal {
+	return usecase.OrderPrincipal{Kind: usecase.OrderPrincipalRetailSession, OwnerUserID: userID, SessionID: sessionID}
 }
 
 func countRows(t *testing.T, db *gorm.DB, model any) int64 {
@@ -158,13 +174,112 @@ func TestFindReplayReturnsConflictForDifferentBody(t *testing.T) {
 		t.Fatalf("ReserveAndCreate() error = %v", err)
 	}
 
-	_, found, err := store.onramp.FindReplay(ctx, record.ClientID, record.IdempotencyKeyHash, "different-request-hash")
+	_, found, err := store.onramp.FindReplay(ctx, record.Principal, record.IdempotencyKeyHash, "different-request-hash")
 	if err != usecase.ErrIdempotencyConflict || found {
 		t.Fatalf("FindReplay() = %v, %v; want ErrIdempotencyConflict, false", found, err)
 	}
-	_, found, err = store.onramp.FindReplay(ctx, record.ClientID, record.IdempotencyKeyHash, record.RequestHash)
+	_, found, err = store.onramp.FindReplay(ctx, record.Principal, record.IdempotencyKeyHash, record.RequestHash)
 	if err != nil || !found {
 		t.Fatalf("FindReplay() = %v, %v; want replay, nil", found, err)
+	}
+}
+
+func TestConsumerOrderOwnershipScopesHistoryAndReplayByUser(t *testing.T) {
+	store := newIntegrationStore(t)
+	ctx := context.Background()
+	future := time.Now().UTC().Add(5 * time.Minute)
+	userA := "00000000-0000-4000-8000-0000000000aa"
+	userB := "00000000-0000-4000-8000-0000000000ab"
+	retailA := integrationRetailPrincipal(userA, "00000000-0000-4000-8000-0000000000d1")
+	retailARenewed := integrationRetailPrincipal(userA, "00000000-0000-4000-8000-0000000000d2")
+	retailB := integrationRetailPrincipal(userB, "00000000-0000-4000-8000-0000000000d3")
+
+	recordA := testCreateRecord("00000000-0000-4000-8000-0000000000b3", entity.PaymentMethodQRIS, 100_000, 40_000_000, future)
+	recordA.Principal = retailA
+	recordA.IdempotencyKeyHash = "consumer-shared-key"
+	recordA.RequestHash = "consumer-shared-request"
+	if err := store.onramp.ReserveAndCreate(ctx, recordA, 1_000_000_000); err != nil {
+		t.Fatalf("ReserveAndCreate(retail A) error = %v", err)
+	}
+
+	if _, err := store.onramp.Get(ctx, retailA, recordA.OrderID); err != nil {
+		t.Fatalf("Get(retail A) error = %v", err)
+	}
+	if _, err := store.onramp.Get(ctx, retailARenewed, recordA.OrderID); err != nil {
+		t.Fatalf("Get(retail A renewed session) error = %v", err)
+	}
+	if _, err := store.onramp.Get(ctx, retailB, recordA.OrderID); err != usecase.ErrOrderNotFound {
+		t.Fatalf("Get(retail B) error = %v, want ErrOrderNotFound", err)
+	}
+	if _, err := store.onramp.Get(ctx, integrationAPIPrincipal(), recordA.OrderID); err != usecase.ErrOrderNotFound {
+		t.Fatalf("Get(api client) error = %v, want ErrOrderNotFound", err)
+	}
+
+	orders, _, err := store.onramp.List(ctx, retailARenewed, 20, "")
+	if err != nil || len(orders) != 1 || orders[0].ID != recordA.OrderID {
+		t.Fatalf("List(retail A renewed session) = %d/%v, want one order", len(orders), err)
+	}
+	orders, _, err = store.onramp.List(ctx, retailB, 20, "")
+	if err != nil || len(orders) != 0 {
+		t.Fatalf("List(retail B) = %d/%v, want empty", len(orders), err)
+	}
+
+	if _, found, err := store.onramp.FindReplay(ctx, retailARenewed, recordA.IdempotencyKeyHash, recordA.RequestHash); err != nil || !found {
+		t.Fatalf("FindReplay(retail A renewed session) = %v/%v, want found", found, err)
+	}
+	if _, found, err := store.onramp.FindReplay(ctx, retailB, recordA.IdempotencyKeyHash, recordA.RequestHash); err != nil || found {
+		t.Fatalf("FindReplay(retail B) = %v/%v, want not found", found, err)
+	}
+
+	recordB := testCreateRecord("00000000-0000-4000-8000-0000000000b4", entity.PaymentMethodQRIS, 100_000, 40_000_000, future)
+	recordB.Principal = retailB
+	recordB.IdempotencyKeyHash = recordA.IdempotencyKeyHash
+	recordB.RequestHash = recordA.RequestHash
+	if err := store.onramp.ReserveAndCreate(ctx, recordB, 1_000_000_000); err != nil {
+		t.Fatalf("ReserveAndCreate(retail B same key) error = %v", err)
+	}
+}
+
+func TestSharedOrderViewIncludesOfframpSettlementDetails(t *testing.T) {
+	store := newIntegrationStore(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	orderID := "00000000-0000-4000-8000-0000000000b5"
+	offramp := NewOfframpRepository(store.db, testDestination(9), "stellar_testnet")
+	if err := offramp.CreateOfframp(ctx, offrampRecord(orderID, 40_000_000, now)); err != nil {
+		t.Fatalf("CreateOfframp() error = %v", err)
+	}
+
+	depositID, err := platform.NewID()
+	if err != nil {
+		t.Fatalf("generating deposit id: %v", err)
+	}
+	depositHash := "deposit-hash-" + orderID
+	if err := store.db.Create(&entity.StellarTransaction{
+		ID: depositID, OrderID: orderID, IntentID: "stellar-offramp-deposit-" + orderID,
+		Purpose: "deposit", Network: "stellar_testnet", AssetCode: "XLM", Amount: "400000000",
+		TransactionHash: &depositHash, Status: "confirmed", AttemptCount: 1, CreatedAt: now, UpdatedAt: now,
+	}).Error; err != nil {
+		t.Fatalf("creating deposit evidence: %v", err)
+	}
+	payoutID, err := platform.NewID()
+	if err != nil {
+		t.Fatalf("generating payout id: %v", err)
+	}
+	payout := entity.OfframpPayout{ID: payoutID, OrderID: orderID,
+		Method: string(entity.WithdrawalMethodSandboxTransfer), AmountMinor: 100_000,
+		ReferenceID: "payout_" + orderID, State: "completed", CompletedAt: &now, CreatedAt: now, UpdatedAt: now}
+	if err := store.db.Create(&payout).Error; err != nil {
+		t.Fatalf("creating payout evidence: %v", err)
+	}
+
+	view, err := store.onramp.Get(ctx, integrationAPIPrincipal(), orderID)
+	if err != nil {
+		t.Fatalf("shared Get() error = %v", err)
+	}
+	if view.DepositTransactionHash != depositHash || view.Payout == nil || view.Payout.Reference != payout.ReferenceID ||
+		view.Payout.AmountMinor != payout.AmountMinor || view.Payout.State != payout.State {
+		t.Fatalf("shared order view = %+v, want deposit and payout details", view)
 	}
 }
 

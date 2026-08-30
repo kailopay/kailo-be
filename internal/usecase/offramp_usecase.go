@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"strconv"
 	"strings"
 	"time"
 
@@ -13,6 +14,14 @@ import (
 
 var (
 	ErrInvalidWithdrawal = errors.New("invalid withdrawal request")
+)
+
+const offrampRequestOperation = "offramp.create"
+
+const (
+	StellarTestnetNetwork = "stellar_testnet"
+	NativeXLMAssetCode    = "XLM"
+	IDRCurrency           = "IDR"
 )
 
 // DepositWatcher supplies recent native payments credited to the deposit
@@ -46,10 +55,10 @@ type WithdrawalMethod = entity.WithdrawalMethod
 // OfframpRepository is the persistence port consumed by the off-ramp
 // workflows and worker jobs.
 type OfframpRepository interface {
-	FindOfframpReplay(ctx context.Context, clientID, idempotencyKeyHash, requestHash string) (OrderView, bool, error)
+	FindOfframpReplay(ctx context.Context, principal OrderPrincipal, idempotencyKeyHash, requestHash string) (OrderView, bool, error)
 	CreateOfframp(ctx context.Context, record OfframpCreateRecord) error
-	Get(ctx context.Context, clientID, orderID string) (OrderView, error)
-	List(ctx context.Context, clientID string, limit int, cursor string) ([]OrderView, string, error)
+	Get(ctx context.Context, principal OrderPrincipal, orderID string) (OrderView, error)
+	List(ctx context.Context, principal OrderPrincipal, limit int, cursor string) ([]OrderView, string, error)
 
 	FindDepositCandidates(ctx context.Context, depositAccount string, limit int) ([]OrderView, error)
 	RecordAssetReceived(ctx context.Context, orderID string, payment ObservedPayment) error
@@ -67,7 +76,7 @@ type OfframpRepository interface {
 // order with its deposit instructions atomically.
 type OfframpCreateRecord struct {
 	OrderID            string
-	ClientID           string
+	Principal          OrderPrincipal
 	IdempotencyKeyHash string
 	RequestHash        string
 	AssetAmount        entity.Stroops
@@ -81,12 +90,12 @@ type OfframpCreateRecord struct {
 
 // RetirementIntent is the worker-side view of a pending burn submission.
 type RetirementIntent struct {
-	IntentID   string
-	OrderID    string
-	Source     string
-	BurnTarget string
-	Amount     entity.Stroops
-	Memo       string
+	IntentID        string
+	OrderID         string
+	Source          string
+	BurnTarget      string
+	Amount          entity.Stroops
+	Memo            string
 	TransactionHash string
 }
 
@@ -102,26 +111,29 @@ type PayoutView struct {
 
 // OfframpDependencies bundles the ports the off-ramp create flow consumes.
 type OfframpDependencies struct {
-	Repository  OfframpRepository
-	Prices      PriceReader
+	Repository   OfframpRepository
+	Prices       PriceReader
 	Destinations DestinationValidator
 }
 
 // OfframpServiceConfig configures the off-ramp create flow.
 type OfframpServiceConfig struct {
-	QuotePolicy     QuotePolicy
-	MinIDR          entity.IDR
-	MaxIDR          entity.IDR
-	DepositAccount  string
-	DepositExpiry   time.Duration
-	NewID           func() (string, error)
-	Now             func() time.Time
+	QuotePolicy    QuotePolicy
+	MinIDR         entity.IDR
+	MaxIDR         entity.IDR
+	DepositAccount string
+	DepositExpiry  time.Duration
+	NewID          func() (string, error)
+	Now            func() time.Time
 }
 
 // OfframpCommand is the public create-off-ramp input.
 type OfframpCommand struct {
-	ClientID         string
+	Principal        OrderPrincipal
 	IdempotencyKey   string
+	AssetNetwork     string
+	AssetCode        string
+	FiatCurrency     string
 	AssetAmount      string
 	WithdrawalMethod entity.WithdrawalMethod
 	DestinationToken string
@@ -149,10 +161,17 @@ func NewOfframpUsecase(dependencies OfframpDependencies, config OfframpServiceCo
 // Create validates the sell command, prices it against the current market,
 // and persists the order with deterministic deposit instructions.
 func (s *OfframpUsecase) Create(ctx context.Context, command OfframpCommand) (OrderView, bool, error) {
-	command.ClientID = strings.TrimSpace(command.ClientID)
+	if err := command.Principal.Validate(); err != nil {
+		return OrderView{}, false, ErrInvalidWithdrawal
+	}
 	command.IdempotencyKey = strings.TrimSpace(command.IdempotencyKey)
+	command.AssetNetwork = strings.TrimSpace(command.AssetNetwork)
+	command.AssetCode = strings.TrimSpace(command.AssetCode)
+	command.FiatCurrency = strings.TrimSpace(command.FiatCurrency)
 	command.AssetAmount = strings.TrimSpace(command.AssetAmount)
-	if command.ClientID == "" || command.IdempotencyKey == "" || len(command.IdempotencyKey) > 255 ||
+	command.DestinationToken = strings.TrimSpace(command.DestinationToken)
+	if command.IdempotencyKey == "" || len(command.IdempotencyKey) > 255 ||
+		command.AssetNetwork != StellarTestnetNetwork || command.AssetCode != NativeXLMAssetCode || command.FiatCurrency != IDRCurrency ||
 		command.WithdrawalMethod != entity.WithdrawalMethodSandboxTransfer || len(command.DestinationToken) > 200 {
 		return OrderView{}, false, ErrInvalidWithdrawal
 	}
@@ -160,8 +179,18 @@ func (s *OfframpUsecase) Create(ctx context.Context, command OfframpCommand) (Or
 	if err != nil {
 		return OrderView{}, false, ErrInvalidWithdrawal
 	}
-	now := s.config.Now().UTC()
+	idempotencyHash := digest(command.IdempotencyKey)
+	requestHash := orderRequestHash(offrampRequestOperation, command.AssetNetwork, command.AssetCode,
+		strconv.FormatInt(int64(stroops), 10), command.FiatCurrency, string(command.WithdrawalMethod), command.DestinationToken)
+	replayed, found, err := s.dependencies.Repository.FindOfframpReplay(ctx, command.Principal, idempotencyHash, requestHash)
+	if err != nil {
+		return OrderView{}, false, fmt.Errorf("checking idempotency: %w", err)
+	}
+	if found {
+		return replayed, true, nil
+	}
 
+	now := s.config.Now().UTC()
 	market, err := s.dependencies.Prices.LatestXLMIDR(ctx)
 	if err != nil {
 		return OrderView{}, false, fmt.Errorf("reading XLM IDR price: %w", err)
@@ -174,23 +203,13 @@ func (s *OfframpUsecase) Create(ctx context.Context, command OfframpCommand) (Or
 		return OrderView{}, false, ErrAmountOutOfRange
 	}
 
-	idempotencyHash := digest(command.IdempotencyKey)
-	requestHash := digest(fmt.Sprintf("%s|%s|%s", command.AssetAmount, command.WithdrawalMethod, command.DestinationToken))
-	replayed, found, err := s.dependencies.Repository.FindOfframpReplay(ctx, command.ClientID, idempotencyHash, requestHash)
-	if err != nil {
-		return OrderView{}, false, fmt.Errorf("checking idempotency: %w", err)
-	}
-	if found {
-		return replayed, true, nil
-	}
-
 	orderID, err := s.config.NewID()
 	if err != nil {
 		return OrderView{}, false, fmt.Errorf("generating order id: %w", err)
 	}
 	record := OfframpCreateRecord{
 		OrderID:            orderID,
-		ClientID:           command.ClientID,
+		Principal:          command.Principal,
 		IdempotencyKeyHash: idempotencyHash,
 		RequestHash:        requestHash,
 		AssetAmount:        stroops,
@@ -202,9 +221,14 @@ func (s *OfframpUsecase) Create(ctx context.Context, command OfframpCommand) (Or
 		CreatedAt:          now,
 	}
 	if err := s.dependencies.Repository.CreateOfframp(ctx, record); err != nil {
+		if replayed, found, replayErr := s.dependencies.Repository.FindOfframpReplay(ctx, command.Principal, idempotencyHash, requestHash); replayErr == nil && found {
+			return replayed, true, nil
+		} else if replayErr != nil && errors.Is(replayErr, ErrIdempotencyConflict) {
+			return OrderView{}, false, replayErr
+		}
 		return OrderView{}, false, fmt.Errorf("creating off-ramp order: %w", err)
 	}
-	view, err := s.dependencies.Repository.Get(ctx, command.ClientID, orderID)
+	view, err := s.dependencies.Repository.Get(ctx, command.Principal, orderID)
 	if err != nil {
 		return OrderView{}, false, fmt.Errorf("loading created order: %w", err)
 	}

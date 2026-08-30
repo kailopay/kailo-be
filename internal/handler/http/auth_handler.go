@@ -427,11 +427,11 @@ func (h *AuthHandler) clearSessionCookie(c *gin.Context) {
 }
 
 func writeAuthError(c *gin.Context, status int) {
-	c.AbortWithStatusJSON(status, gin.H{"error": "authentication failed"})
+	c.AbortWithStatusJSON(status, gin.H{"error": "authentication failed", "request_id": middleware.RequestIDFromContext(c)})
 }
 
 func writeRequestError(c *gin.Context, status int) {
-	c.AbortWithStatusJSON(status, gin.H{"error": http.StatusText(status)})
+	c.AbortWithStatusJSON(status, gin.H{"error": http.StatusText(status), "request_id": middleware.RequestIDFromContext(c)})
 }
 
 func decodeJSON(c *gin.Context, destination any, maxBytes int64) error {

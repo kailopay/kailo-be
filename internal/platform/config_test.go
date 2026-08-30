@@ -43,6 +43,7 @@ func setValidAuthEnv(t *testing.T) {
 	t.Setenv("AUTH_TRANSACTION_ENCRYPTION_KEY", key)
 	t.Setenv("AUTH_SESSION_HMAC_KEY", key)
 	t.Setenv("AUTH_COOKIE_SECURE", "true")
+	t.Setenv("HTTP_ALLOWED_ORIGINS", "https://app.example.com")
 	t.Setenv("MINIO_ENDPOINT", "minio.example.com:9000")
 	t.Setenv("MINIO_ACCESS_KEY", "access-key")
 	t.Setenv("MINIO_SECRET_KEY", "secret-key")
@@ -65,6 +66,7 @@ func TestLoadUsesEnvironmentOverrides(t *testing.T) {
 	setValidAuthEnv(t)
 	t.Setenv("APP_ENV", "test")
 	t.Setenv("HTTP_ADDRESS", ":9090")
+	t.Setenv("HTTP_ALLOWED_ORIGINS", "https://app.example.com")
 	t.Setenv("DATABASE_DSN", "host=test-db user=tester password=secret dbname=test port=5432")
 	t.Setenv("LOG_LEVEL", "debug")
 
@@ -242,6 +244,61 @@ func TestAuthConfigValidateRejectsInvalidSettings(t *testing.T) {
 	}
 }
 
+func TestEmailConfigValidate(t *testing.T) {
+	tests := []struct {
+		name   string
+		config EmailConfig
+		valid  bool
+	}{
+		{name: "console provider", config: EmailConfig{Provider: "console"}, valid: true},
+		{name: "gmail provider", config: EmailConfig{Provider: "gmail", Gmail: GmailConfig{
+			Username: "sender@gmail.com", AppPassword: "abcdefghijklmnop", Timeout: time.Second,
+		}}, valid: true},
+		{name: "unsupported provider", config: EmailConfig{Provider: "smtp"}},
+		{name: "gmail missing username", config: EmailConfig{Provider: "gmail", Gmail: GmailConfig{
+			AppPassword: "abcdefghijklmnop", Timeout: time.Second,
+		}}},
+		{name: "gmail missing app password", config: EmailConfig{Provider: "gmail", Gmail: GmailConfig{
+			Username: "sender@gmail.com", Timeout: time.Second,
+		}}},
+		{name: "gmail missing timeout", config: EmailConfig{Provider: "gmail", Gmail: GmailConfig{
+			Username: "sender@gmail.com", AppPassword: "abcdefghijklmnop",
+		}}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.config.Validate()
+			if tt.valid && err != nil {
+				t.Fatalf("Validate() error = %v", err)
+			}
+			if !tt.valid && err == nil {
+				t.Fatal("Validate() error = nil")
+			}
+		})
+	}
+}
+
+func TestLoadReadsEmailEnvironmentOverrides(t *testing.T) {
+	setValidAuthEnv(t)
+	t.Setenv("APP_ENV", "test")
+	t.Setenv("DATABASE_DSN", "host=test-db user=tester password=secret dbname=test port=5432")
+	t.Setenv("EMAIL_PROVIDER", "gmail")
+	t.Setenv("GMAIL_USERNAME", "sender@gmail.com")
+	t.Setenv("GMAIL_APP_PASSWORD", "abcdefghijklmnop")
+	t.Setenv("GMAIL_FROM_NAME", "KailoPay")
+	t.Setenv("GMAIL_SMTP_TIMEOUT", "7s")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Email.Provider != "gmail" || cfg.Email.Gmail.Username != "sender@gmail.com" ||
+		cfg.Email.Gmail.FromName != "KailoPay" || cfg.Email.Gmail.Timeout != 7*time.Second {
+		t.Fatalf("email config = %+v", cfg.Email)
+	}
+}
+
 func TestLoadReadsAuthEnvironmentOverrides(t *testing.T) {
 	setValidWeek1Env(t)
 	key := base64.StdEncoding.EncodeToString(make([]byte, 32))
@@ -269,5 +326,53 @@ func TestLoadReadsAuthEnvironmentOverrides(t *testing.T) {
 	}
 	if cfg.Auth.CookieSecure {
 		t.Fatal("cookie secure = true, want false for local")
+	}
+}
+
+func TestLoadNormalizesAllowedOrigins(t *testing.T) {
+	setValidAuthEnv(t)
+	t.Setenv("APP_ENV", "test")
+	t.Setenv("DATABASE_DSN", "host=test-db user=tester password=secret dbname=test port=5432")
+	t.Setenv("HTTP_ALLOWED_ORIGINS", " https://App.Example.com/ , https://app.example.com,https://admin.example.com ")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	want := []string{"https://app.example.com", "https://admin.example.com"}
+	if len(cfg.HTTP.AllowedOrigins) != len(want) {
+		t.Fatalf("allowed origins = %#v, want %#v", cfg.HTTP.AllowedOrigins, want)
+	}
+	for index := range want {
+		if cfg.HTTP.AllowedOrigins[index] != want[index] {
+			t.Fatalf("allowed origins = %#v, want %#v", cfg.HTTP.AllowedOrigins, want)
+		}
+	}
+}
+
+func TestHTTPConfigValidateRejectsUnsafeAllowedOrigins(t *testing.T) {
+	tests := []struct {
+		name        string
+		environment string
+		origins     []string
+	}{
+		{name: "missing origin", environment: "production"},
+		{name: "insecure production origin", environment: "production", origins: []string{"http://app.example.com"}},
+		{name: "origin has path", environment: "production", origins: []string{"https://app.example.com/checkout"}},
+		{name: "origin has query", environment: "production", origins: []string{"https://app.example.com?state=1"}},
+		{name: "unsupported scheme", environment: "production", origins: []string{"ftp://app.example.com"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := (HTTPConfig{AllowedOrigins: tt.origins}).Validate(tt.environment); err == nil {
+				t.Fatal("Validate() error = nil")
+			}
+		})
+	}
+}
+
+func TestHTTPConfigValidateAcceptsLocalHTTPOrigin(t *testing.T) {
+	if err := (HTTPConfig{AllowedOrigins: []string{"http://localhost:3000"}}).Validate("local"); err != nil {
+		t.Fatalf("Validate() error = %v", err)
 	}
 }

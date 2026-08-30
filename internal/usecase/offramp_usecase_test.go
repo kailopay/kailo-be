@@ -80,24 +80,28 @@ func TestQuotePolicyCreateReverseFloorsIDRAndAppliesSpread(t *testing.T) {
 // --- OfframpUsecase.Create lifecycle ---
 
 type fakeOfframpRepo struct {
-	replay  OrderView
-	found   bool
-	created []OfframpCreateRecord
-	view    OrderView
-	err     error
+	replay          OrderView
+	found           bool
+	created         []OfframpCreateRecord
+	view            OrderView
+	err             error
+	findPrincipal   OrderPrincipal
+	findRequestHash string
 }
 
-func (r *fakeOfframpRepo) FindOfframpReplay(context.Context, string, string, string) (OrderView, bool, error) {
+func (r *fakeOfframpRepo) FindOfframpReplay(_ context.Context, principal OrderPrincipal, _, requestHash string) (OrderView, bool, error) {
+	r.findPrincipal = principal
+	r.findRequestHash = requestHash
 	return r.replay, r.found, r.err
 }
 func (r *fakeOfframpRepo) CreateOfframp(_ context.Context, record OfframpCreateRecord) error {
 	r.created = append(r.created, record)
 	return r.err
 }
-func (r *fakeOfframpRepo) Get(context.Context, string, string) (OrderView, error) {
+func (r *fakeOfframpRepo) Get(context.Context, OrderPrincipal, string) (OrderView, error) {
 	return r.view, nil
 }
-func (r *fakeOfframpRepo) List(context.Context, string, int, string) ([]OrderView, string, error) {
+func (r *fakeOfframpRepo) List(context.Context, OrderPrincipal, int, string) ([]OrderView, string, error) {
 	return nil, "", nil
 }
 func (r *fakeOfframpRepo) FindDepositCandidates(context.Context, string, int) ([]OrderView, error) {
@@ -148,7 +152,7 @@ func TestOfframpCreatePersistsDepositInstructions(t *testing.T) {
 	service := testOfframpService(t, repo)
 
 	view, replay, err := service.Create(context.Background(), OfframpCommand{
-		ClientID: "client-1", IdempotencyKey: "idem-1", AssetAmount: "40",
+		Principal: apiOrderPrincipal("client-1", "owner-1"), IdempotencyKey: "idem-1", AssetNetwork: "stellar_testnet", AssetCode: "XLM", FiatCurrency: "IDR", AssetAmount: "40",
 		WithdrawalMethod: entity.WithdrawalMethodSandboxTransfer, DestinationToken: "demo-token",
 	})
 	if err != nil || replay {
@@ -179,7 +183,7 @@ func TestOfframpCreateReplaysAndRejectsInvalidInput(t *testing.T) {
 	service := testOfframpService(t, repo)
 
 	view, replay, err := service.Create(context.Background(), OfframpCommand{
-		ClientID: "c", IdempotencyKey: "k", AssetAmount: "40",
+		Principal: apiOrderPrincipal("c", "owner-1"), IdempotencyKey: "k", AssetNetwork: "stellar_testnet", AssetCode: "XLM", FiatCurrency: "IDR", AssetAmount: "40",
 		WithdrawalMethod: entity.WithdrawalMethodSandboxTransfer})
 	if err != nil || !replay || view.ID != "order-off-0" {
 		t.Fatalf("replay = %v/%v/%q", err, replay, view.ID)
@@ -189,13 +193,62 @@ func TestOfframpCreateReplaysAndRejectsInvalidInput(t *testing.T) {
 	}
 
 	bad := []OfframpCommand{
-		{ClientID: "c", IdempotencyKey: "k", AssetAmount: "40"},                                                             // wrong method
-		{ClientID: "c", IdempotencyKey: "k", AssetAmount: "nope", WithdrawalMethod: entity.WithdrawalMethodSandboxTransfer}, // bad amount
+		{Principal: apiOrderPrincipal("c", "owner-1"), IdempotencyKey: "k", AssetNetwork: "stellar_testnet", AssetCode: "XLM", FiatCurrency: "IDR", AssetAmount: "40"},                                                             // wrong method
+		{Principal: apiOrderPrincipal("c", "owner-1"), IdempotencyKey: "k", AssetNetwork: "stellar_testnet", AssetCode: "XLM", FiatCurrency: "IDR", AssetAmount: "nope", WithdrawalMethod: entity.WithdrawalMethodSandboxTransfer}, // bad amount
 	}
 	for _, command := range bad {
 		if _, _, err := service.Create(context.Background(), command); !errors.Is(err, ErrInvalidWithdrawal) {
 			t.Errorf("invalid command %+v error = %v", command, err)
 		}
+	}
+}
+
+func TestOfframpCreateRejectsUnsupportedNetworkAssetOrCurrency(t *testing.T) {
+	base := OfframpCommand{
+		Principal: apiOrderPrincipal("client-1", "owner-1"), IdempotencyKey: "idem-unsupported", AssetNetwork: "stellar_testnet",
+		AssetCode: "XLM", FiatCurrency: "IDR", AssetAmount: "40", WithdrawalMethod: entity.WithdrawalMethodSandboxTransfer,
+	}
+	cases := []struct {
+		name   string
+		mutate func(*OfframpCommand)
+	}{
+		{name: "mainnet network", mutate: func(command *OfframpCommand) { command.AssetNetwork = "stellar_mainnet" }},
+		{name: "non XLM asset", mutate: func(command *OfframpCommand) { command.AssetCode = "USDC" }},
+		{name: "non IDR currency", mutate: func(command *OfframpCommand) { command.FiatCurrency = "USD" }},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			command := base
+			testCase.mutate(&command)
+			if _, _, err := testOfframpService(t, &fakeOfframpRepo{}).Create(context.Background(), command); !errors.Is(err, ErrInvalidWithdrawal) {
+				t.Fatalf("Create() error = %v, want %v", err, ErrInvalidWithdrawal)
+			}
+		})
+	}
+}
+
+func TestOfframpCreateCarriesRetailPrincipalAndIncludesOperationInRequestHash(t *testing.T) {
+	repo := &fakeOfframpRepo{}
+	service := testOfframpService(t, repo)
+	principal := OrderPrincipal{Kind: OrderPrincipalRetailSession, OwnerUserID: "user-1", SessionID: "session-1"}
+
+	view, replay, err := service.Create(context.Background(), OfframpCommand{
+		Principal: principal, IdempotencyKey: "idem-retail-off-1", AssetNetwork: "stellar_testnet", AssetCode: "XLM", FiatCurrency: "IDR", AssetAmount: "40",
+		WithdrawalMethod: entity.WithdrawalMethodSandboxTransfer, DestinationToken: "demo-token",
+	})
+	if err != nil || replay || view.ID != repo.view.ID {
+		// The fake intentionally returns its zero view after persistence. The
+		// assertions below verify the ownership and request scope instead.
+		if err != nil || replay {
+			t.Fatalf("Create() = %v, replay=%v", err, replay)
+		}
+	}
+	if len(repo.created) != 1 || repo.created[0].Principal != principal {
+		t.Fatalf("created principal = %+v, want %+v", repo.created[0].Principal, principal)
+	}
+	wantHash := orderRequestHash(offrampRequestOperation, "stellar_testnet", "XLM", "400000000", "IDR", "sandbox_bank_transfer", "demo-token")
+	if repo.findRequestHash != wantHash {
+		t.Fatalf("request hash = %q, want %q", repo.findRequestHash, wantHash)
 	}
 }
 

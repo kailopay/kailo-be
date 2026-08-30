@@ -1,12 +1,10 @@
 {
-  "payment_request_id": "pr-90392f42-d98a-49ef-a7f3-abcezas123",
+  "payment_session_id": "ps-90392f42-d98a-49ef-a7f3-abcezas123",
   "reference_id": "order-1",
-  "type": "PAY",
   "country": "ID",
   "currency": "IDR",
-  "request_amount": 100000,
-  "channel_code": "QRIS",
-  "status": "ACCEPTING_PAYMENTS",
-  "channel_properties": {"expires_at":"2026-08-20T01:05:00Z"},
-  "actions": [{"type":"PRESENT_TO_CUSTOMER","descriptor":"QR_STRING","value":"000201010212..."}]
+  "amount": 100000,
+  "status": "ACTIVE",
+  "expires_at":"2026-08-20T01:05:00Z",
+  "payment_link_url":"https://checkout-staging.xendit.co/sessions/ps-90392f42-d98a-49ef-a7f3-abcezas123"
 }

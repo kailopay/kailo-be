@@ -41,6 +41,7 @@ const (
 	PaymentMethodUnknown PaymentMethod = ""
 	PaymentMethodQRIS    PaymentMethod = "qris"
 	PaymentMethodBRIVA   PaymentMethod = "bri_va"
+	PaymentMethodXendit  PaymentMethod = "xendit"
 )
 
 type Order struct {

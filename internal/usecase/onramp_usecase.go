@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -13,8 +14,10 @@ import (
 )
 
 const (
-	PaymentMethodQRIS  = entity.PaymentMethodQRIS
-	PaymentMethodBRIVA = entity.PaymentMethodBRIVA
+	onrampRequestOperation = "onramp.create"
+	PaymentMethodQRIS      = entity.PaymentMethodQRIS
+	PaymentMethodBRIVA     = entity.PaymentMethodBRIVA
+	PaymentMethodXendit    = entity.PaymentMethodXendit
 )
 
 var (
@@ -26,6 +29,16 @@ var (
 	ErrOrderNotFound         = errors.New("order not found")
 	ErrCheckoutUnknown       = errors.New("checkout outcome is unknown")
 )
+
+// CheckoutUnknownError identifies an order whose provider outcome must be
+// reconciled before the client retries. It unwraps to ErrCheckoutUnknown so
+// callers can keep the stable error classification.
+type CheckoutUnknownError struct {
+	OrderID string
+}
+
+func (e *CheckoutUnknownError) Error() string { return ErrCheckoutUnknown.Error() }
+func (e *CheckoutUnknownError) Unwrap() error { return ErrCheckoutUnknown }
 
 type PriceReader interface {
 	LatestXLMIDR(ctx context.Context) (MarketPrice, error)
@@ -44,13 +57,13 @@ type PaymentGateway interface {
 }
 
 type OnrampRepository interface {
-	FindReplay(ctx context.Context, clientID, idempotencyKeyHash, requestHash string) (OrderView, bool, error)
+	FindReplay(ctx context.Context, principal OrderPrincipal, idempotencyKeyHash, requestHash string) (OrderView, bool, error)
 	ReserveAndCreate(ctx context.Context, record CreateRecord, observedBalance entity.Stroops) error
 	AttachCheckout(ctx context.Context, orderID string, checkout Checkout) (OrderView, error)
 	FailCheckout(ctx context.Context, orderID, reason string) error
 	MarkCheckoutUnknown(ctx context.Context, orderID, reason string) error
-	Get(ctx context.Context, clientID, orderID string) (OrderView, error)
-	List(ctx context.Context, clientID string, limit int, cursor string) ([]OrderView, string, error)
+	Get(ctx context.Context, principal OrderPrincipal, orderID string) (OrderView, error)
+	List(ctx context.Context, principal OrderPrincipal, limit int, cursor string) ([]OrderView, string, error)
 	RecordCallbackReceipt(ctx context.Context, receipt CallbackReceipt) (processed bool, err error)
 	ExpectedPayment(ctx context.Context, providerID string) (ExpectedPayment, error)
 	ConfirmPaymentAndEnqueue(ctx context.Context, confirmation PaymentConfirmation) error
@@ -75,7 +88,7 @@ type ServiceConfig struct {
 }
 
 type Command struct {
-	ClientID       string
+	Principal      OrderPrincipal
 	IdempotencyKey string
 	Amount         entity.IDR
 	PaymentMethod  entity.PaymentMethod
@@ -85,7 +98,7 @@ type Command struct {
 
 type CreateRecord struct {
 	OrderID            string
-	ClientID           string
+	Principal          OrderPrincipal
 	IdempotencyKeyHash string
 	RequestHash        string
 	PaymentMethod      entity.PaymentMethod
@@ -108,6 +121,7 @@ type Checkout struct {
 	Status            string
 	PresentationType  string
 	PresentationValue string
+	PaymentLinkURL    string
 	ExpiresAt         *time.Time
 }
 
@@ -156,10 +170,15 @@ func NewOnrampUsecase(dependencies OnrampDependencies, config ServiceConfig) (*O
 }
 
 func (s *OnrampUsecase) Create(ctx context.Context, command Command) (OrderView, bool, error) {
-	command.ClientID = strings.TrimSpace(command.ClientID)
+	if err := command.Principal.Validate(); err != nil {
+		return OrderView{}, false, ErrInvalidCommand
+	}
 	command.IdempotencyKey = strings.TrimSpace(command.IdempotencyKey)
 	command.Destination = strings.TrimSpace(command.Destination)
 	command.Memo = strings.TrimSpace(command.Memo)
+	if command.PaymentMethod == entity.PaymentMethodUnknown {
+		command.PaymentMethod = PaymentMethodXendit
+	}
 	if err := validateCommand(command); err != nil {
 		return OrderView{}, false, err
 	}
@@ -170,16 +189,13 @@ func (s *OnrampUsecase) Create(ctx context.Context, command Command) (OrderView,
 		return OrderView{}, false, ErrAmountOutOfRange
 	}
 	idempotencyHash := digest(command.IdempotencyKey)
-	requestHash := digest(fmt.Sprintf("%d|%s|%s|%s", command.Amount, command.PaymentMethod, command.Destination, command.Memo))
-	replayed, found, err := s.dependencies.Repository.FindReplay(ctx, command.ClientID, idempotencyHash, requestHash)
+	requestHash := orderRequestHash(onrampRequestOperation, strconv.FormatInt(int64(command.Amount), 10), string(command.PaymentMethod), command.Destination, command.Memo)
+	replayed, found, err := s.dependencies.Repository.FindReplay(ctx, command.Principal, idempotencyHash, requestHash)
 	if err != nil {
 		return OrderView{}, false, fmt.Errorf("checking idempotency: %w", err)
 	}
 	if found {
-		if replayed.FailureCode == "checkout_unknown" {
-			return replayed, true, ErrCheckoutUnknown
-		}
-		return replayed, true, nil
+		return replayed, true, replayError(replayed)
 	}
 	market, err := s.dependencies.Prices.LatestXLMIDR(ctx)
 	if err != nil {
@@ -198,10 +214,15 @@ func (s *OnrampUsecase) Create(ctx context.Context, command Command) (OrderView,
 	if err != nil {
 		return OrderView{}, false, fmt.Errorf("generating order id: %w", err)
 	}
-	record := CreateRecord{OrderID: orderID, ClientID: command.ClientID, IdempotencyKeyHash: idempotencyHash,
+	record := CreateRecord{OrderID: orderID, Principal: command.Principal, IdempotencyKeyHash: idempotencyHash,
 		RequestHash: requestHash, PaymentMethod: command.PaymentMethod, Destination: command.Destination,
 		Memo: command.Memo, Quote: quote, CreatedAt: now}
 	if err := s.dependencies.Repository.ReserveAndCreate(ctx, record, observedBalance); err != nil {
+		if replayed, found, replayErr := s.dependencies.Repository.FindReplay(ctx, command.Principal, idempotencyHash, requestHash); replayErr == nil && found {
+			return replayed, true, replayError(replayed)
+		} else if replayErr != nil && errors.Is(replayErr, ErrIdempotencyConflict) {
+			return OrderView{}, false, replayErr
+		}
 		return OrderView{}, false, fmt.Errorf("reserving treasury inventory: %w", err)
 	}
 	checkout, err := s.dependencies.Gateway.CreateCheckout(ctx, CheckoutInput{
@@ -211,7 +232,7 @@ func (s *OnrampUsecase) Create(ctx context.Context, command Command) (OrderView,
 		var gatewayError *GatewayError
 		if errors.As(err, &gatewayError) && gatewayError.Unknown {
 			_ = s.dependencies.Repository.MarkCheckoutUnknown(ctx, orderID, "provider outcome unknown")
-			return OrderView{}, false, ErrCheckoutUnknown
+			return OrderView{}, false, &CheckoutUnknownError{OrderID: orderID}
 		}
 		_ = s.dependencies.Repository.FailCheckout(ctx, orderID, "provider rejected checkout")
 		return OrderView{}, false, fmt.Errorf("creating payment checkout: %w", err)
@@ -223,20 +244,26 @@ func (s *OnrampUsecase) Create(ctx context.Context, command Command) (OrderView,
 	return view, false, nil
 }
 
-func (s *OnrampUsecase) Get(ctx context.Context, clientID, orderID string) (OrderView, error) {
-	return s.dependencies.Repository.Get(ctx, clientID, orderID)
+func (s *OnrampUsecase) Get(ctx context.Context, principal OrderPrincipal, orderID string) (OrderView, error) {
+	if err := principal.Validate(); err != nil {
+		return OrderView{}, ErrOrderNotFound
+	}
+	return s.dependencies.Repository.Get(ctx, principal, orderID)
 }
 
-func (s *OnrampUsecase) List(ctx context.Context, clientID string, limit int, cursor string) ([]OrderView, string, error) {
+func (s *OnrampUsecase) List(ctx context.Context, principal OrderPrincipal, limit int, cursor string) ([]OrderView, string, error) {
+	if err := principal.Validate(); err != nil {
+		return nil, "", ErrOrderNotFound
+	}
 	if limit < 1 || limit > 100 {
 		limit = 20
 	}
-	return s.dependencies.Repository.List(ctx, clientID, limit, cursor)
+	return s.dependencies.Repository.List(ctx, principal, limit, cursor)
 }
 
 func validateCommand(command Command) error {
-	if command.ClientID == "" || command.IdempotencyKey == "" || len(command.IdempotencyKey) > 255 || command.Amount.Validate() != nil ||
-		(command.PaymentMethod != PaymentMethodQRIS && command.PaymentMethod != PaymentMethodBRIVA) ||
+	if command.IdempotencyKey == "" || len(command.IdempotencyKey) > 255 || command.Amount.Validate() != nil ||
+		(command.PaymentMethod != PaymentMethodQRIS && command.PaymentMethod != PaymentMethodBRIVA && command.PaymentMethod != PaymentMethodXendit) ||
 		len(command.Destination) != 56 || !strings.HasPrefix(command.Destination, "G") || len(command.Memo) > 28 {
 		return ErrInvalidCommand
 	}
@@ -251,4 +278,24 @@ func validateCommand(command Command) error {
 func digest(value string) string {
 	sum := sha256.Sum256([]byte(value))
 	return hex.EncodeToString(sum[:])
+}
+
+func replayError(view OrderView) error {
+	if view.FailureCode == "checkout_unknown" {
+		return &CheckoutUnknownError{OrderID: view.ID}
+	}
+	return nil
+}
+
+func orderRequestHash(operation string, values ...string) string {
+	var builder strings.Builder
+	parts := make([]string, 0, len(values)+1)
+	parts = append(parts, operation)
+	parts = append(parts, values...)
+	for _, part := range parts {
+		builder.WriteString(strconv.Itoa(len(part)))
+		builder.WriteByte(':')
+		builder.WriteString(part)
+	}
+	return digest(builder.String())
 }

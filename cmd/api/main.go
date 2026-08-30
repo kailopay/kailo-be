@@ -101,12 +101,24 @@ func run(ctx context.Context) error {
 		}
 		authProvider = googleClient
 	}
+	authMailer, err := mail.NewSender(mail.SenderConfig{
+		Provider: cfg.Email.Provider,
+		Gmail: mail.GmailConfig{
+			Username:    cfg.Email.Gmail.Username,
+			AppPassword: cfg.Email.Gmail.AppPassword,
+			FromName:    cfg.Email.Gmail.FromName,
+			Timeout:     cfg.Email.Gmail.Timeout,
+		},
+	}, appLogger)
+	if err != nil {
+		return fmt.Errorf("creating email sender: %w", err)
+	}
 	authRepository := repository.NewAuthRepository(db, cfg.Auth.SessionIdleLifetime)
 	authService, err := usecase.NewAuthUsecase(usecase.AuthDependencies{
 		Provider:   authProvider,
 		Repository: authRepository,
 		Avatars:    avatarStore,
-		Mailer:     mail.NewConsoleSender(appLogger),
+		Mailer:     authMailer,
 	}, nil, usecase.AuthConfig{
 		TransactionEncryptionKey: encryptionKey,
 		SessionHMACKey:           sessionHMACKey,
@@ -150,7 +162,7 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("creating Stellar balance reader: %w", err)
 	}
-	onrampRepository := repository.NewOnrampRepository(db, cfg.Week1.Stellar.TreasuryAccount, "testnet",
+	onrampRepository := repository.NewOnrampRepository(db, cfg.Week1.Stellar.TreasuryAccount, usecase.StellarTestnetNetwork,
 		entity.Stroops(cfg.Week1.Stellar.OperatingBufferStroops))
 	onrampService, err := usecase.NewOnrampUsecase(usecase.OnrampDependencies{Repository: onrampRepository, Prices: priceClient,
 		Treasury: treasuryReader, Gateway: paymentClient, Destinations: treasuryReader}, usecase.ServiceConfig{
@@ -166,7 +178,7 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("creating payment callback service: %w", err)
 	}
-	offrampRepository := repository.NewOfframpRepository(db, cfg.Week1.Offramp.DepositAccount, "testnet")
+	offrampRepository := repository.NewOfframpRepository(db, cfg.Week1.Offramp.DepositAccount, usecase.StellarTestnetNetwork)
 	offrampService, err := usecase.NewOfframpUsecase(usecase.OfframpDependencies{
 		Repository: offrampRepository, Prices: priceClient, Destinations: treasuryReader}, usecase.OfframpServiceConfig{
 		QuotePolicy: usecase.QuotePolicy{TTL: cfg.Week1.Onramp.QuoteTTL, MaxAge: cfg.Week1.Onramp.QuoteMaxAge,
@@ -194,9 +206,9 @@ func run(ctx context.Context) error {
 	}
 	webhookHandler := httpapi.NewWebhookHandler(webhookService, appLogger)
 	callbackHandler := httpapi.NewXenditCallbackHandler(callbackService, appLogger)
-	apiKeyMiddleware := middleware.RequireAPIKey(apiKeyService)
+	orderPrincipalMiddleware := middleware.RequireOrderPrincipal(apiKeyService, authService, cfg.Auth.CookieName, cfg.HTTP.AllowedOrigins)
 	router, err := httpapi.NewRouter(appLogger, health, authHandler, sessionMiddleware,
-		httpapi.WithAPIKeys(apiKeyHandler), httpapi.WithOnramp(onrampHandler, apiKeyMiddleware),
+		httpapi.WithAPIKeys(apiKeyHandler), httpapi.WithOnramp(onrampHandler, orderPrincipalMiddleware),
 		httpapi.WithOfframp(offrampHandler), httpapi.WithSep24(sep24Handler),
 		httpapi.WithWebhooks(webhookHandler), httpapi.WithXenditCallback(callbackHandler))
 	if err != nil {

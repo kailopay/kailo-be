@@ -71,16 +71,16 @@ Acceptance: state/event/outbox commit atomically; multiple workers cannot hold o
 |---|---|---:|---:|---|---|---|
 | BE-020 | Implement API client and `pk_test_` key generation, hashed storage, authentication, and revocation. | P0 | 5 | Week 1 | BE-011-BE-014 | Implemented |
 | BE-021 | Implement order aggregate/value objects and on/off-ramp state-transition policy. | P0 | 5 | Week 1 | BE-012 | Implemented for on-ramp |
-| BE-022 | Implement order/order-event repositories with optimistic concurrency. | P0 | 5 | Week 1 | BE-011, BE-021 | Implemented for on-ramp |
-| BE-023 | Implement idempotency records and same-key conflicting-request detection. | P0 | 3 | Week 1 | BE-011 | Implemented |
-| BE-024 | Implement `POST /v1/onramps` with validation and checkout intent. | P0 | 5 | Week 1 | BE-020-BE-023 | Implemented |
-| BE-025 | Implement `POST /v1/offramps` with deposit instruction intent. | P0 | 5 | Week 1-2 | BE-020-BE-023 | Implemented |
-| BE-026 | Implement client-scoped `GET /v1/orders/{id}`. | P0 | 2 | Week 1 | BE-020, BE-022 | Implemented |
-| BE-027 | Implement cursor-paginated `GET /v1/orders`. | P1 | 3 | Week 3 | BE-026 | Implemented |
-| BE-028 | Publish and validate initial OpenAPI with auth, amounts, errors, and examples. | P0 | 3 | Week 1 | BE-024-BE-026 | Implemented |
-| BE-029 | Implement Auth0 profile editing, hosted password reset, local-session revocation, and private MinIO avatars. | P1 | 5 | Week 1 | BE-010, BE-011 | Implemented |
+| BE-022 | Implement order/order-event repositories with optimistic concurrency and explicit API-client/retail-session ownership. | P0 | 5 | Week 1 | BE-011, BE-021 | Implemented for on-ramp/off-ramp principal scopes |
+| BE-023 | Implement idempotency records, owner-scoped partial uniqueness, and same-key conflicting-request detection. | P0 | 3 | Week 1 | BE-011 | Implemented for API clients and retail users |
+| BE-024 | Implement `POST /v1/onramps` with API-key or verified-session auth, validation, and checkout intent. | P0 | 5 | Week 1 | BE-020-BE-023 | Implemented |
+| BE-025 | Implement `POST /v1/offramps` with API-key or verified-session auth and deposit instruction intent. | P0 | 5 | Week 1-2 | BE-020-BE-023 | Implemented |
+| BE-026 | Implement principal-scoped `GET /v1/orders/{id}`. | P0 | 2 | Week 1 | BE-020, BE-022 | Implemented |
+| BE-027 | Implement cursor-paginated, principal-scoped `GET /v1/orders`. | P1 | 3 | Week 3 | BE-026 | Implemented |
+| BE-028 | Publish and validate initial OpenAPI with API/session auth alternatives, ownership, amounts, errors, and examples. | P0 | 3 | Week 1 | BE-024-BE-026 | Implemented |
+| BE-029 | Implement self-hosted profile editing, email verification/password reset, local-session revocation, optional Google sign-in, and private MinIO avatars. | P1 | 5 | Week 1 | BE-010, BE-011 | Implemented |
 
-Acceptance: exact amount round-trips; invalid/cross-client requests fail; duplicate create returns one order; each legal transition creates one versioned event.
+Acceptance: exact amount round-trips; invalid/cross-principal requests fail; duplicate create returns one order per authenticated owner; retail history survives session renewal; each legal transition creates one versioned event.
 
 ### BE3: Payment gateway
 
@@ -158,8 +158,8 @@ Acceptance: an order is traceable across all systems; secrets are absent from lo
 | ID | Story | Pri | SP | Target | Dependency | Status |
 |---|---|---:|---:|---|---|---|
 | BE-080 | Build domain transition/invariant unit test suite. | P0 | 5 | Week 1-2 | BE-021 | Blocked |
-| BE-081 | Build PostgreSQL repository, constraint, transaction, lease, and concurrency tests. | P0 | 5 | Week 1-2 | BE-011, BE-015, BE-022 | In progress; repository integration suite added behind TEST_DATABASE_DSN, CI wiring pending |
-| BE-082 | Build API auth, ownership, validation, idempotency, error, and OpenAPI contract tests. | P0 | 5 | Week 1-3 | BE-020, BE-024-BE-028 | Blocked |
+| BE-081 | Build PostgreSQL repository, constraint, transaction, lease, and concurrency tests. | P0 | 5 | Week 1-2 | BE-011, BE-015, BE-022 | In progress; consumer ownership/replay coverage added behind TEST_DATABASE_DSN, CI wiring pending |
+| BE-082 | Build API auth, ownership, validation, idempotency, error, and OpenAPI contract tests. | P0 | 5 | Week 1-3 | BE-020, BE-024-BE-028 | In progress; principal precedence, session origin, and trackable unknown-outcome coverage added |
 | BE-083 | Build gateway callback replay/mismatch/timeout/reconciliation tests. | P0 | 5 | Week 1-2 | BE-033-BE-036 | Blocked |
 | BE-084 | Build Stellar success/failure/unknown/deposit-validation tests and testnet harness. | P0 | 5 | Week 2 | BE-041-BE-046 | Blocked |
 | BE-085 | Build webhook signing/retry/SSRF test suite. | P0 | 5 | Week 3 | BE-061-BE-065 | Blocked |

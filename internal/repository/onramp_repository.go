@@ -28,9 +28,13 @@ func NewOnrampRepository(db *gorm.DB, treasuryAccount, network string, operating
 	return &OnrampRepository{db: db, tx: newTxManager(db), treasuryAccount: treasuryAccount, network: network, operatingBuffer: operatingBuffer}
 }
 
-func (r *OnrampRepository) FindReplay(ctx context.Context, clientID, keyHash, requestHash string) (usecase.OrderView, bool, error) {
+func (r *OnrampRepository) FindReplay(ctx context.Context, principal usecase.OrderPrincipal, keyHash, requestHash string) (usecase.OrderView, bool, error) {
 	var record entity.IdempotencyRecord
-	err := r.db.WithContext(ctx).Where("client_id = ? AND operation = ? AND key_hash = ?", clientID, onrampCreateOperation, keyHash).First(&record).Error
+	query, err := applyIdempotencyOwnership(r.db.WithContext(ctx), principal)
+	if err != nil {
+		return usecase.OrderView{}, false, err
+	}
+	err = query.Where("operation = ? AND key_hash = ?", onrampCreateOperation, keyHash).First(&record).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return usecase.OrderView{}, false, nil
 	}
@@ -43,7 +47,7 @@ func (r *OnrampRepository) FindReplay(ctx context.Context, clientID, keyHash, re
 	if record.CreatedResourceID == nil {
 		return usecase.OrderView{}, false, fmt.Errorf("idempotency record has no order: %w", usecase.ErrCheckoutUnknown)
 	}
-	view, err := r.Get(ctx, clientID, *record.CreatedResourceID)
+	view, err := r.Get(ctx, principal, *record.CreatedResourceID)
 	if err != nil {
 		return usecase.OrderView{}, false, err
 	}
@@ -51,7 +55,14 @@ func (r *OnrampRepository) FindReplay(ctx context.Context, clientID, keyHash, re
 }
 
 func (r *OnrampRepository) ReserveAndCreate(ctx context.Context, record usecase.CreateRecord, observedBalance entity.Stroops) error {
+	ownership, err := orderOwnershipFor(record.Principal)
+	if err != nil {
+		return err
+	}
 	return r.tx.do(ctx, func(tx *gorm.DB) error {
+		if err := validateRetailSessionOwnership(ctx, tx, record.Principal); err != nil {
+			return err
+		}
 		treasury, err := r.lockTreasury(ctx, tx, observedBalance, record.CreatedAt)
 		if err != nil {
 			return err
@@ -62,7 +73,8 @@ func (r *OnrampRepository) ReserveAndCreate(ctx context.Context, record usecase.
 		}
 
 		order := entity.OrderRecord{
-			ID: record.OrderID, ClientID: &record.ClientID, Direction: "onramp", Status: string(entity.OrderStatusCreated), Version: 1,
+			ID: record.OrderID, ClientID: ownership.ClientID, CreatedByUserID: ownership.CreatedByUserID,
+			RetailSessionID: ownership.RetailSessionID, Direction: "onramp", Status: string(entity.OrderStatusCreated), Version: 1,
 			Currency: "IDR", FiatAmountMinor: int64(record.Quote.FiatAmount), AssetCode: "XLM", AssetIssuer: "",
 			Network: r.network, AssetAmount: record.Quote.AssetAmount.String(), AssetAmountStroops: int64(record.Quote.AssetAmount),
 			QuoteProvider: "coinmarketcap", QuoteSourceAt: record.Quote.SourceAt, QuoteRate: record.Quote.Rate,
@@ -97,7 +109,7 @@ func (r *OnrampRepository) ReserveAndCreate(ctx context.Context, record usecase.
 		if err != nil {
 			return err
 		}
-		idempotency := entity.IdempotencyRecord{ID: idempotencyID, ClientID: record.ClientID, Operation: onrampCreateOperation,
+		idempotency := entity.IdempotencyRecord{ID: idempotencyID, ClientID: ownership.ClientID, RetailUserID: ownership.RetailUserID, Operation: onrampCreateOperation,
 			KeyHash: record.IdempotencyKeyHash, RequestHash: record.RequestHash, CreatedResourceID: &order.ID,
 			State: "processing", ExpiresAt: record.CreatedAt.Add(24 * time.Hour), CreatedAt: record.CreatedAt, UpdatedAt: record.CreatedAt}
 		if err := tx.Create(&idempotency).Error; err != nil {
@@ -121,7 +133,8 @@ func (r *OnrampRepository) AttachCheckout(ctx context.Context, orderID string, c
 		if err != nil {
 			return err
 		}
-		metadata, _ := json.Marshal(map[string]string{"presentation_type": checkout.PresentationType, "presentation_value": checkout.PresentationValue})
+		metadata, _ := json.Marshal(map[string]string{"presentation_type": checkout.PresentationType, "presentation_value": checkout.PresentationValue,
+			"payment_link_url": checkout.PaymentLinkURL})
 		presentation := checkout.PresentationValue
 		row := entity.PaymentCheckout{ID: checkoutID, OrderID: orderID, Provider: "xendit", ProviderCheckoutID: checkout.ProviderID,
 			Method: string(checkout.Method), Currency: "IDR", AmountMinor: order.FiatAmountMinor, Status: checkout.Status,
@@ -146,7 +159,7 @@ func (r *OnrampRepository) AttachCheckout(ctx context.Context, orderID string, c
 	if err := r.db.WithContext(ctx).Where("id = ?", orderID).First(&order).Error; err != nil {
 		return usecase.OrderView{}, err
 	}
-	return r.Get(ctx, *order.ClientID, orderID)
+	return r.orderView(ctx, order)
 }
 
 func (r *OnrampRepository) FailCheckout(ctx context.Context, orderID, reason string) error {
@@ -174,7 +187,7 @@ func (r *OnrampRepository) RecordCallbackReceipt(ctx context.Context, receipt us
 	if err != nil {
 		return false, err
 	}
-	providerReference := receipt.PaymentRequestID
+	providerReference := receipt.CheckoutID
 	row := entity.GatewayEvent{ID: id, Provider: "xendit", ProviderEventID: receipt.EventID, EventType: receipt.EventType,
 		CheckoutReference: &providerReference, PayloadHash: receipt.PayloadHash, SignatureVerified: true,
 		MatchingResult: "pending", ReceivedAt: time.Now().UTC(), ProcessingStatus: "received"}
@@ -199,6 +212,9 @@ func (r *OnrampRepository) ExpectedPayment(ctx context.Context, providerID strin
 	channel := "QRIS"
 	if checkout.Method == string(usecase.PaymentMethodBRIVA) {
 		channel = "BRI_VIRTUAL_ACCOUNT"
+	}
+	if checkout.Method == string(usecase.PaymentMethodXendit) {
+		channel = ""
 	}
 	return usecase.ExpectedPayment{OrderID: order.ID, ProviderID: checkout.ProviderCheckoutID, Amount: entity.IDR(checkout.AmountMinor),
 		Currency: checkout.Currency, Channel: channel, AssetAmount: entity.Stroops(order.AssetAmountStroops)}, nil
@@ -264,60 +280,37 @@ func (r *OnrampRepository) CompleteCallback(ctx context.Context, eventID, result
 		Updates(map[string]any{"matching_result": result, "processing_status": status, "processed_at": now}).Error
 }
 
-func (r *OnrampRepository) Get(ctx context.Context, clientID, orderID string) (usecase.OrderView, error) {
+func (r *OnrampRepository) Get(ctx context.Context, principal usecase.OrderPrincipal, orderID string) (usecase.OrderView, error) {
 	var order entity.OrderRecord
-	result := r.db.WithContext(ctx).Raw(`
-		SELECT
-			id,
-			client_id,
-			created_by_user_id,
-			retail_session_id,
-			direction,
-			status,
-			version,
-			currency,
-			fiat_amount_minor,
-			asset_code,
-			asset_issuer,
-			network,
-			asset_amount,
-			asset_amount_stroops,
-			quote_provider,
-			quote_source_at,
-			quote_rate,
-			quote_adjusted_rate,
-			quote_spread_bps,
-			quote_expires_at,
-			payment_method,
-			gateway_provider,
-			stellar_source,
-			stellar_destination,
-			stellar_memo,
-			withdrawal_destination,
-			expires_at,
-			failure_code,
-			failure_stage,
-			failure_retryable,
-			created_at,
-			updated_at,
-			completed_at
-		FROM orders
-		WHERE id = ? AND client_id = ?
-	`, orderID, clientID).Scan(&order)
-	if result.Error != nil {
-		return usecase.OrderView{}, fmt.Errorf("finding order: %w", result.Error)
+	query, err := applyOrderOwnership(r.db.WithContext(ctx).Where("id = ?", orderID), principal)
+	if err != nil {
+		return usecase.OrderView{}, err
 	}
-	if result.RowsAffected == 0 {
-		return usecase.OrderView{}, usecase.ErrOrderNotFound
+	if err := query.First(&order).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return usecase.OrderView{}, usecase.ErrOrderNotFound
+		}
+		return usecase.OrderView{}, fmt.Errorf("finding order: %w", err)
 	}
 	return r.orderView(ctx, order)
 }
 
-func (r *OnrampRepository) List(ctx context.Context, clientID string, limit int, cursor string) ([]usecase.OrderView, string, error) {
-	query := r.db.WithContext(ctx).Where("client_id = ?", clientID).Order("created_at DESC, id DESC").Limit(limit + 1)
+func (r *OnrampRepository) List(ctx context.Context, principal usecase.OrderPrincipal, limit int, cursor string) ([]usecase.OrderView, string, error) {
+	query, err := applyOrderOwnership(r.db.WithContext(ctx), principal)
+	if err != nil {
+		return nil, "", err
+	}
+	query = query.Order("created_at DESC, id DESC").Limit(limit + 1)
 	if cursor != "" {
 		var cursorOrder entity.OrderRecord
-		if err := r.db.WithContext(ctx).Select("created_at", "id").Where("id = ? AND client_id = ?", cursor, clientID).First(&cursorOrder).Error; err != nil {
+		cursorQuery, err := applyOrderOwnership(r.db.WithContext(ctx).Select("created_at", "id").Where("id = ?", cursor), principal)
+		if err != nil {
+			return nil, "", err
+		}
+		if err := cursorQuery.First(&cursorOrder).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil, "", usecase.ErrOrderNotFound
+			}
 			return nil, "", usecase.ErrOrderNotFound
 		}
 		query = query.Where("(created_at, id) < (?, ?)", cursorOrder.CreatedAt, cursorOrder.ID)
@@ -471,12 +464,13 @@ func (r *OnrampRepository) orderView(ctx context.Context, order entity.OrderReco
 		}
 		var metadata struct {
 			PresentationType string `json:"presentation_type"`
+			PaymentLinkURL   string `json:"payment_link_url"`
 		}
 		if json.Unmarshal(checkout.Metadata, &metadata) == nil {
 			presentationType = metadata.PresentationType
 		}
 		view.Checkout = &usecase.Checkout{ProviderID: checkout.ProviderCheckoutID, Method: entity.PaymentMethod(checkout.Method), Status: checkout.Status,
-			PresentationType: presentationType, PresentationValue: presentation, ExpiresAt: checkout.ExpiresAt}
+			PresentationType: presentationType, PresentationValue: presentation, PaymentLinkURL: metadata.PaymentLinkURL, ExpiresAt: checkout.ExpiresAt}
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return usecase.OrderView{}, fmt.Errorf("finding checkout: %w", err)
 	}
@@ -485,6 +479,21 @@ func (r *OnrampRepository) orderView(ctx context.Context, order entity.OrderReco
 		view.StellarTransactionHash = *stellar.TransactionHash
 	} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return usecase.OrderView{}, fmt.Errorf("finding stellar transaction: %w", err)
+	}
+	if order.Direction == "offramp" {
+		var payout entity.OfframpPayout
+		if err := r.db.WithContext(ctx).Where("order_id = ?", order.ID).First(&payout).Error; err == nil {
+			simulation := true
+			view.Payout = &usecase.PayoutView{Reference: payout.ReferenceID, Method: payout.Method,
+				AmountMinor: payout.AmountMinor, State: payout.State, Simulated: &simulation}
+		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return usecase.OrderView{}, fmt.Errorf("finding payout: %w", err)
+		}
+		if err := r.db.WithContext(ctx).Where("order_id = ? AND purpose = ?", order.ID, "deposit").First(&stellar).Error; err == nil && stellar.TransactionHash != nil {
+			view.DepositTransactionHash = *stellar.TransactionHash
+		} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return usecase.OrderView{}, fmt.Errorf("finding deposit transaction: %w", err)
+		}
 	}
 	return view, nil
 }

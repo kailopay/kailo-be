@@ -10,15 +10,15 @@ import (
 type callbackGatewayFake struct{}
 
 func (callbackGatewayFake) VerifyCallback([]byte, string) (Callback, error) {
-	return Callback{EventID: "py-1", EventType: "payment.capture", PaymentRequestID: "pr-1"}, nil
+	return Callback{EventID: "py-1", EventType: "payment.capture", CheckoutID: "pr-1"}, nil
 }
-func (callbackGatewayFake) GetPaymentRequest(context.Context, string) (PaymentState, error) {
+func (callbackGatewayFake) GetPaymentState(context.Context, string) (PaymentState, error) {
 	return PaymentState{ProviderID: "pr-1", ReferenceID: "order-1", Status: "SUCCEEDED", Currency: "IDR", Amount: 100_000, Channel: "QRIS"}, nil
 }
 
 type callbackStoreFake struct{ recorded, confirmed int }
 
-func (s *callbackStoreFake) FindReplay(context.Context, string, string, string) (OrderView, bool, error) {
+func (s *callbackStoreFake) FindReplay(context.Context, OrderPrincipal, string, string) (OrderView, bool, error) {
 	return OrderView{}, false, nil
 }
 func (s *callbackStoreFake) ReserveAndCreate(context.Context, CreateRecord, entity.Stroops) error {
@@ -29,10 +29,10 @@ func (s *callbackStoreFake) AttachCheckout(context.Context, string, Checkout) (O
 }
 func (s *callbackStoreFake) FailCheckout(context.Context, string, string) error        { return nil }
 func (s *callbackStoreFake) MarkCheckoutUnknown(context.Context, string, string) error { return nil }
-func (s *callbackStoreFake) Get(context.Context, string, string) (OrderView, error) {
+func (s *callbackStoreFake) Get(context.Context, OrderPrincipal, string) (OrderView, error) {
 	return OrderView{}, nil
 }
-func (s *callbackStoreFake) List(context.Context, string, int, string) ([]OrderView, string, error) {
+func (s *callbackStoreFake) List(context.Context, OrderPrincipal, int, string) ([]OrderView, string, error) {
 	return []OrderView{}, "", nil
 }
 
@@ -59,6 +59,36 @@ func TestPaidCallbackReplayCreatesOneSettlementIntent(t *testing.T) {
 		if err := service.Process(context.Background(), []byte(`{"event":"payment.capture"}`), "token"); err != nil {
 			t.Fatal(err)
 		}
+	}
+	if store.confirmed != 1 {
+		t.Fatalf("confirmed = %d, want 1", store.confirmed)
+	}
+}
+
+type hostedCallbackGatewayFake struct{}
+
+func (hostedCallbackGatewayFake) VerifyCallback([]byte, string) (Callback, error) {
+	return Callback{EventID: "payment_session.completed:ps-1", EventType: "payment_session.completed", CheckoutID: "ps-1"}, nil
+}
+
+func (hostedCallbackGatewayFake) GetPaymentState(context.Context, string) (PaymentState, error) {
+	return PaymentState{ProviderID: "ps-1", ReferenceID: "order-1", Status: "COMPLETED", Currency: "IDR", Amount: 100_000}, nil
+}
+
+type hostedCallbackStoreFake struct{ callbackStoreFake }
+
+func (s *hostedCallbackStoreFake) ExpectedPayment(context.Context, string) (ExpectedPayment, error) {
+	return ExpectedPayment{OrderID: "order-1", ProviderID: "ps-1", Amount: 100_000, Currency: "IDR", AssetAmount: entity.Stroops(400_000_000)}, nil
+}
+
+func TestCompletedPaymentSessionCreatesOneSettlementIntent(t *testing.T) {
+	store := &hostedCallbackStoreFake{}
+	service, err := NewOnrampCallbackUsecase(hostedCallbackGatewayFake{}, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Process(context.Background(), []byte(`{"event":"payment_session.completed"}`), "token"); err != nil {
+		t.Fatalf("Process() error = %v", err)
 	}
 	if store.confirmed != 1 {
 		t.Fatalf("confirmed = %d, want 1", store.confirmed)

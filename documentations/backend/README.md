@@ -10,7 +10,7 @@
 | Logging | Standard-library `log/slog` |
 | External environments | Optional Google sign-in, one payment gateway sandbox, and Stellar testnet |
 | Architecture | Modular monolith with asynchronous workers and transactional outbox |
-| Status | Self-hosted authentication slice implemented (ADR-002); payment/order slices remain staged |
+| Status | Self-hosted authentication and principal-scoped consumer order slice implemented; provider/testnet evidence remains staged |
 
 ## Purpose
 
@@ -36,15 +36,16 @@ The documents describe intended behavior and boundaries. The checked-in OpenAPI 
 3. [Order State Machines](ORDER-STATE-MACHINES.md)
 4. [Database Design](DATABASE-DESIGN.md)
 5. [API Design](API-DESIGN.md)
-6. [Payment Gateway Integration](PAYMENT-GATEWAY-INTEGRATION.md)
-7. [Stellar Anchor Integration](STELLAR-ANCHOR-INTEGRATION.md)
-8. [Webhook Design](WEBHOOK-DESIGN.md)
-9. [TypeScript SDK Design](TYPESCRIPT-SDK-DESIGN.md)
-10. [Security](SECURITY.md)
-11. [Observability and Runbook](OBSERVABILITY-AND-RUNBOOK.md)
-12. [Testing Strategy](TESTING-STRATEGY.md)
-13. [Implementation Phases](IMPLEMENTATION-PHASES.md)
-14. [Backend Backlog](BACKEND-BACKLOG.md)
+6. [Consumer Session Order Flow](CONSUMER-SESSION-ORDER-FLOW.md)
+7. [Payment Gateway Integration](PAYMENT-GATEWAY-INTEGRATION.md)
+8. [Stellar Anchor Integration](STELLAR-ANCHOR-INTEGRATION.md)
+9. [Webhook Design](WEBHOOK-DESIGN.md)
+10. [TypeScript SDK Design](TYPESCRIPT-SDK-DESIGN.md)
+11. [Security](SECURITY.md)
+12. [Observability and Runbook](OBSERVABILITY-AND-RUNBOOK.md)
+13. [Testing Strategy](TESTING-STRATEGY.md)
+14. [Implementation Phases](IMPLEMENTATION-PHASES.md)
+15. [Backend Backlog](BACKEND-BACKLOG.md)
 
 ## Parent documents
 
@@ -60,6 +61,7 @@ The documents describe intended behavior and boundaries. The checked-in OpenAPI 
 - Versioned REST API for sandbox on-ramp and off-ramp orders.
 - Unified user identity with retail sessions, opt-in Developer Mode, and restricted operator access boundaries.
 - User-owned developer API clients; API keys, webhook configuration, and API-created orders are scoped through their owning client.
+- Verified retail sessions can create and read consumer orders on the same on-ramp/off-ramp/order-history paths; history is scoped to the user across valid sessions.
 - Hashed test API keys using the `pk_test_` prefix.
 - PostgreSQL persistence, migrations, order events, and external-reference correlation.
 - One payment gateway adapter for sandbox QRIS, bank transfer/virtual account, callbacks, and the available payout simulation.
@@ -83,9 +85,9 @@ The documents describe intended behavior and boundaries. The checked-in OpenAPI 
 1. Every environment and response makes sandbox/testnet status explicit.
 2. Money and asset quantities never use binary floating-point arithmetic.
 3. Untrusted callbacks do not mutate order state.
-4. Duplicate requests, callbacks, jobs, Stellar submissions, and webhook deliveries are expected and handled safely.
+4. Duplicate requests, callbacks, jobs, Stellar submissions, and webhook deliveries are expected and handled safely; order idempotency is scoped to the authenticated API client or retail user.
 5. A database transaction cannot make an external payment or Stellar transaction atomic; external effects use durable intent, idempotent processing, and reconciliation.
-6. Order history is append-only and sufficient to reconstruct why a state changed.
+6. Order history is append-only, principal-scoped, and sufficient to reconstruct why a state changed.
 7. Secrets, private keys, full API keys, and raw sensitive provider payloads never enter public logs.
 8. Production-only requirements remain in roadmap documents and do not silently enter the Instaward release.
 
@@ -121,4 +123,4 @@ The backend implements email + password and optional Google authentication:
 - `POST /auth/email/verify` and `POST /auth/email/resend` complete or re-issue verification; `POST /auth/password/forgot`, `POST /auth/password/reset`, and protected `POST /auth/password/change` cover password recovery.
 - `POST /auth/logout` revokes and clears the local session; `GET /auth/me` returns the authenticated user and requires the `kailopay_session` cookie.
 
-Provider tokens never reach the browser. Local sessions are opaque, HTTP-only, SameSite=Lax cookies backed by PostgreSQL. Verification and reset links are single-use hashed tokens; in sandbox the links are logged to the server console (an `EmailSender` port ready for SMTP later). Configure `.env` using [.env.example](../../.env.example); the checked-in contract is [openapi/openapi.yaml](../../openapi/openapi.yaml). Run `go run ./cmd/migrate` to apply the versioned schema.
+Provider tokens never reach the browser. Local sessions are opaque, HTTP-only, SameSite=Lax cookies backed by PostgreSQL. Verification and reset links are single-use hashed tokens; the console provider logs links by default, while `EMAIL_PROVIDER=gmail` sends them through Gmail SMTP using `GMAIL_USERNAME` and a Google App Password. Configure `.env` using [.env.example](../../.env.example); the checked-in contract is [openapi/openapi.yaml](../../openapi/openapi.yaml). Run `go run ./cmd/migrate` to apply the versioned schema.

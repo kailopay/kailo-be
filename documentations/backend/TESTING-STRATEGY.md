@@ -30,6 +30,8 @@ Testing must prove both business outcomes and failure safety:
 - PostgreSQL tests run against the same supported major version as deployment. Set `TEST_DATABASE_DSN` to a disposable database to run the repository integration suite in `internal/repository`; the tests apply the versioned migrations, verify constraints and transactions, and skip when the variable is unset.
 - Real provider sandbox tests are tagged and run manually or in protected CI with sandbox secrets.
 - Stellar testnet tests use dedicated accounts/assets and handle network flakiness explicitly.
+- API integration tests configure `HTTP_ALLOWED_ORIGINS` with exact local or
+  HTTPS frontend origins and exercise the session-cookie CSRF boundary.
 - No test requires production credentials, mainnet, real identity, or real bank data.
 
 ## 4. Domain test matrix
@@ -50,9 +52,19 @@ Value-object tests cover zero/negative/overflow amounts, precision/rounding, cur
 Minimum cases:
 
 - Missing, malformed, invalid, and revoked `pk_test_` keys.
-- Cross-client order and webhook access.
+- Missing, malformed, expired, revoked, and unverified retail sessions.
+- When both credentials are present, the bearer API key takes precedence;
+  malformed bearer credentials do not fall back to a session cookie.
+- Cross-client, cross-user, and cross-session order access and replay denial.
+- Retail history includes orders from earlier valid sessions for the same user
+  but excludes API-client orders.
+- Cookie-authenticated order POSTs accept an exact configured `Origin`, or a
+  matching `Referer` origin only when `Origin` is absent; API-key POSTs do not
+  require either header.
 - Valid/invalid on-ramp and off-ramp input.
 - Required idempotency key, same-key same-body replay, and same-key conflicting-body rejection.
+- Same retail-user idempotency key remains replayable after session renewal;
+  the same key can be used independently by another retail user.
 - Stable error envelope and request ID.
 - Cursor pagination ordering and boundaries.
 - Exact amount serialization without floating-point drift.
@@ -83,6 +95,8 @@ OpenAPI tests validate the document and compare representative request/response 
 - Out-of-order pending/paid/failed events.
 - Paid event after order expiry.
 - Unknown checkout creation/payment status with reconciliation.
+- Unknown checkout responses include the durable order ID and replay returns
+  that same order instead of creating a second order.
 - Adapter timeout, `429`, transient `5xx`, permanent rejection.
 
 Use sanitized provider fixtures captured from official sandbox behavior. Fixtures contain no reusable credential or real user data.

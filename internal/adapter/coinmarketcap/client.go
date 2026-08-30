@@ -9,13 +9,18 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/febry3/kailopay-be/internal/usecase"
 )
 
-const defaultMaxResponseBytes int64 = 1 << 20
+const (
+	defaultMaxResponseBytes int64 = 1 << 20
+	xlmCoinMarketCapID            = 512
+	quoteCurrencyIDR              = "IDR"
+)
 
 var ErrUnavailable = errors.New("coinmarketcap unavailable")
 
@@ -31,6 +36,24 @@ type Client struct {
 	apiKey           string
 	httpClient       *http.Client
 	maxResponseBytes int64
+}
+
+type latestQuoteResponse struct {
+	Status struct {
+		ErrorCode int `json:"error_code"`
+	} `json:"status"`
+	Data []latestQuoteAsset `json:"data"`
+}
+
+type latestQuoteAsset struct {
+	ID    int                 `json:"id"`
+	Quote latestCurrencyQuote `json:"quote"`
+}
+
+type latestCurrencyQuote struct {
+	Symbol      string      `json:"symbol"`
+	Price       json.Number `json:"price"`
+	LastUpdated string      `json:"last_updated"`
 }
 
 func New(config Config) (*Client, error) {
@@ -52,8 +75,8 @@ func (c *Client) LatestXLMIDR(ctx context.Context) (usecase.MarketPrice, error) 
 	requestURL := *c.baseURL
 	requestURL.Path = strings.TrimRight(requestURL.Path, "/") + "/v3/cryptocurrency/quotes/latest"
 	query := requestURL.Query()
-	query.Set("id", "512")
-	query.Set("convert", "IDR")
+	query.Set("id", strconv.Itoa(xlmCoinMarketCapID))
+	query.Set("convert", quoteCurrencyIDR)
 	requestURL.RawQuery = query.Encode()
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL.String(), nil)
 	if err != nil {
@@ -76,33 +99,28 @@ func (c *Client) LatestXLMIDR(ctx context.Context) (usecase.MarketPrice, error) 
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return usecase.MarketPrice{}, fmt.Errorf("%w: quote response status %d", ErrUnavailable, response.StatusCode)
 	}
-	var payload struct {
-		Status struct {
-			ErrorCode int `json:"error_code"`
-		} `json:"status"`
-		Data map[string]struct {
-			Quote map[string]struct {
-				Price       json.Number `json:"price"`
-				LastUpdated string      `json:"last_updated"`
-			} `json:"quote"`
-		} `json:"data"`
-	}
+	var payload latestQuoteResponse
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.UseNumber()
 	if err := decoder.Decode(&payload); err != nil || payload.Status.ErrorCode != 0 {
 		return usecase.MarketPrice{}, fmt.Errorf("%w: invalid quote response", ErrUnavailable)
 	}
-	xlm, ok := payload.Data["512"]
-	if !ok {
+	var xlm *latestQuoteAsset
+	for index := range payload.Data {
+		if payload.Data[index].ID == xlmCoinMarketCapID {
+			xlm = &payload.Data[index]
+			break
+		}
+	}
+	if xlm == nil {
 		return usecase.MarketPrice{}, fmt.Errorf("%w: XLM quote missing", ErrUnavailable)
 	}
-	idr, ok := xlm.Quote["IDR"]
-	if !ok || idr.Price.String() == "" {
+	if xlm.Quote.Symbol != quoteCurrencyIDR || xlm.Quote.Price.String() == "" {
 		return usecase.MarketPrice{}, fmt.Errorf("%w: IDR quote missing", ErrUnavailable)
 	}
-	observedAt, err := time.Parse(time.RFC3339Nano, idr.LastUpdated)
+	observedAt, err := time.Parse(time.RFC3339Nano, xlm.Quote.LastUpdated)
 	if err != nil {
 		return usecase.MarketPrice{}, fmt.Errorf("%w: invalid quote timestamp", ErrUnavailable)
 	}
-	return usecase.MarketPrice{IDRPerXLM: idr.Price.String(), ObservedAt: observedAt.UTC()}, nil
+	return usecase.MarketPrice{IDRPerXLM: xlm.Quote.Price.String(), ObservedAt: observedAt.UTC()}, nil
 }

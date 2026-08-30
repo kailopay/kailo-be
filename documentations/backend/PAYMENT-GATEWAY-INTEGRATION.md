@@ -2,16 +2,17 @@
 
 ## 1. Scope
 
-`v0.1.0` selects Xendit Payment Requests v3 using development credentials. The Week 1 adapter supports:
+`v0.1.0` selects Xendit Payment Sessions using development credentials. The Week 1 adapter supports:
 
-- QRIS sandbox checkout.
-- At least one bank-transfer/virtual-account sandbox checkout.
+- Xendit-hosted sandbox checkout with all payment channels activated for the merchant account.
+- Optional QRIS or BRI virtual-account channel restrictions for API clients that request them.
 - Authenticated payment callbacks.
 - Payment status lookup/reconciliation.
 - Server-side Payment Request status reconciliation.
 
 The selected API version is `2024-11-11`; QRIS uses `QRIS` and bank transfer
-uses `BRI_VIRTUAL_ACCOUNT`. Domain and service behavior remain provider-neutral.
+uses `BRI_VIRTUAL_ACCOUNT` when a restricted hosted session is requested.
+Domain and service behavior remain provider-neutral.
 
 ## 2. Provider port
 
@@ -33,7 +34,7 @@ Input must include:
 
 - Stable KailoPay order ID and provider idempotency/external ID.
 - `IDR` and exact expected amount.
-- Selected method (`qris` or `bank_transfer`).
+- Hosted checkout method (`xendit`, `qris`, or `bri_va`).
 - Callback/return URLs derived from trusted configuration.
 - Expiry consistent with the order.
 - Minimal synthetic customer metadata only when required by the sandbox.
@@ -43,7 +44,7 @@ Processing:
 1. Validate order is `created` and route is supported.
 2. Persist the order, idempotency record, and XLM reservation atomically.
 3. The API calls Xendit synchronously after that transaction commits, using the order ID as `reference_id`.
-4. Persist provider checkout ID, method-specific presentation data, amount, expiry, and sanitized metadata.
+4. Persist the Payment Session ID, hosted payment-link URL, requested method, amount, expiry, and sanitized metadata.
 5. Move order to `payment_pending`.
 
 If the provider outcome is unknown, reconcile by the external ID before retrying.
@@ -71,7 +72,9 @@ Do not initiate Stellar network calls inside the callback request. The callback 
 
 Xendit authenticates the webhook with `x-callback-token`. KailoPay compares the
 configured token in constant time, stores the exact-body digest, then retrieves
-`GET /v3/payment_requests/{payment_request_id}` before moving value.
+`GET /sessions/{payment_session_id}` before moving value. When the session
+contains a payment request ID, KailoPay also retrieves the related Payment
+Request to verify the captured channel and exact amount.
 
 General requirements:
 
@@ -85,7 +88,7 @@ General requirements:
 
 ## 6. Payment reconciliation
 
-A callback is accepted as payment confirmation only when all available fields match:
+A `payment_session.completed` callback is accepted as payment confirmation only when all available fields match:
 
 - Active configured provider.
 - Known provider checkout/external ID.

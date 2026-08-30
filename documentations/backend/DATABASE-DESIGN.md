@@ -9,9 +9,14 @@ Xendit checkout and callback receipts, treasury accounts/reservations,
 idempotency records, Stellar intents, and durable outbox leases.
 `migrations/000002_payment_method_bri_va.sql` realigns the stored
 `payment_method`/`method` enum with the public `qris`/`bri_va` contract.
+Migration `000005_xendit_payment_sessions` adds the `xendit` hosted
+checkout method.
 `migrations/000003_self_hosted_auth.sql` adds Argon2id password credentials,
 single-use verification/reset challenge tokens, and a partial unique index on
 `users(email)` (ADR-002).
+`migrations/000006_consumer_order_ownership.up.sql` adds retail-user
+idempotency ownership, partial owner indexes, and the consumer history index
+while preserving existing API-client records.
 Runtime services use explicit transactions; `AutoMigrate` remains local/test
 bootstrap only.
 
@@ -49,7 +54,8 @@ erDiagram
     API_CLIENTS ||--o{ WEBHOOK_ENDPOINTS : configures
     ORDERS ||--o{ WEBHOOK_EVENTS : produces
     WEBHOOK_EVENTS ||--o{ WEBHOOK_ATTEMPTS : delivers
-    API_CLIENTS ||--o{ IDEMPOTENCY_RECORDS : scopes
+    API_CLIENTS ||--o{ IDEMPOTENCY_RECORDS : scopes_api
+    USERS ||--o{ IDEMPOTENCY_RECORDS : scopes_retail
     ORDERS ||--o{ OUTBOX_MESSAGES : emits
     TREASURY_ACCOUNTS ||--o{ TREASURY_RESERVATIONS : reserves
     ORDERS ||--o| TREASURY_RESERVATIONS : holds
@@ -197,7 +203,7 @@ Recommended key format: `pk_test_<public_id>_<random_secret>`. Parse `public_id`
 | `quote_rate`, `quote_adjusted_rate` | `numeric(30,18)` | Raw and spread-adjusted IDR per XLM; positive checks |
 | `quote_spread_bps` | `integer` | 0–10000 check |
 | `quote_expires_at` | `timestamptz` | Quote lock expiry; indexed |
-| `payment_method`, `gateway_provider` | `text` | `qris`/`bri_va` and `xendit` checks after migration 000002 |
+| `payment_method`, `gateway_provider` | `text` | `xendit`/`qris`/`bri_va` and `xendit` checks after migration 000005 |
 | `stellar_source`, `stellar_destination`, `stellar_memo` | `text` | Nullable by direction/stage |
 | `withdrawal_destination` | encrypted/minimized structured column | Synthetic sandbox data only |
 | `expires_at` | `timestamptz` | Optional lifecycle expiry |
@@ -209,7 +215,7 @@ Use explicit check constraints for positive amounts, supported directions, netwo
 - API route: `client_id` is non-null; `retail_session_id` is null. Developer-dashboard access resolves the owner through `api_clients.owner_user_id`.
 - Retail route: `created_by_user_id` and `retail_session_id` are non-null; `client_id` is null.
 
-The application may retain `created_by_user_id` for an API order initiated from a developer session, but public API authorization is based on the API client.
+The application may retain `created_by_user_id` for an API order initiated from a developer session, but public API authorization is based on the API client. Retail creation validates that the supplied session row belongs to the authenticated user before inserting the order. Public order projections never expose these ownership columns.
 
 ### `order_events`
 
@@ -229,7 +235,7 @@ Unique: `(order_id, aggregate_version)`.
 
 ### `payment_checkouts`
 
-Columns include ID, order ID, provider, provider checkout ID, method, expected currency/amount, status, checkout/QR presentation reference, expiry, sanitized metadata, and timestamps.
+Columns include ID, order ID, provider, provider checkout/session ID, method, expected currency/amount, status, hosted checkout/QR presentation reference, expiry, sanitized metadata, and timestamps.
 
 Unique: `(provider, provider_checkout_id)`. Index: `(order_id, created_at)`.
 
@@ -274,7 +280,7 @@ such as an unknown checkout outcome, keep their reservation.
 
 Columns include ID, provider, provider event ID or deterministic fingerprint, event type, checkout/order reference, payload hash, signature/authentication result, matching result, received/processed timestamps, processing status, and safe error.
 
-Unique: `(provider, provider_event_id)` when provided; otherwise `(provider, payload_hash, event_type)` with a documented collision strategy. Week 1 requires `provider_event_id` to be present (Xendit always supplies `payment_id`) and enforces the first uniqueness rule only; the fallback rule remains future work for providers without event IDs.
+Unique: `(provider, provider_event_id)` when provided; otherwise `(provider, payload_hash, event_type)` with a documented collision strategy. Xendit Payment Session callbacks use a deterministic `event:payment_session_id` provider event ID; legacy payment callbacks use `payment_id`.
 
 ### `stellar_transactions`
 
@@ -304,9 +310,17 @@ Unique: `(event_id, endpoint_id, attempt_number)`.
 
 ### `idempotency_records`
 
-Columns include client ID, operation, idempotency-key hash, request hash, response status/body or created resource ID, state (`processing`, `completed`, `failed`), expiry, and timestamps.
+Columns include nullable client ID, nullable retail user ID, operation,
+idempotency-key hash, request hash, response status/body or created resource ID,
+state (`processing`, `completed`, `failed`), expiry, and timestamps. Exactly one
+of `client_id` and `retail_user_id` is populated. API requests use client scope;
+consumer requests use retail-user scope so a session renewal does not change
+the idempotency owner.
 
-Unique: `(client_id, operation, idempotency_key_hash)`.
+Partial unique indexes enforce `(client_id, operation, key_hash)` for API
+records and `(retail_user_id, operation, key_hash)` for retail records.
+`migrations/000006_consumer_order_ownership.up.sql` replaces the original
+single client-only unique constraint without changing existing API records.
 
 Conflicting request hashes return `409 IDEMPOTENCY_KEY_REUSED`.
 
@@ -336,7 +350,7 @@ Minimum indexes:
 - `retail_sessions(token_hash)` unique for session authentication.
 - `api_clients(owner_user_id, created_at desc)` for developer-management listing.
 - `orders(client_id, created_at desc, id desc)` for API-client cursor listing; implemented.
-- `orders(retail_session_id, created_at desc)` for retail history; deferred until the retail web flow ships.
+- `orders(created_by_user_id, created_at desc, id desc) WHERE client_id IS NULL AND retail_session_id IS NOT NULL` for retail history; implemented in migration 000006.
 - `orders(status, updated_at)` for reconciliation/operations; implemented.
 - `orders(gateway_provider, payment_method)` if operational lookup requires it.
 - `order_events(order_id, aggregate_version)` unique; implemented.

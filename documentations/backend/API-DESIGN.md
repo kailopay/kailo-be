@@ -36,6 +36,25 @@ API-key creation/revocation requires an authenticated user session with Develope
 
 Developer configuration is user-owned. A developer session may manage only API clients whose `owner_user_id` matches the authenticated user. API keys authenticate an API client; they do not authenticate the owning browser user. Disabling Developer Mode hides/blocks developer-management actions but does not silently revoke existing clients or keys.
 
+### Order principal selection
+
+The four order operations use one shared authentication boundary. If an
+`Authorization` header is present, it must be a valid bearer API key and the
+request uses the API-client principal. When the header is absent, the backend
+authenticates the `kailopay_session` cookie and uses a retail-session principal.
+The session must be active and belong to an email-verified user. A malformed or
+invalid `Authorization` header does not fall back to the cookie.
+
+| Credential | Principal | Order scope |
+|---|---|---|
+| `Authorization: Bearer pk_test_...` | API client plus owning user | Orders whose `client_id` matches the authenticated client |
+| `kailopay_session` cookie | Verified retail session plus user | Orders with no client, a non-null creating session, and the authenticated user as creator |
+
+The request body, path, and query string cannot select an owner. Session-authenticated
+`POST /v1/onramps` and `POST /v1/offramps` require an exact configured `Origin`;
+when `Origin` is absent, a matching `Referer` origin is accepted. API-key
+requests do not require a browser origin.
+
 ### Operator access
 
 Operator/admin access is private and role-restricted. It is not available through public API keys or retail sessions.
@@ -50,7 +69,10 @@ Operator/admin access is private and role-restricted. It is not available throug
 | `X-Request-Id` | Both | Client-provided if valid or server-generated |
 | `KailoPay-Version` | Response | API/release version if useful |
 
-Idempotency keys are scoped to API client and operation. Reuse with a different canonical request returns `409`.
+Idempotency keys are scoped to the authenticated owner and operation: API
+client for API-key requests, and retail user for session requests. Reuse with a
+different canonical request returns `409`; a retry after a session renewal uses
+the same retail-user scope and can replay the original order.
 
 ## 4. Resource model
 
@@ -72,12 +94,13 @@ Idempotency keys are scoped to API client and operation. Reuse with a different 
       "source_at": "2026-08-18T12:00:00Z",
       "expires_at": "2026-08-18T12:05:00Z"
     },
-    "payment_method": "qris",
+    "payment_method": "xendit",
     "checkout": {
-      "id": "pr-demo",
-      "status": "REQUIRES_ACTION",
-      "presentation_type": "QR_STRING",
-      "presentation_value": "000201...",
+      "id": "ps-demo",
+      "status": "ACTIVE",
+      "presentation_type": "PAYMENT_LINK",
+      "presentation_value": "https://checkout-staging.xendit.co/sessions/ps-demo",
+      "payment_link_url": "https://checkout-staging.xendit.co/sessions/ps-demo",
       "expires_at": "2026-08-18T12:05:00Z"
     },
     "created_at": "2026-08-18T12:00:00Z",
@@ -94,11 +117,14 @@ The reserved `.test` address and synthetic values are illustrative; released exa
 
 | Method | Path | Auth | Idempotency | Purpose |
 |---|---|---|---|---|
-| `POST` | `/v1/onramps` | Test key | Required | Create IDR-to-native-XLM order and Xendit checkout |
-| `GET` | `/v1/orders/{order_id}` | Test key | N/A | Retrieve an order owned by the authenticated API client |
-| `GET` | `/v1/orders` | Test key | N/A | List only orders owned by the authenticated API client |
+| `POST` | `/v1/onramps` | Test key or verified retail session | Required | Create IDR-to-native-XLM order and Xendit checkout |
+| `POST` | `/v1/offramps` | Test key or verified retail session | Required | Create XLM-to-IDR order with sandbox deposit instructions |
+| `GET` | `/v1/orders/{order_id}` | Test key or verified retail session | N/A | Retrieve an order owned by the authenticated principal |
+| `GET` | `/v1/orders` | Test key or verified retail session | N/A | List orders owned by the authenticated principal |
 
-Retail-session order access is deferred. The off-ramp endpoint `POST /v1/offramps` is implemented as of Week 2 with simulated payout evidence.
+Retail history is user-scoped across valid sessions. API-key history remains
+client-scoped. Public order responses omit `client_id`, `created_by_user_id`,
+and `retail_session_id`.
 
 ### Developer configuration
 
@@ -127,7 +153,7 @@ SEP-24 and federation paths follow the applicable Stellar specifications and are
 ```json
 {
   "fiat": { "currency": "IDR", "amount_minor": "100000" },
-  "payment_method": "qris",
+  "payment_method": "xendit",
   "stellar_destination": { "account": "G...", "memo": null }
 }
 ```
@@ -135,13 +161,16 @@ SEP-24 and federation paths follow the applicable Stellar specifications and are
 Validation:
 
 - Positive amount within configured sandbox bounds.
-- `IDR`, native XLM on testnet, and `qris` or `bri_va` only.
+- `IDR`, native XLM on testnet, and `xendit`, `qris`, or `bri_va`. `xendit`
+  opens a hosted checkout with all activated Xendit channels; the other two
+  values restrict the hosted checkout to one channel.
 - Valid Stellar account and memo/muxed-account policy.
 - No real identity or production-bank data required.
 
-Response: `201` with the immutable quote and Xendit checkout representation.
-An unknown provider-create outcome returns `202` and is held for reconciliation;
-KailoPay does not automatically create a replacement checkout.
+Response: `201` for a new order or `200` for an idempotent replay, with the
+immutable quote and Xendit hosted checkout URL. An unknown provider-create
+outcome returns `202` with the durable `order_id` and is held for
+reconciliation; KailoPay does not automatically create a replacement checkout.
 
 ## 7. Create off-ramp request
 
@@ -164,7 +193,9 @@ Response includes asset deposit account, required memo/correlation data, expiry,
 
 - Query: `limit` with maximum 100 and opaque `cursor`.
 - Stable ordering: descending creation time plus ID tie-breaker.
-- Response: `data`, `has_more`, `next_cursor`, `request_id`.
+- Response: `orders`, `next_cursor`, and the request ID header/body contract.
+- Retail-session results include orders created in earlier valid sessions for
+  the same user, but never API-client orders or another user's orders.
 
 Avoid offset pagination for growing order history.
 
@@ -190,14 +221,15 @@ Minimum stable codes:
 | 400 | `INVALID_REQUEST` | Malformed JSON or invalid shape |
 | 400 | `UNSUPPORTED_ROUTE` | Currency/asset/network/method not supported |
 | 400 | `INVALID_STELLAR_ACCOUNT` | Invalid destination/source details |
-| 401 | `INVALID_API_KEY` | Missing, malformed, invalid, or revoked key |
-| 404 | `ORDER_NOT_FOUND` | Resource absent or not visible to client |
+| 401 | `INVALID_API_KEY` | Missing, malformed, invalid, or revoked API key/session credentials |
+| 403 | `ORIGIN_NOT_ALLOWED` | Session-authenticated mutation has no matching configured browser origin |
+| 404 | `ORDER_NOT_FOUND` | Resource absent or not visible to the authenticated principal |
 | 409 | `INVALID_ORDER_STATE` | Operation conflicts with current lifecycle |
 | 409 | `IDEMPOTENCY_KEY_REUSED` | Same key used with a different request |
 | 409 | `INSUFFICIENT_LIQUIDITY` | Treasury inventory cannot cover the order |
 | 422 | `AMOUNT_OUT_OF_RANGE` | Valid shape but unsupported amount |
 | 429 | `RATE_LIMITED` | Client exceeded sandbox limit |
-| 202 | `CHECKOUT_PENDING_RECONCILIATION` | Checkout transport outcome unknown; the order is held for provider reconciliation |
+| 202 | `CHECKOUT_PENDING_RECONCILIATION` | Checkout transport outcome unknown; the order is held for provider reconciliation and identified by `order_id` |
 | 503 | `QUOTE_UNAVAILABLE` | Market data missing, stale, or produced an invalid quote |
 | 502/503 | `EXTERNAL_SERVICE_UNAVAILABLE` | Provider/network unavailable; safe retry guidance required |
 | 500 | `INTERNAL_ERROR` | Unexpected server error; reference request ID |
@@ -235,7 +267,10 @@ Limits are configurable and documented as sandbox controls, not production capac
 - Every operation in the deployed API exists in validated OpenAPI.
 - Examples pass contract tests against the release candidate.
 - Duplicate create requests return one business order.
-- Cross-client resource access fails.
+- Cross-client, cross-user, and cross-session resource access fails safely.
+- Session-authenticated order mutations reject missing or mismatched origins.
+- Same-key retries after session renewal return the original consumer order.
+- Unknown checkout outcomes return a durable order ID for polling.
 - Errors contain stable code and request ID without internal stack/provider secrets.
 - Amounts round-trip exactly.
 - Public schemas never claim production/mainnet behavior.

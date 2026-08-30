@@ -17,10 +17,13 @@ reference price source, not an exchange or source of executable liquidity.
 
 ## Decision
 
-1. Use Xendit Payment Requests API v3 in test mode.
-2. Support Xendit channel codes `QRIS` and `BRI_VIRTUAL_ACCOUNT`.
+1. Use Xendit Payment Sessions in test mode with `mode=PAYMENT_LINK`.
+2. Use the hosted Xendit checkout so customers can choose any activated payment
+   channel. Support optional `QRIS` and `BRI_VIRTUAL_ACCOUNT` restrictions for
+   clients that explicitly request them.
 3. Authenticate payment webhooks with the configured `x-callback-token`, then
-   reconcile successful callbacks through the Payment Request status API.
+   reconcile successful callbacks through the Payment Session status API and,
+   when present, the related Payment Request status API.
 4. Use native XLM on Stellar testnet instead of issuing a custom asset.
 5. Hold testnet XLM in a pre-funded treasury distribution account.
 6. Reserve XLM inventory before exposing a payment checkout. A paid order
@@ -39,7 +42,7 @@ reference price source, not an exchange or source of executable liquidity.
 - CoinMarketCap downtime stops new orders but does not affect existing locked
   orders.
 - Insufficient unreserved XLM stops checkout creation before IDR can be paid.
-- Xendit and Stellar timeouts are unknown outcomes and require reconciliation
+- Xendit Payment Session and Stellar timeouts are unknown outcomes and require reconciliation
   before retry.
 - A future exchange or liquidity-provider adapter may replenish treasury, but
   it is not part of customer settlement or Week 1.
@@ -69,8 +72,9 @@ pulled forward from Week 2.
 
 ## References
 
-- [Xendit Payment Request API](https://docs.xendit.co/v1-api/apidocs/create-payment-request)
-- [Xendit payment webhook](https://docs.xendit.co/apidocs/payment-webhook-notification)
+- [Xendit Create Session API](https://docs.xendit.co/apidocs/create-session)
+- [Xendit Payment Session webhook](https://docs.xendit.co/apidocs/webhook-notification-sent-defined-webhook-url-updates-payment-session)
+- [Xendit payment channels](https://docs.xendit.co/docs/en/available-payment-channels)
 - [Xendit payment channels](https://docs.xendit.co/docs/en/available-payment-channels)
 - [Stellar transaction error handling](https://developers.stellar.org/docs/data/apis/horizon/api-reference/errors/error-handling)
 - [CoinMarketCap latest quotes](https://coinmarketcap.com/api/documentation/guides/get-latest-crypto-prices)

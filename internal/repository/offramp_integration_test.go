@@ -18,7 +18,7 @@ func newOfframpIntegration(t *testing.T) (*OfframpRepository, *gorm.DB) {
 
 func offrampRecord(orderID string, stroops int64, now time.Time) usecase.OfframpCreateRecord {
 	return usecase.OfframpCreateRecord{
-		OrderID: orderID, ClientID: "00000000-0000-4000-8000-0000000000c1",
+		OrderID: orderID, Principal: integrationAPIPrincipal(),
 		IdempotencyKeyHash: "off-keyhash-" + orderID, RequestHash: "off-requesthash-" + orderID,
 		AssetAmount: entity.Stroops(stroops),
 		Quote: usecase.Quote{FiatAmount: 100_000, AssetAmount: entity.Stroops(stroops),
@@ -41,7 +41,7 @@ func TestCreateOfframpPersistsInstructionsAndReplays(t *testing.T) {
 		t.Fatalf("CreateOfframp() error = %v", err)
 	}
 
-	view, err := repo.Get(ctx, "00000000-0000-4000-8000-0000000000c1", orderID)
+	view, err := repo.Get(ctx, integrationAPIPrincipal(), orderID)
 	if err != nil {
 		t.Fatalf("Get() error = %v", err)
 	}
@@ -53,14 +53,51 @@ func TestCreateOfframpPersistsInstructionsAndReplays(t *testing.T) {
 	}
 
 	// Replay with the same key returns the order; conflicting request hash errors.
-	_, found, err := repo.FindOfframpReplay(ctx, "00000000-0000-4000-8000-0000000000c1",
+	_, found, err := repo.FindOfframpReplay(ctx, integrationAPIPrincipal(),
 		"off-keyhash-"+orderID, "off-requesthash-"+orderID)
 	if err != nil || !found {
 		t.Fatalf("FindOfframpReplay() = %v/%v, want found", found, err)
 	}
-	if _, _, err := repo.FindOfframpReplay(ctx, "00000000-0000-4000-8000-0000000000c1",
+	if _, _, err := repo.FindOfframpReplay(ctx, integrationAPIPrincipal(),
 		"off-keyhash-"+orderID, "different"); err != usecase.ErrIdempotencyConflict {
 		t.Fatalf("conflict error = %v", err)
+	}
+}
+
+func TestOfframpOwnershipScopesHistoryAndReplayByRetailUser(t *testing.T) {
+	repo, _ := newOfframpIntegration(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	first := offrampRecord("00000000-0000-4000-8000-000000000304", 40_000_000, now)
+	first.Principal = integrationRetailPrincipal("00000000-0000-4000-8000-0000000000aa", "00000000-0000-4000-8000-0000000000d1")
+	first.IdempotencyKeyHash = "shared-off-retail-key"
+	first.RequestHash = "shared-off-retail-request"
+	if err := repo.CreateOfframp(ctx, first); err != nil {
+		t.Fatalf("CreateOfframp(retail A) error = %v", err)
+	}
+
+	if _, err := repo.Get(ctx, integrationRetailPrincipal("00000000-0000-4000-8000-0000000000aa", "00000000-0000-4000-8000-0000000000d2"), first.OrderID); err != nil {
+		t.Fatalf("Get(retail A renewed session) error = %v", err)
+	}
+	if _, err := repo.Get(ctx, integrationRetailPrincipal("00000000-0000-4000-8000-0000000000ab", "00000000-0000-4000-8000-0000000000d3"), first.OrderID); err != usecase.ErrOrderNotFound {
+		t.Fatalf("Get(retail B) error = %v, want ErrOrderNotFound", err)
+	}
+	if _, err := repo.Get(ctx, integrationAPIPrincipal(), first.OrderID); err != usecase.ErrOrderNotFound {
+		t.Fatalf("Get(API client) error = %v, want ErrOrderNotFound", err)
+	}
+
+	if _, found, err := repo.FindOfframpReplay(ctx, integrationRetailPrincipal("00000000-0000-4000-8000-0000000000aa", "00000000-0000-4000-8000-0000000000d2"), first.IdempotencyKeyHash, first.RequestHash); err != nil || !found {
+		t.Fatalf("FindOfframpReplay(retail A renewed session) = %v/%v, want found", found, err)
+	}
+	if _, found, err := repo.FindOfframpReplay(ctx, integrationRetailPrincipal("00000000-0000-4000-8000-0000000000ab", "00000000-0000-4000-8000-0000000000d3"), first.IdempotencyKeyHash, first.RequestHash); err != nil || found {
+		t.Fatalf("FindOfframpReplay(retail B) = %v/%v, want not found", found, err)
+	}
+
+	second := first
+	second.OrderID = "00000000-0000-4000-8000-000000000305"
+	second.Principal = integrationRetailPrincipal("00000000-0000-4000-8000-0000000000ab", "00000000-0000-4000-8000-0000000000d3")
+	if err := repo.CreateOfframp(ctx, second); err != nil {
+		t.Fatalf("CreateOfframp(retail B same key) error = %v", err)
 	}
 }
 
@@ -85,7 +122,7 @@ func TestRecordAssetReceivedQueuesRetirementAtomically(t *testing.T) {
 		t.Fatalf("RecordAssetReceived() error = %v", err)
 	}
 
-	view, _ := repo.Get(ctx, "00000000-0000-4000-8000-0000000000c1", orderID)
+	view, _ := repo.Get(ctx, integrationAPIPrincipal(), orderID)
 	if view.Status != entity.OrderStatusRetirementProcessing {
 		t.Fatalf("status = %s, want retirement_processing", view.Status)
 	}
@@ -133,7 +170,7 @@ func TestRetirementConfirmAdvancesToWithdrawalAndPayoutCompletes(t *testing.T) {
 	if err := repo.ConfirmRetirement(ctx, "stellar-retire-"+orderID, "burn-hash-1", retireAt); err != nil {
 		t.Fatalf("ConfirmRetirement() error = %v", err)
 	}
-	view, _ := repo.Get(ctx, "00000000-0000-4000-8000-0000000000c1", orderID)
+	view, _ := repo.Get(ctx, integrationAPIPrincipal(), orderID)
 	if view.Status != entity.OrderStatusWithdrawalProcessing {
 		t.Fatalf("status = %s, want withdrawal_processing", view.Status)
 	}
@@ -145,7 +182,7 @@ func TestRetirementConfirmAdvancesToWithdrawalAndPayoutCompletes(t *testing.T) {
 	if reference != "payout_"+orderID {
 		t.Fatalf("reference = %q", reference)
 	}
-	view, _ = repo.Get(ctx, "00000000-0000-4000-8000-0000000000c1", orderID)
+	view, _ = repo.Get(ctx, integrationAPIPrincipal(), orderID)
 	if view.Status != entity.OrderStatusCompleted || view.Payout == nil || !*view.Payout.Simulated {
 		t.Fatalf("final view = %+v", view)
 	}

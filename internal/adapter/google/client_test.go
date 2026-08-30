@@ -20,7 +20,7 @@ func newDiscoveryServer(t *testing.T, tokenHandler http.HandlerFunc) *httptest.S
 		switch r.URL.Path {
 		case "/.well-known/openid-configuration":
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"issuer":` + quote(server.URL) + `,"authorization_endpoint":` + quote(server.URL+"/authorize") +
+			_, _ = w.Write([]byte(`{"issuer":` + quote(IssuerURL) + `,"authorization_endpoint":` + quote(server.URL+"/authorize") +
 				`,"token_endpoint":` + quote(server.URL+"/token") + `,"jwks_uri":` + quote(server.URL+"/jwks.json") +
 				`,"response_types_supported":["code"],"subject_types_supported":["public"],"id_token_signing_alg_values_supported":["RS256"]}`))
 		case "/token":
@@ -32,17 +32,41 @@ func newDiscoveryServer(t *testing.T, tokenHandler http.HandlerFunc) *httptest.S
 	return server
 }
 
+func localGoogleHTTPClient(server *httptest.Server, timeout time.Duration) *http.Client {
+	baseTransport := server.Client().Transport
+	return &http.Client{Timeout: timeout, Transport: roundTripperFunc(func(request *http.Request) (*http.Response, error) {
+		if request.URL.Host != "accounts.google.com" {
+			return baseTransport.RoundTrip(request)
+		}
+		target, err := url.Parse(server.URL)
+		if err != nil {
+			return nil, err
+		}
+		target.Path = request.URL.Path
+		target.RawQuery = request.URL.RawQuery
+		cloned := request.Clone(request.Context())
+		cloned.URL = target
+		return baseTransport.RoundTrip(cloned)
+	})}
+}
+
+type roundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripperFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return f(request)
+}
+
 func quote(value string) string { return "\"" + value + "\"" }
 
 func TestClientAuthorizationURLUsesPKCEWithoutConnectionParam(t *testing.T) {
 	// Discovery only matters for construction; Google's real issuer is fixed.
-	newDiscoveryServer(t, func(http.ResponseWriter, *http.Request) { t.Error("unexpected token call") })
+	server := newDiscoveryServer(t, func(http.ResponseWriter, *http.Request) { t.Error("unexpected token call") })
 
 	client, err := NewClient(context.Background(), platform.GoogleConfig{
 		ClientID:     "client-id",
 		ClientSecret: "client-secret",
 		RedirectURL:  "https://api.example.com/auth/google/callback",
-	}, &http.Client{Timeout: 2 * time.Second})
+	}, localGoogleHTTPClient(server, 2*time.Second))
 	if err != nil {
 		t.Fatalf("NewClient() error = %v", err)
 	}
@@ -86,13 +110,13 @@ func TestClientRequiresCredentials(t *testing.T) {
 }
 
 func TestClientUsesBoundedHTTPClient(t *testing.T) {
-	newDiscoveryServer(t, func(http.ResponseWriter, *http.Request) {})
+	server := newDiscoveryServer(t, func(http.ResponseWriter, *http.Request) {})
 
 	client, err := NewClient(context.Background(), platform.GoogleConfig{
 		ClientID:     "client-id",
 		ClientSecret: "client-secret",
 		RedirectURL:  "https://api.example.com/auth/google/callback",
-	}, nil)
+	}, localGoogleHTTPClient(server, 0))
 	if err != nil {
 		t.Fatalf("NewClient() error = %v", err)
 	}
@@ -102,7 +126,7 @@ func TestClientUsesBoundedHTTPClient(t *testing.T) {
 }
 
 func TestExchangeRejectsInvalidGrant(t *testing.T) {
-	newDiscoveryServer(t, func(w http.ResponseWriter, _ *http.Request) {
+	server := newDiscoveryServer(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte(`{"error":"invalid_grant"}`))
 	})
@@ -111,7 +135,7 @@ func TestExchangeRejectsInvalidGrant(t *testing.T) {
 		ClientID:     "client-id",
 		ClientSecret: "client-secret",
 		RedirectURL:  "https://api.example.com/auth/google/callback",
-	}, &http.Client{Timeout: 2 * time.Second})
+	}, localGoogleHTTPClient(server, 2*time.Second))
 	if err != nil {
 		t.Fatalf("NewClient() error = %v", err)
 	}
@@ -121,12 +145,12 @@ func TestExchangeRejectsInvalidGrant(t *testing.T) {
 }
 
 func TestExchangeRequiresCompleteInputs(t *testing.T) {
-	newDiscoveryServer(t, func(http.ResponseWriter, *http.Request) {})
+	server := newDiscoveryServer(t, func(http.ResponseWriter, *http.Request) {})
 	client, err := NewClient(context.Background(), platform.GoogleConfig{
 		ClientID:     "client-id",
 		ClientSecret: "client-secret",
 		RedirectURL:  "https://api.example.com/auth/google/callback",
-	}, &http.Client{Timeout: 2 * time.Second})
+	}, localGoogleHTTPClient(server, 2*time.Second))
 	if err != nil {
 		t.Fatalf("NewClient() error = %v", err)
 	}

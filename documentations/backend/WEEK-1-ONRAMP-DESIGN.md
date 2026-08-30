@@ -31,7 +31,8 @@ is suitable for real funds.
 - CoinMarketCap XLM/IDR reference quote, configurable spread, five-minute
   validity, exact stroop conversion, and immutable quote snapshot.
 - Native-XLM treasury inventory reservation.
-- Xendit Payment Requests v3 for `QRIS` and `BRI_VIRTUAL_ACCOUNT`.
+- Xendit Payment Sessions with a hosted checkout link and optional `QRIS`/
+  `BRI_VIRTUAL_ACCOUNT` channel restrictions.
 - Xendit callback-token authentication, event deduplication, and Payment
   Request status reconciliation.
 - Atomic payment confirmation, event history, settlement intent, and outbox.
@@ -99,7 +100,7 @@ The create-on-ramp request supplies:
 ```json
 {
   "fiat": { "currency": "IDR", "amount_minor": "100000" },
-  "payment_method": "qris",
+  "payment_method": "xendit",
   "stellar_destination": { "account": "G...", "memo": null }
 }
 ```
@@ -161,18 +162,20 @@ Processing order:
 4. Obtain a fresh quote and reserve inventory.
 5. Persist the `created` order, initial event, and checkout intent.
 6. Commit before calling Xendit.
-7. Create a Xendit Payment Request using the order ID as `reference_id`, exact
-   IDR amount, country `ID`, currency `IDR`, configured channel code, and an
-   expiry bounded by the quote/order expiry.
-8. Persist the provider ID, presentation action (`QR_STRING` or
-   `VIRTUAL_ACCOUNT_NUMBER`), checkout event, and `payment_pending` transition.
+7. Create a Xendit Payment Session using the order ID as `reference_id`,
+   `session_type=PAY`, `mode=PAYMENT_LINK`, exact IDR amount, country `ID`,
+   currency `IDR`, and an expiry bounded by the quote/order expiry. The
+   `xendit` method leaves payment channels unrestricted; `qris` and `bri_va`
+   pass their configured channel as an optional restriction.
+8. Persist the Payment Session ID, hosted `payment_link_url`, checkout event,
+   and `payment_pending` transition.
 9. Complete the idempotency record with the `201` response.
 
 The checkout call is synchronous for the first release. A transport timeout is
-an unknown outcome. Because the Payment Request create operation does not
+an unknown outcome. Because the Payment Session create operation does not
 document a general idempotency key, KailoPay does not automatically create a
 replacement. It holds the order in an internal `checkout_unknown` condition and
-uses the stable order reference with Xendit transaction search/provider evidence
+uses the stable order reference with Xendit session lookup/provider evidence
 before an operator-authorized retry. If a permanent checkout failure is
 established, fail the order and release the reservation.
 
@@ -184,13 +187,16 @@ trusted parsing or order lookup.
 
 For an authenticated callback:
 
-1. Hash the exact body and derive event identity from Xendit `payment_id`.
+1. Hash the exact body and derive event identity from the Xendit event and
+   `payment_session_id`.
 2. Insert the receipt under a unique `(provider, provider_event_id)` constraint.
 3. Return the previous acknowledgement for a processed replay.
-4. Resolve the stored payment request and order.
-5. Retrieve the Payment Request from Xendit.
-6. Require `SUCCEEDED`, matching payment-request ID, order reference, `IDR`,
-   exact amount, and expected channel.
+4. Resolve the stored Payment Session and order.
+5. Retrieve the Payment Session from Xendit and, when present, its related
+   Payment Request.
+6. Require `COMPLETED`, matching session ID, order reference, `IDR`, exact
+   amount, and the expected channel when the order requested a restricted
+   method.
 7. In one database transaction, record the reconciled event, move the order to
    `payment_confirmed` and then `stellar_processing`, create one Stellar
    transaction intent, and insert one settlement outbox message.
@@ -238,7 +244,7 @@ reservation.
   descending with a bounded limit and opaque cursor.
 
 The public order includes sandbox/testnet labels, immutable quote details,
-checkout presentation, status, safe failure, and Stellar transaction hash when
+hosted checkout URL, status, safe failure, and Stellar transaction hash when
 confirmed. It never exposes raw provider bodies, callback tokens, signing
 material, full API keys, or internal leases.
 
@@ -329,8 +335,9 @@ The branch is complete when:
 1. A clean PostgreSQL database applies the versioned migration.
 2. An Auth0 user can enable Developer Mode and create a test API key.
 3. The test key creates and reads one client-owned on-ramp order.
-4. QRIS and BRI VA requests map to real Xendit sandbox checkout instructions
-   when credentials are supplied.
+4. Hosted Xendit Payment Sessions return a real sandbox payment link when
+   credentials are supplied, and restricted QRIS/BRI VA requests map to the
+   configured channel.
 5. Invalid callback authentication cannot mutate an order.
 6. Replaying a reconciled paid callback creates exactly one payment-confirmed
    transition and one settlement intent.

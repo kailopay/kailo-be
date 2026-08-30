@@ -12,6 +12,7 @@ import (
 
 	"github.com/febry3/kailopay-be/internal/handler/middleware"
 	auth "github.com/febry3/kailopay-be/internal/usecase"
+	"github.com/gin-gonic/gin"
 )
 
 func TestRouterRegistersExpandedAuthEndpoints(t *testing.T) {
@@ -80,7 +81,8 @@ func TestRouterRegistersWeek1Routes(t *testing.T) {
 	requireSession := middleware.RequireSession(fakeSessionAuthenticator{user: auth.AuthenticatedUser{User: auth.UserProfile{ID: "user-id"}}})
 	router, err := NewRouter(logger, health, authHandler, requireSession,
 		WithAPIKeys(NewAPIKeyHandler(&fakeAPIKeyService{}, logger)),
-		WithOnramp(NewOnrampHandler(&fakeOnrampService{}, logger), middleware.RequireAPIKey(fixedAPIAuthenticator{})),
+		WithOnramp(NewOnrampHandler(&fakeOnrampService{}, logger), middleware.RequireOrderPrincipal(fixedAPIAuthenticator{}, nil, middleware.DefaultSessionCookieName, nil)),
+		WithOfframp(NewOfframpHandler(&fakeOfframpHandlerService{}, logger)),
 		WithXenditCallback(NewXenditCallbackHandler(&callbackServiceFake{}, logger)),
 	)
 	if err != nil {
@@ -91,12 +93,41 @@ func TestRouterRegistersWeek1Routes(t *testing.T) {
 		routes[route.Method+" "+route.Path] = true
 	}
 	for _, route := range []string{
-		"POST /v1/api-keys", "GET /v1/api-keys", "DELETE /v1/api-keys/:id",
+		"POST /v1/api-keys", "GET /v1/api-keys", "DELETE /v1/api-keys/:id", "POST /v1/offramps",
 		"POST /v1/onramps", "GET /v1/orders", "GET /v1/orders/:id",
 		"POST /callbacks/payments/xendit",
 	} {
 		if !routes[route] {
 			t.Errorf("missing route %s", route)
 		}
+	}
+}
+
+func TestRouterAcceptsRetailSessionForOrderCreation(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	service := &fakeOnrampService{}
+	authHandler := testAuthHandler(t, &fakeAuthService{})
+	health := NewHealthHandler(func(context.Context) error { return nil }, time.Second, nil)
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	requireSession := middleware.RequireSession(fakeSessionAuthenticator{user: auth.AuthenticatedUser{User: auth.UserProfile{ID: "user-1"}}})
+	orderMiddleware := middleware.RequireOrderPrincipal(nil, fakeSessionAuthenticator{user: auth.AuthenticatedUser{
+		User: auth.UserProfile{ID: "user-1", EmailVerified: true}, SessionID: "session-1",
+	}}, middleware.DefaultSessionCookieName, []string{"http://localhost:3000"})
+	router, err := NewRouter(logger, health, authHandler, requireSession,
+		WithOnramp(NewOnrampHandler(service, logger), orderMiddleware))
+	if err != nil {
+		t.Fatalf("NewRouter() error = %v", err)
+	}
+	body := `{"fiat":{"currency":"IDR","amount_minor":"100000"},"payment_method":"xendit","stellar_destination":{"account":"GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}}`
+	request := httptest.NewRequest(http.MethodPost, "/v1/onramps", strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Origin", "http://localhost:3000")
+	request.Header.Set("Idempotency-Key", "router-retail-1")
+	request.AddCookie(&http.Cookie{Name: middleware.DefaultSessionCookieName, Value: "session-token"})
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+
+	if response.Code != http.StatusCreated || service.command.Principal.Kind != auth.OrderPrincipalRetailSession {
+		t.Fatalf("status = %d, principal = %+v, body = %q", response.Code, service.command.Principal, response.Body.String())
 	}
 }

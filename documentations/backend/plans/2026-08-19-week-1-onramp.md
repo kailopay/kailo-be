@@ -6,13 +6,13 @@
 
 **Architecture:** Keep entities deterministic, declare narrow ports in the consuming service packages, and implement PostgreSQL/Xendit/CoinMarketCap/Stellar details in outward adapters. The API creates and reconciles payment state; a separate worker owns Stellar signing and settlement.
 
-**Tech Stack:** Go 1.25, Gin 1.12, GORM 1.31/PostgreSQL 18, Xendit Payment Requests v3, CoinMarketCap quotes v3, Stellar Go SDK/Horizon testnet, kin-openapi.
+**Tech Stack:** Go 1.25, Gin 1.12, GORM 1.31/PostgreSQL 18, Xendit Payment Sessions, CoinMarketCap quotes v3, Stellar Go SDK/Horizon testnet, kin-openapi.
 
 **Spec:** `documentations/backend/WEEK-1-ONRAMP-DESIGN.md`
 
 ## Global Constraints
 
-- Use Xendit test mode only, with channel codes `QRIS` and `BRI_VIRTUAL_ACCOUNT`.
+- Use Xendit test mode only. Payment Sessions use the hosted payment link; optional restrictions use channel codes `QRIS` and `BRI_VIRTUAL_ACCOUNT`.
 - Use native XLM on Stellar testnet from a pre-funded treasury distribution account.
 - IDR uses integer rupiah; XLM uses integer stroops; never use floating point.
 - CoinMarketCap is an indicative price provider, not executable liquidity.
@@ -338,7 +338,7 @@ Expected: compile/test failure for missing service ports and methods.
 
 - [ ] **Step 3: Implement repository transactions and Xendit mapping**
 
-The reservation transaction locks one treasury row, verifies fresh observed balance minus buffer/reservations, inserts order/event/reservation/idempotency records, and commits. Xendit uses Basic auth with the secret as username, API version `2024-11-11`, `type: PAY`, stable order reference, exact IDR integer, and maps `QR_STRING`/`VIRTUAL_ACCOUNT_NUMBER` actions.
+The reservation transaction locks one treasury row, verifies fresh observed balance minus buffer/reservations, inserts order/event/reservation/idempotency records, and commits. Xendit uses Basic auth with the secret as username, API version `2024-11-11`, `session_type: PAY`, `mode: PAYMENT_LINK`, stable order reference, exact IDR integer, and returns the hosted `payment_link_url`.
 
 Repository order queries always include `client_id`. Cross-client reads map to `ErrOrderNotFound`.
 
@@ -372,7 +372,7 @@ git commit -m "feat(onramp): create reserved Xendit checkouts"
 - Create: `internal/handler/http/xendit_callback_test.go`
 
 **Interfaces:**
-- Extends: `onramp.PaymentGateway.VerifyCallback(raw []byte, token string) (Callback, error)` and `GetPaymentRequest(ctx, id) (PaymentState, error)`.
+- Extends: `onramp.PaymentGateway.VerifyCallback(raw []byte, token string) (Callback, error)` and `GetPaymentState(ctx, checkoutID) (PaymentState, error)`.
 - Extends: `onramp.Store.RecordCallbackReceipt`, `ConfirmPaymentAndEnqueue`, and `CompleteCallback`.
 
 - [ ] **Step 1: Write failing callback tests**
@@ -402,7 +402,7 @@ Expected: compile/test failure for callback APIs.
 
 - [ ] **Step 3: Implement constant-time authentication, provider lookup, and transaction**
 
-Authenticate `x-callback-token` before trusted parsing. Hash raw bytes. Use Xendit `payment_id` as event identity. Reconcile through `GET /v3/payment_requests/{id}` and require exact stored facts.
+Authenticate `x-callback-token` before trusted parsing. Hash raw bytes. Use the Xendit event and `payment_session_id` as event identity. Reconcile through `GET /sessions/{id}` and, when present, its related Payment Request; require exact stored facts.
 
 `ConfirmPaymentAndEnqueue` must lock the order, check `payment_pending`, insert one gateway event, append `payment.confirmed` and `stellar.transfer_requested`, insert one `stellar_transactions` row for purpose `transfer`, and one `stellar.settle_onramp` outbox row in one transaction.
 

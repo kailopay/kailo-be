@@ -10,7 +10,7 @@ The module path is `github.com/febry3/kailopay-be`.
 - Viper for startup configuration
 - PostgreSQL through GORM
 - Private profile-image storage through MinIO
-- Xendit Payment Requests v3 sandbox checkouts
+- Xendit Payment Sessions sandbox hosted checkouts
 - CoinMarketCap reference pricing and native XLM on Stellar testnet
 - `log/slog` for structured logging
 
@@ -101,11 +101,16 @@ one file per table; repository queries remain in `internal/repository`.
    go run ./cmd/worker
    ```
 
-Developer flow: sign in (email or Google), set `developer_enabled` with
-`PATCH /auth/me`, create a one-time `pk_test_` key at `POST /v1/api-keys`, then
-use it as `Authorization: Bearer <key>` with `POST /v1/onramps`. The on-ramp
-requires `Idempotency-Key`, accepts QRIS or `bri_va`, reserves pre-funded XLM,
-and returns Xendit presentation instructions. See `openapi/openapi.yaml`.
+Consumer flow: sign in with a verified email account (email/password or Google)
+and use the `kailopay_session` cookie with `POST /v1/onramps` or
+`POST /v1/offramps`; browser mutations must include an allowed frontend
+`Origin`. `GET /v1/orders` and `GET /v1/orders/{id}` return only that user's
+consumer orders. Developer flow remains API-key based: create a one-time
+`pk_test_` key after enabling Developer Mode, then use it as
+`Authorization: Bearer <key>`. Both flows require `Idempotency-Key` for order
+creation. On-ramp `xendit` returns a hosted checkout URL; `qris` and `bri_va`
+restrict the hosted channel. See `openapi/openapi.yaml` and
+`documentations/backend/CONSUMER-SESSION-ORDER-FLOW.md`.
 
 Stop the local services with `docker compose down`. Add `-v` only when you
 intentionally want to remove the PostgreSQL and MinIO development data.
@@ -118,8 +123,9 @@ Authentication is self-hosted (ADR-002): `POST /auth/register` and
 `POST /auth/login` accept email and password (Argon2id), and
 `GET /auth/google/login` starts optional Google sign-in with PKCE. Email
 verification and password reset use single-use hashed tokens; in sandbox the
-links are logged to the server console instead of being emailed. Profile
-endpoints are `GET/PATCH /auth/me` and `GET/PUT/DELETE /auth/me/avatar`.
+links are logged to the server console by default. To send them through Gmail,
+set `EMAIL_PROVIDER=gmail`, `GMAIL_USERNAME`, and `GMAIL_APP_PASSWORD` in `.env`.
+Profile endpoints are `GET/PATCH /auth/me` and `GET/PUT/DELETE /auth/me/avatar`.
 Leave `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` empty to disable Google
 sign-in.
 

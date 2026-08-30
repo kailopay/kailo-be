@@ -28,9 +28,13 @@ func NewOfframpRepository(db *gorm.DB, depositAccount, network string) *OfframpR
 	return &OfframpRepository{db: db, tx: newTxManager(db), depositAccount: depositAccount, network: network}
 }
 
-func (r *OfframpRepository) FindOfframpReplay(ctx context.Context, clientID, keyHash, requestHash string) (usecase.OrderView, bool, error) {
+func (r *OfframpRepository) FindOfframpReplay(ctx context.Context, principal usecase.OrderPrincipal, keyHash, requestHash string) (usecase.OrderView, bool, error) {
 	var record entity.IdempotencyRecord
-	err := r.db.WithContext(ctx).Where("client_id = ? AND operation = ? AND key_hash = ?", clientID, offrampCreateOperation, keyHash).First(&record).Error
+	query, err := applyIdempotencyOwnership(r.db.WithContext(ctx), principal)
+	if err != nil {
+		return usecase.OrderView{}, false, err
+	}
+	err = query.Where("operation = ? AND key_hash = ?", offrampCreateOperation, keyHash).First(&record).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return usecase.OrderView{}, false, nil
 	}
@@ -43,7 +47,7 @@ func (r *OfframpRepository) FindOfframpReplay(ctx context.Context, clientID, key
 	if record.CreatedResourceID == nil {
 		return usecase.OrderView{}, false, fmt.Errorf("idempotency record has no order: %w", usecase.ErrInvalidWithdrawal)
 	}
-	view, err := r.Get(ctx, clientID, *record.CreatedResourceID)
+	view, err := r.Get(ctx, principal, *record.CreatedResourceID)
 	if err != nil {
 		return usecase.OrderView{}, false, err
 	}
@@ -54,12 +58,20 @@ func (r *OfframpRepository) FindOfframpReplay(ctx context.Context, clientID, key
 // deposit instructions and idempotency record in one transaction. Deposits
 // add to treasury inventory, so no reservation is made.
 func (r *OfframpRepository) CreateOfframp(ctx context.Context, record usecase.OfframpCreateRecord) error {
+	ownership, err := orderOwnershipFor(record.Principal)
+	if err != nil {
+		return err
+	}
 	return r.tx.do(ctx, func(tx *gorm.DB) error {
+		if err := validateRetailSessionOwnership(ctx, tx, record.Principal); err != nil {
+			return err
+		}
 		now := record.CreatedAt
 		// Two events are appended below, so the aggregate starts at version 3
 		// keeping the row version in lockstep with order_events.
 		order := entity.OrderRecord{
-			ID: record.OrderID, ClientID: &record.ClientID, Direction: "offramp",
+			ID: record.OrderID, ClientID: ownership.ClientID, CreatedByUserID: ownership.CreatedByUserID,
+			RetailSessionID: ownership.RetailSessionID, Direction: "offramp",
 			Status: string(entity.OrderStatusAssetPending), Version: 3,
 			Currency: "IDR", FiatAmountMinor: int64(record.Quote.FiatAmount),
 			AssetCode: "XLM", AssetIssuer: "", Network: r.network,
@@ -88,7 +100,7 @@ func (r *OfframpRepository) CreateOfframp(ctx context.Context, record usecase.Of
 		if err != nil {
 			return err
 		}
-		idempotency := entity.IdempotencyRecord{ID: idempotencyID, ClientID: record.ClientID, Operation: offrampCreateOperation,
+		idempotency := entity.IdempotencyRecord{ID: idempotencyID, ClientID: ownership.ClientID, RetailUserID: ownership.RetailUserID, Operation: offrampCreateOperation,
 			KeyHash: record.IdempotencyKeyHash, RequestHash: record.RequestHash, CreatedResourceID: &order.ID,
 			State: "completed", ResponseStatus: intPtr(201), ExpiresAt: now.Add(24 * time.Hour), CreatedAt: now, UpdatedAt: now}
 		if err := tx.Create(&idempotency).Error; err != nil {
@@ -110,7 +122,7 @@ func (r *OfframpRepository) FindDepositCandidates(ctx context.Context, depositAc
 	}
 	views := make([]usecase.OrderView, 0, len(rows))
 	for _, row := range rows {
-		view, err := r.orderView(row)
+		view, err := r.orderView(ctx, row)
 		if err != nil {
 			return nil, err
 		}
@@ -368,25 +380,34 @@ func (r *OfframpRepository) CompleteSimulatedPayout(ctx context.Context, orderID
 	return reference, nil
 }
 
-func (r *OfframpRepository) Get(ctx context.Context, clientID, orderID string) (usecase.OrderView, error) {
+func (r *OfframpRepository) Get(ctx context.Context, principal usecase.OrderPrincipal, orderID string) (usecase.OrderView, error) {
 	var order entity.OrderRecord
-	result := r.db.WithContext(ctx).Raw(`
-		SELECT * FROM orders WHERE id = ? AND client_id = ?
-	`, orderID, clientID).Scan(&order)
-	if result.Error != nil {
-		return usecase.OrderView{}, fmt.Errorf("finding order: %w", result.Error)
+	query, err := applyOrderOwnership(r.db.WithContext(ctx).Where("id = ?", orderID), principal)
+	if err != nil {
+		return usecase.OrderView{}, err
 	}
-	if result.RowsAffected == 0 {
-		return usecase.OrderView{}, usecase.ErrOrderNotFound
+	if err := query.First(&order).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return usecase.OrderView{}, usecase.ErrOrderNotFound
+		}
+		return usecase.OrderView{}, fmt.Errorf("finding order: %w", err)
 	}
-	return r.orderView(order)
+	return r.orderView(ctx, order)
 }
 
-func (r *OfframpRepository) List(ctx context.Context, clientID string, limit int, cursor string) ([]usecase.OrderView, string, error) {
-	query := r.db.WithContext(ctx).Where("client_id = ?", clientID).Order("created_at DESC, id DESC").Limit(limit + 1)
+func (r *OfframpRepository) List(ctx context.Context, principal usecase.OrderPrincipal, limit int, cursor string) ([]usecase.OrderView, string, error) {
+	query, err := applyOrderOwnership(r.db.WithContext(ctx), principal)
+	if err != nil {
+		return nil, "", err
+	}
+	query = query.Order("created_at DESC, id DESC").Limit(limit + 1)
 	if cursor != "" {
 		var cursorOrder entity.OrderRecord
-		if err := r.db.WithContext(ctx).Select("created_at", "id").Where("id = ? AND client_id = ?", cursor, clientID).First(&cursorOrder).Error; err != nil {
+		cursorQuery, err := applyOrderOwnership(r.db.WithContext(ctx).Select("created_at", "id").Where("id = ?", cursor), principal)
+		if err != nil {
+			return nil, "", err
+		}
+		if err := cursorQuery.First(&cursorOrder).Error; err != nil {
 			return nil, "", usecase.ErrOrderNotFound
 		}
 		query = query.Where("(created_at, id) < (?, ?)", cursorOrder.CreatedAt, cursorOrder.ID)
@@ -402,7 +423,7 @@ func (r *OfframpRepository) List(ctx context.Context, clientID string, limit int
 	}
 	views := make([]usecase.OrderView, 0, len(rows))
 	for _, row := range rows {
-		view, err := r.orderView(row)
+		view, err := r.orderView(ctx, row)
 		if err != nil {
 			return nil, "", err
 		}
@@ -411,10 +432,10 @@ func (r *OfframpRepository) List(ctx context.Context, clientID string, limit int
 	return views, next, nil
 }
 
-func (r *OfframpRepository) orderView(order entity.OrderRecord) (usecase.OrderView, error) {
+func (r *OfframpRepository) orderView(ctx context.Context, order entity.OrderRecord) (usecase.OrderView, error) {
 	view := baseOrderView(order)
 	var payout entity.OfframpPayout
-	if err := r.db.WithContext(context.Background()).Where("order_id = ?", order.ID).First(&payout).Error; err == nil {
+	if err := r.db.WithContext(ctx).Where("order_id = ?", order.ID).First(&payout).Error; err == nil {
 		simulation := true
 		view.Payout = &usecase.PayoutView{Reference: payout.ReferenceID, Method: payout.Method,
 			AmountMinor: payout.AmountMinor, State: payout.State, Simulated: &simulation}
@@ -422,7 +443,7 @@ func (r *OfframpRepository) orderView(order entity.OrderRecord) (usecase.OrderVi
 		return usecase.OrderView{}, fmt.Errorf("finding payout: %w", err)
 	}
 	var deposit entity.StellarTransaction
-	if err := r.db.WithContext(context.Background()).Where("order_id = ? AND purpose = ?", order.ID, "deposit").First(&deposit).Error; err == nil && deposit.TransactionHash != nil {
+	if err := r.db.WithContext(ctx).Where("order_id = ? AND purpose = ?", order.ID, "deposit").First(&deposit).Error; err == nil && deposit.TransactionHash != nil {
 		view.DepositTransactionHash = *deposit.TransactionHash
 	} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return usecase.OrderView{}, fmt.Errorf("finding deposit transaction: %w", err)

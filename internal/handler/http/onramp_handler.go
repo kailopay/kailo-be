@@ -16,8 +16,8 @@ import (
 
 type OnrampService interface {
 	Create(ctx context.Context, command usecase.Command) (usecase.OrderView, bool, error)
-	Get(ctx context.Context, clientID, orderID string) (usecase.OrderView, error)
-	List(ctx context.Context, clientID string, limit int, cursor string) ([]usecase.OrderView, string, error)
+	Get(ctx context.Context, principal usecase.OrderPrincipal, orderID string) (usecase.OrderView, error)
+	List(ctx context.Context, principal usecase.OrderPrincipal, limit int, cursor string) ([]usecase.OrderView, string, error)
 }
 
 type OnrampHandler struct {
@@ -33,7 +33,7 @@ func NewOnrampHandler(service OnrampService, logger *slog.Logger) *OnrampHandler
 }
 
 func (h *OnrampHandler) Create(c *gin.Context) {
-	principal, ok := middleware.APIPrincipal(c.Request.Context())
+	principal, ok := middleware.OrderPrincipal(c.Request.Context())
 	if !ok {
 		writeAuthError(c, http.StatusUnauthorized)
 		return
@@ -67,7 +67,7 @@ func (h *OnrampHandler) Create(c *gin.Context) {
 		memo = *request.Destination.Memo
 	}
 	view, replay, err := h.service.Create(c.Request.Context(), usecase.Command{
-		ClientID: principal.ClientID, IdempotencyKey: c.GetHeader("Idempotency-Key"), Amount: entity.IDR(amount),
+		Principal: principal, IdempotencyKey: c.GetHeader("Idempotency-Key"), Amount: entity.IDR(amount),
 		PaymentMethod: entity.PaymentMethod(request.PaymentMethod), Destination: request.Destination.Account, Memo: memo,
 	})
 	if err != nil {
@@ -82,12 +82,12 @@ func (h *OnrampHandler) Create(c *gin.Context) {
 }
 
 func (h *OnrampHandler) Get(c *gin.Context) {
-	principal, ok := middleware.APIPrincipal(c.Request.Context())
+	principal, ok := middleware.OrderPrincipal(c.Request.Context())
 	if !ok {
 		writeAuthError(c, http.StatusUnauthorized)
 		return
 	}
-	view, err := h.service.Get(c.Request.Context(), principal.ClientID, c.Param("id"))
+	view, err := h.service.Get(c.Request.Context(), principal, c.Param("id"))
 	if err != nil {
 		h.writeError(c, "getting onramp order", err)
 		return
@@ -96,13 +96,13 @@ func (h *OnrampHandler) Get(c *gin.Context) {
 }
 
 func (h *OnrampHandler) List(c *gin.Context) {
-	principal, ok := middleware.APIPrincipal(c.Request.Context())
+	principal, ok := middleware.OrderPrincipal(c.Request.Context())
 	if !ok {
 		writeAuthError(c, http.StatusUnauthorized)
 		return
 	}
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
-	views, next, err := h.service.List(c.Request.Context(), principal.ClientID, limit, c.Query("cursor"))
+	views, next, err := h.service.List(c.Request.Context(), principal, limit, c.Query("cursor"))
 	if err != nil {
 		h.writeError(c, "listing onramp orders", err)
 		return
@@ -120,13 +120,20 @@ func (h *OnrampHandler) writeError(c *gin.Context, operation string, err error) 
 		h.logger.ErrorContext(c.Request.Context(), operation+" failed", slog.Any("error", err))
 		code, status = "EXTERNAL_SERVICE_UNAVAILABLE", http.StatusServiceUnavailable
 	}
-	c.JSON(status, gin.H{"error": gin.H{"code": code, "message": publicErrorMessage(code)},
-		"request_id": middleware.RequestIDFromContext(c)})
+	response := gin.H{"error": gin.H{"code": code, "message": publicErrorMessage(code)},
+		"request_id": middleware.RequestIDFromContext(c)}
+	var unknown *usecase.CheckoutUnknownError
+	if errors.As(err, &unknown) && unknown.OrderID != "" {
+		response["order_id"] = unknown.OrderID
+	}
+	c.JSON(status, response)
 }
 
 func errorMapping(err error) (string, int) {
 	switch {
 	case errors.Is(err, usecase.ErrInvalidCommand):
+		return "INVALID_REQUEST", http.StatusBadRequest
+	case errors.Is(err, usecase.ErrInvalidWithdrawal):
 		return "INVALID_REQUEST", http.StatusBadRequest
 	case errors.Is(err, usecase.ErrInvalidDestination):
 		return "INVALID_STELLAR_ACCOUNT", http.StatusBadRequest
@@ -160,7 +167,7 @@ func publicErrorMessage(code string) string {
 	case "IDEMPOTENCY_KEY_REUSED":
 		return "This idempotency key was already used with a different request."
 	case "ORDER_NOT_FOUND":
-		return "The order does not exist or is not visible to this client."
+		return "The order does not exist or is not visible to this authenticated owner."
 	case "CHECKOUT_PENDING_RECONCILIATION":
 		return "The checkout outcome is being reconciled with the payment provider."
 	case "QUOTE_UNAVAILABLE":
@@ -182,9 +189,13 @@ func publicOrder(view usecase.OrderView) gin.H {
 		"created_at":          view.CreatedAt, "updated_at": view.UpdatedAt,
 	}
 	if view.Checkout != nil {
-		result["checkout"] = gin.H{"id": view.Checkout.ProviderID, "status": view.Checkout.Status,
+		checkout := gin.H{"id": view.Checkout.ProviderID, "status": view.Checkout.Status,
 			"presentation_type": view.Checkout.PresentationType, "presentation_value": view.Checkout.PresentationValue,
 			"expires_at": view.Checkout.ExpiresAt}
+		if view.Checkout.PaymentLinkURL != "" {
+			checkout["payment_link_url"] = view.Checkout.PaymentLinkURL
+		}
+		result["checkout"] = checkout
 	}
 	if view.StellarTransactionHash != "" {
 		result["stellar_transaction_hash"] = view.StellarTransactionHash

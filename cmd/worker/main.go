@@ -83,7 +83,7 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("creating settlement service: %w", err)
 	}
-	offrampRepo := repository.NewOfframpRepository(db, cfg.Week1.Offramp.DepositAccount, "testnet")
+	offrampRepo := repository.NewOfframpRepository(db, cfg.Week1.Offramp.DepositAccount, usecase.StellarTestnetNetwork)
 	retireWorker := usecase.RetireWorker{Repository: offrampRepo, Intents: offrampRepo,
 		Network: depositSigner, Config: usecase.SettlementConfig{
 			LeaseDuration: cfg.Week1.Worker.LeaseDuration, RetryDelay: cfg.Week1.Worker.RetryDelay, Now: time.Now}}

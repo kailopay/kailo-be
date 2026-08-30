@@ -407,8 +407,14 @@ paths:
   /v1/onramps:
     post:
       summary: Create an IDR to native-XLM sandbox on-ramp
+      description: |
+        Accepts either an API-key principal or a verified retail session
+        principal. For a session-authenticated browser mutation, `Origin`
+        must exactly match a configured frontend origin; when `Origin` is
+        absent, an equivalent `Referer` origin is accepted.
       security:
         - kailoAPIKey: []
+        - kailoSession: []
       parameters:
         - name: Idempotency-Key
           in: header
@@ -431,7 +437,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/OrderResponse'
         '201':
-          description: Treasury inventory reserved and Xendit checkout created
+          description: Treasury inventory reserved and Xendit hosted checkout created
           content:
             application/json:
               schema:
@@ -449,7 +455,9 @@ paths:
               schema:
                 $ref: '#/components/schemas/OnrampError'
         '401':
-          description: Missing, malformed, invalid, or revoked API key
+          description: Missing or invalid API key/session credentials
+        '403':
+          description: Verified session is required for consumer orders, or the browser origin is not allowed
         '409':
           description: Idempotency conflict (IDEMPOTENCY_KEY_REUSED) or insufficient liquidity (INSUFFICIENT_LIQUIDITY)
           content:
@@ -478,9 +486,13 @@ paths:
         deterministic deposit instructions: send exactly the quoted XLM amount
         to the deposit account using the returned memo before expiry. After
         verification and on-chain retirement, a simulated IDR payout reference
-        is recorded; no real IDR moves in the sandbox release.
+        is recorded; no real IDR moves in the sandbox release. Accepts either
+        an API-key principal or a verified retail session principal. A
+        session-authenticated browser mutation requires an exact configured
+        `Origin`, or a matching `Referer` origin when `Origin` is absent.
       security:
         - kailoAPIKey: []
+        - kailoSession: []
       parameters:
         - name: Idempotency-Key
           in: header
@@ -515,7 +527,9 @@ paths:
               schema:
                 $ref: '#/components/schemas/OnrampError'
         '401':
-          description: Missing, malformed, invalid, or revoked API key
+          description: Missing or invalid API key/session credentials
+        '403':
+          description: Verified session is required for consumer orders, or the browser origin is not allowed
         '409':
           description: Idempotency conflict
           content:
@@ -536,9 +550,11 @@ paths:
                 $ref: '#/components/schemas/OnrampError'
   /v1/orders:
     get:
-      summary: List API-client-owned on-ramp orders
+      summary: List orders owned by the authenticated principal
+      description: API keys list their client-owned orders; retail sessions list that verified user's consumer orders across valid sessions.
       security:
         - kailoAPIKey: []
+        - kailoSession: []
       parameters:
         - name: limit
           in: query
@@ -552,7 +568,7 @@ paths:
             type: string
       responses:
         '200':
-          description: Client-owned orders
+          description: Orders owned by the authenticated API client or retail user
           content:
             application/json:
               schema:
@@ -567,9 +583,11 @@ paths:
                     type: string
   /v1/orders/{id}:
     get:
-      summary: Get one API-client-owned on-ramp order
+      summary: Get one order owned by the authenticated principal
+      description: Returns 404 when the order does not exist or belongs to a different API client, retail user, or owner scope.
       security:
         - kailoAPIKey: []
+        - kailoSession: []
       parameters:
         - name: id
           in: path
@@ -585,7 +603,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/OrderResponse'
         '401':
-          description: Missing, malformed, invalid, or revoked API key
+          description: Missing or invalid API key/session credentials
         '404':
           description: Missing or cross-client order (ORDER_NOT_FOUND)
           content:
@@ -735,7 +753,7 @@ components:
     CreateOnrampRequest:
       type: object
       additionalProperties: false
-      required: [fiat, payment_method, stellar_destination]
+      required: [fiat, stellar_destination]
       properties:
         fiat:
           type: object
@@ -745,7 +763,8 @@ components:
             amount_minor: {type: string, pattern: '^[1-9][0-9]*$'}
         payment_method:
           type: string
-          enum: [qris, bri_va]
+          description: xendit opens the hosted checkout with all activated Xendit channels; qris and bri_va restrict it to one channel.
+          enum: [xendit, qris, bri_va]
         stellar_destination:
           type: object
           required: [account]
@@ -765,7 +784,9 @@ components:
         id: {type: string, format: uuid}
         status:
           type: string
-          enum: [created, payment_pending, payment_confirmed, stellar_processing, completed, expired, payment_failed, stellar_failed, cancelled]
+          enum: [created, payment_pending, payment_confirmed, stellar_processing, completed, expired, payment_failed, stellar_failed, cancelled,
+                 asset_pending, asset_received, asset_invalid, retirement_processing, withdrawal_processing,
+                 retirement_failed, withdrawal_failed]
         environment: {type: string, enum: [sandbox]}
         network: {type: string, enum: [stellar_testnet]}
         fiat:
@@ -786,7 +807,7 @@ components:
             spread_bps: {type: integer}
             source_at: {type: string, format: date-time}
             expires_at: {type: string, format: date-time}
-        payment_method: {type: string, enum: [qris, bri_va]}
+        payment_method: {type: string, enum: [xendit, qris, bri_va]}
         stellar_destination:
           type: object
           properties:
@@ -797,10 +818,21 @@ components:
           properties:
             id: {type: string}
             status: {type: string}
-            presentation_type: {type: string, enum: [QR_STRING, VIRTUAL_ACCOUNT_NUMBER]}
+            presentation_type: {type: string, enum: [PAYMENT_LINK, QR_STRING, VIRTUAL_ACCOUNT_NUMBER]}
             presentation_value: {type: string}
+            payment_link_url: {type: string, format: uri}
             expires_at: {type: string, format: date-time, nullable: true}
         stellar_transaction_hash: {type: string}
+        deposit_transaction_hash: {type: string}
+        payout:
+          type: object
+          properties:
+            reference: {type: string}
+            method: {type: string, enum: [sandbox_bank_transfer]}
+            amount_minor: {type: string}
+            state: {type: string, enum: [pending, completed, failed]}
+            simulated: {type: boolean}
+            disclosure: {type: string}
         failure_code: {type: string}
         created_at: {type: string, format: date-time}
         updated_at: {type: string, format: date-time}
@@ -906,3 +938,7 @@ components:
               type: string
         request_id:
           type: string
+        order_id:
+          type: string
+          format: uuid
+          description: Durable order identifier returned when checkout creation has an unknown provider outcome; poll GET /v1/orders/{id}.

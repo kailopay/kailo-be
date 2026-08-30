@@ -2,13 +2,15 @@
 
 ## Week 1 implemented profile
 
-The first vertical slice is an IDR-to-native-XLM on-ramp. A developer-owned
-test API client requests an exact quote, reserves pre-funded treasury stroops,
-creates a Xendit sandbox checkout, and receives XLM only after authenticated
-payment reconciliation. `TreasuryReservation` prevents the same wallet
-inventory from backing multiple checkouts. `StellarTransaction` and the
-transactional outbox preserve one settlement intent across retries and unknown
-network outcomes. Off-ramp and issued-asset aggregates are not active in Week 1.
+The current order slice supports both an API-client principal and a verified
+retail-session principal. Either principal requests an exact quote, reserves
+pre-funded treasury stroops for an on-ramp, and receives XLM only after
+authenticated payment reconciliation. Retail orders are owned by the user and
+the creating session; API orders are owned by the API client. `TreasuryReservation`
+prevents the same wallet inventory from backing multiple checkouts.
+`StellarTransaction` and the transactional outbox preserve one settlement
+intent across retries and unknown network outcomes. Off-ramp orders use the
+same principal and idempotency rules and expose sandbox payout evidence.
 
 ## 1. Domain boundaries
 
@@ -24,8 +26,8 @@ The order aggregate owns legal state transitions and invariants. External adapte
 | `Money` | integer minor units, ISO currency | Currency is `IDR` in `v0.1.0`; amount positive; no floating point |
 | `AssetAmount` | decimal string/integer stroops, asset code, issuer, network | Positive, precision within configured asset limit, testnet only |
 | `StellarAccount` | public key and optional memo/muxed details | Valid encoding and permitted testnet use |
-| `PaymentMethod` | `qris` or `bank_transfer` | Supported by active gateway sandbox |
-| `IdempotencyKey` | opaque client value | Scoped to API client and operation; length/charset bounded |
+| `PaymentMethod` | `xendit`, `qris`, or `bri_va` | Hosted checkout with all channels, or a restricted active gateway channel |
+| `IdempotencyKey` | opaque client value | Scoped to authenticated API client or retail user and operation; length/charset bounded |
 | `ExternalReference` | provider, type, value | Unique within provider and reference type |
 | `FailureReason` | stable code, safe message, retryability | Does not contain secret or raw sensitive provider payload |
 
@@ -35,7 +37,10 @@ All amounts cross JSON API boundaries as strings or integer minor units. Floatin
 
 ### 3.1 User and access identity
 
-The `User` identity is shared by retail users, opt-in developers, and restricted operators. Auth0 authenticates the person, while the local user and authorization state remain owned by KailoPay.
+The `User` identity is shared by retail users, opt-in developers, and restricted
+operators. Self-hosted email/password or optional Google OIDC authenticates the
+person, while the local user, verified-email state, session, and authorization
+state remain owned by KailoPay.
 
 Fields:
 
@@ -50,6 +55,21 @@ Invariants:
 - An active authenticated user may enable Developer Mode for developer-management access.
 - Disabling Developer Mode does not silently revoke API clients or keys; revocation is explicit.
 - Production identity verification and real identity documents are not part of `v0.1.0`.
+
+### 3.1.1 Order principal
+
+`OrderPrincipal` is the application value passed through order handlers, use
+cases, and repositories. It has an explicit kind and exactly one scope:
+
+| Kind | Required fields | Ownership rule |
+|---|---|---|
+| `api_client` | `client_id`, owning `user_id` | Match `orders.client_id`; API-client idempotency scope |
+| `retail_session` | `user_id`, `session_id` | Require `client_id IS NULL`, a non-null creating session, and matching `created_by_user_id`; retail-user idempotency scope |
+
+The HTTP boundary chooses an API principal whenever `Authorization` is present;
+otherwise it resolves the active `kailopay_session` cookie. Retail order
+creation additionally requires email verification and an allowed browser origin
+for `POST` mutations. No request field can choose or override the principal.
 
 ### 3.2 API client
 
@@ -83,7 +103,7 @@ Invariants:
 - Direction is immutable.
 - Currency, asset, network, and ownership route are immutable after checkout/asset instructions are issued.
 - An order is owned either by an API client or by a retail user/session, never both.
-- API authorization is resolved from the authenticated API client; retail authorization is resolved from the active session.
+- API authorization is resolved from the authenticated API client; retail authorization is resolved from the authenticated user plus active creating session. A user can read consumer orders created in an earlier valid session.
 - State changes use optimistic versioning and a legal transition table.
 - A completed on-ramp has a reconciled payment and successful Stellar transaction.
 - A completed off-ramp has verified asset receipt, successful burn/retirement, and payout/simulation evidence.
@@ -100,7 +120,7 @@ Order events are audit history, not the sole persistence mechanism; `orders` ret
 
 ### 3.5 Payment checkout and event
 
-Payment checkout stores provider, external checkout ID, method, IDR amount, status, expiry, redirect/QR presentation reference, and sanitized provider response metadata.
+Payment checkout stores provider, external checkout/session ID, method, IDR amount, status, expiry, hosted redirect URL, and sanitized provider response metadata.
 
 Gateway event stores provider event ID/fingerprint, callback type, verified flag, received/processed time, matching result, payload hash, and processing error. Raw payload retention is minimized and redacted.
 
@@ -145,7 +165,10 @@ Primary commands:
 - `RegisterWebhookEndpoint`
 - `DeliverDeveloperWebhook`
 
-Every command has an explicit authentication/actor context, correlation ID, input validation, transaction boundary, and idempotency rule.
+Every command has an explicit authentication/actor context, correlation ID,
+input validation, transaction boundary, and idempotency rule. Order commands
+carry `OrderPrincipal`; repositories never infer ownership from an empty client
+ID or caller-supplied owner fields.
 
 ## 6. Domain events
 
@@ -205,3 +228,7 @@ Production PII, identity documents, AML records, and legal retention schedules a
 - No terminal success without durable external evidence.
 - No transition from a terminal state except an explicitly modelled administrative correction in a future design.
 - No retry path can bypass reconciliation of an unknown external outcome.
+- No retail session can read, replay, or mutate another user's order or
+  idempotency record.
+- A same-key retry after retail-session renewal replays the same user-scoped
+  order and never creates a second intent.

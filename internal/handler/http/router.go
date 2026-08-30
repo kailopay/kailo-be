@@ -9,13 +9,13 @@ import (
 )
 
 type routerOptions struct {
-	apiKeys        *APIKeyHandler
-	onramp         *OnrampHandler
-	offramp        *OfframpHandler
-	sep24          *Sep24Handler
-	webhooks       *WebhookHandler
-	requireAPIKey  gin.HandlerFunc
-	xenditCallback *XenditCallbackHandler
+	apiKeys               *APIKeyHandler
+	onramp                *OnrampHandler
+	offramp               *OfframpHandler
+	sep24                 *Sep24Handler
+	webhooks              *WebhookHandler
+	requireOrderPrincipal gin.HandlerFunc
+	xenditCallback        *XenditCallbackHandler
 }
 
 func WithWebhooks(handler *WebhookHandler) RouterOption {
@@ -58,13 +58,13 @@ func WithXenditCallback(handler *XenditCallbackHandler) RouterOption {
 	}
 }
 
-func WithOnramp(handler *OnrampHandler, requireAPIKey gin.HandlerFunc) RouterOption {
+func WithOnramp(handler *OnrampHandler, requireOrderPrincipal gin.HandlerFunc) RouterOption {
 	return func(options *routerOptions) error {
-		if handler == nil || requireAPIKey == nil {
-			return errors.New("onramp handler and api key middleware are required")
+		if handler == nil || requireOrderPrincipal == nil {
+			return errors.New("onramp handler and order principal middleware are required")
 		}
 		options.onramp = handler
-		options.requireAPIKey = requireAPIKey
+		options.requireOrderPrincipal = requireOrderPrincipal
 		return nil
 	}
 }
@@ -148,7 +148,7 @@ func NewRouter(logger *slog.Logger, health *HealthHandler, authHandler *AuthHand
 	}
 	if configured.onramp != nil {
 		onrampRoutes := router.Group("/v1")
-		onrampRoutes.Use(configured.requireAPIKey)
+		onrampRoutes.Use(configured.requireOrderPrincipal)
 		onrampRoutes.POST("/onramps", configured.onramp.Create)
 		if configured.offramp != nil {
 			onrampRoutes.POST("/offramps", configured.offramp.Create)

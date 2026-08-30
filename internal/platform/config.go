@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	stdmail "net/mail"
 	"net/url"
 	"os"
 	"strings"
@@ -19,6 +20,7 @@ type Config struct {
 	Database      DatabaseConfig
 	Logging       LoggingConfig
 	Auth          AuthConfig
+	Email         EmailConfig
 	ObjectStorage ObjectStorageConfig
 	Week1         Week1Config
 }
@@ -30,6 +32,7 @@ type AppConfig struct {
 
 type HTTPConfig struct {
 	Address           string
+	AllowedOrigins    []string
 	ReadHeaderTimeout time.Duration
 	ReadTimeout       time.Duration
 	WriteTimeout      time.Duration
@@ -86,6 +89,20 @@ type GoogleConfig struct {
 	RedirectURL  string
 }
 
+// EmailConfig selects the authentication email delivery provider.
+type EmailConfig struct {
+	Provider string
+	Gmail    GmailConfig
+}
+
+// GmailConfig contains the credentials for Gmail SMTP delivery.
+type GmailConfig struct {
+	Username    string
+	AppPassword string
+	FromName    string
+	Timeout     time.Duration
+}
+
 func Load() (Config, error) {
 	v, err := loadSettings()
 	if err != nil {
@@ -99,6 +116,7 @@ func Load() (Config, error) {
 		},
 		HTTP: HTTPConfig{
 			Address:           v.GetString("http.address"),
+			AllowedOrigins:    splitAllowedOrigins(v.GetString("http.allowed_origins")),
 			ReadHeaderTimeout: v.GetDuration("http.read_header_timeout"),
 			ReadTimeout:       v.GetDuration("http.read_timeout"),
 			WriteTimeout:      v.GetDuration("http.write_timeout"),
@@ -136,6 +154,15 @@ func Load() (Config, error) {
 			CookieName:               strings.TrimSpace(v.GetString("auth.cookie_name")),
 			CookieSecure:             v.GetBool("auth.cookie_secure"),
 			AvatarMaxBytes:           v.GetInt64("auth.avatar_max_bytes"),
+		},
+		Email: EmailConfig{
+			Provider: strings.ToLower(strings.TrimSpace(v.GetString("email.provider"))),
+			Gmail: GmailConfig{
+				Username:    strings.TrimSpace(v.GetString("email.gmail.username")),
+				AppPassword: strings.TrimSpace(v.GetString("email.gmail.app_password")),
+				FromName:    strings.TrimSpace(v.GetString("email.gmail.from_name")),
+				Timeout:     v.GetDuration("email.gmail.timeout"),
+			},
 		},
 		ObjectStorage: ObjectStorageConfig{
 			Endpoint:  strings.TrimSpace(v.GetString("minio.endpoint")),
@@ -188,6 +215,11 @@ func Load() (Config, error) {
 			},
 		},
 	}
+	normalizedOrigins, err := normalizeAllowedOrigins(cfg.HTTP.AllowedOrigins, cfg.App.Environment)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.HTTP.AllowedOrigins = normalizedOrigins
 
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err
@@ -252,6 +284,9 @@ func (c Config) Validate() error {
 		c.HTTP.ShutdownTimeout <= 0 {
 		return errors.New("http timeouts must be positive")
 	}
+	if err := c.HTTP.Validate(c.App.Environment); err != nil {
+		return err
+	}
 	if c.Health.CheckTimeout <= 0 {
 		return errors.New("health check timeout must be positive")
 	}
@@ -275,6 +310,9 @@ func (c Config) Validate() error {
 	if err := c.Auth.Validate(c.App.Environment); err != nil {
 		return err
 	}
+	if err := c.Email.Validate(); err != nil {
+		return err
+	}
 	if err := c.ObjectStorage.Validate(c.App.Environment); err != nil {
 		return err
 	}
@@ -282,6 +320,48 @@ func (c Config) Validate() error {
 		return err
 	}
 	return nil
+}
+
+func (c HTTPConfig) Validate(environment string) error {
+	_, err := normalizeAllowedOrigins(c.AllowedOrigins, environment)
+	return err
+}
+
+func (c EmailConfig) Validate() error {
+	provider := strings.ToLower(strings.TrimSpace(c.Provider))
+	switch provider {
+	case "", "console":
+		return nil
+	case "gmail":
+		return c.Gmail.Validate()
+	default:
+		return fmt.Errorf("unsupported email provider %q", provider)
+	}
+}
+
+func (c GmailConfig) Validate() error {
+	if !validEmailAddress(c.Username) {
+		return errors.New("gmail username must be a valid email address")
+	}
+	if strings.TrimSpace(c.AppPassword) == "" {
+		return errors.New("gmail app password is required")
+	}
+	if strings.ContainsAny(c.FromName, "\r\n") {
+		return errors.New("gmail from name contains invalid characters")
+	}
+	if c.Timeout <= 0 {
+		return errors.New("gmail smtp timeout must be positive")
+	}
+	return nil
+}
+
+func validEmailAddress(raw string) bool {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || strings.ContainsAny(raw, "\r\n") {
+		return false
+	}
+	parsed, err := stdmail.ParseAddress(raw)
+	return err == nil && strings.EqualFold(parsed.Address, raw)
 }
 
 func (c ObjectStorageConfig) Validate(environment string) error {
@@ -356,6 +436,43 @@ func validateAuthURL(name, rawURL, environment string) error {
 	return nil
 }
 
+func splitAllowedOrigins(raw string) []string {
+	parts := strings.Split(raw, ",")
+	origins := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if origin := strings.TrimSpace(part); origin != "" {
+			origins = append(origins, origin)
+		}
+	}
+	return origins
+}
+
+func normalizeAllowedOrigins(origins []string, environment string) ([]string, error) {
+	if len(origins) == 0 {
+		return nil, errors.New("http allowed origins are required")
+	}
+	normalized := make([]string, 0, len(origins))
+	seen := make(map[string]struct{}, len(origins))
+	for _, raw := range origins {
+		parsed, err := url.Parse(strings.TrimSpace(raw))
+		if err != nil || parsed.Scheme == "" || parsed.Host == "" || parsed.User != nil ||
+			parsed.RawQuery != "" || parsed.Fragment != "" || (parsed.Path != "" && parsed.Path != "/") {
+			return nil, fmt.Errorf("http allowed origin %q is invalid", raw)
+		}
+		scheme := strings.ToLower(parsed.Scheme)
+		if scheme != "https" && !(strings.EqualFold(environment, "local") && scheme == "http") {
+			return nil, fmt.Errorf("http allowed origin %q must use HTTPS outside local", raw)
+		}
+		origin := scheme + "://" + strings.ToLower(parsed.Host)
+		if _, exists := seen[origin]; exists {
+			continue
+		}
+		seen[origin] = struct{}{}
+		normalized = append(normalized, origin)
+	}
+	return normalized, nil
+}
+
 func validateKey(name, encoded string) error {
 	decoded, err := base64.StdEncoding.DecodeString(encoded)
 	if err != nil || len(decoded) != 32 {
@@ -373,6 +490,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("http.write_timeout", 15*time.Second)
 	v.SetDefault("http.idle_timeout", 60*time.Second)
 	v.SetDefault("http.shutdown_timeout", 10*time.Second)
+	v.SetDefault("http.allowed_origins", "http://localhost:3000,http://localhost:3001")
 	v.SetDefault("health.check_timeout", 2*time.Second)
 	v.SetDefault("database.max_open_conns", 10)
 	v.SetDefault("database.max_idle_conns", 5)
@@ -388,6 +506,9 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("auth.cookie_secure", false)
 	v.SetDefault("auth.avatar_max_bytes", int64(5<<20))
 	v.SetDefault("auth.email_link_base_url", "http://localhost:3001")
+	v.SetDefault("email.provider", "console")
+	v.SetDefault("email.gmail.from_name", "KailoPay")
+	v.SetDefault("email.gmail.timeout", 10*time.Second)
 	v.SetDefault("minio.bucket", "kailopay-profile")
 	v.SetDefault("minio.region", "us-east-1")
 	v.SetDefault("minio.use_ssl", false)
@@ -433,6 +554,7 @@ func environmentBindings() map[string]string {
 		"http.write_timeout":               "HTTP_WRITE_TIMEOUT",
 		"http.idle_timeout":                "HTTP_IDLE_TIMEOUT",
 		"http.shutdown_timeout":            "HTTP_SHUTDOWN_TIMEOUT",
+		"http.allowed_origins":             "HTTP_ALLOWED_ORIGINS",
 		"health.check_timeout":             "HEALTH_CHECK_TIMEOUT",
 		"database.dsn":                     "DATABASE_DSN",
 		"database.max_open_conns":          "DATABASE_MAX_OPEN_CONNS",
@@ -455,6 +577,11 @@ func environmentBindings() map[string]string {
 		"google.client_id":                 "GOOGLE_CLIENT_ID",
 		"google.client_secret":             "GOOGLE_CLIENT_SECRET",
 		"google.redirect_url":              "GOOGLE_REDIRECT_URL",
+		"email.provider":                   "EMAIL_PROVIDER",
+		"email.gmail.username":             "GMAIL_USERNAME",
+		"email.gmail.app_password":         "GMAIL_APP_PASSWORD",
+		"email.gmail.from_name":            "GMAIL_FROM_NAME",
+		"email.gmail.timeout":              "GMAIL_SMTP_TIMEOUT",
 		"minio.endpoint":                   "MINIO_ENDPOINT",
 		"minio.access_key":                 "MINIO_ACCESS_KEY",
 		"minio.secret_key":                 "MINIO_SECRET_KEY",

@@ -16,9 +16,9 @@ var (
 )
 
 type Callback struct {
-	EventID          string
-	EventType        string
-	PaymentRequestID string
+	EventID    string
+	EventType  string
+	CheckoutID string
 }
 
 type PaymentState struct {
@@ -31,10 +31,10 @@ type PaymentState struct {
 }
 
 type CallbackReceipt struct {
-	EventID          string
-	EventType        string
-	PaymentRequestID string
-	PayloadHash      string
+	EventID     string
+	EventType   string
+	CheckoutID  string
+	PayloadHash string
 }
 
 type ExpectedPayment struct {
@@ -56,7 +56,7 @@ type PaymentConfirmation struct {
 
 type CallbackGateway interface {
 	VerifyCallback(raw []byte, token string) (Callback, error)
-	GetPaymentRequest(ctx context.Context, providerID string) (PaymentState, error)
+	GetPaymentState(ctx context.Context, checkoutID string) (PaymentState, error)
 }
 
 type OnrampCallbackUsecase struct {
@@ -79,24 +79,29 @@ func (s *OnrampCallbackUsecase) Process(ctx context.Context, raw []byte, token s
 	payloadDigest := sha256.Sum256(raw)
 	payloadHash := hex.EncodeToString(payloadDigest[:])
 	processed, err := s.repository.RecordCallbackReceipt(ctx, CallbackReceipt{EventID: callback.EventID, EventType: callback.EventType,
-		PaymentRequestID: callback.PaymentRequestID, PayloadHash: payloadHash})
+		CheckoutID: callback.CheckoutID, PayloadHash: payloadHash})
 	if err != nil {
 		return fmt.Errorf("recording callback receipt: %w", err)
 	}
 	if processed {
 		return nil
 	}
-	expected, err := s.repository.ExpectedPayment(ctx, callback.PaymentRequestID)
+	expected, err := s.repository.ExpectedPayment(ctx, callback.CheckoutID)
 	if err != nil {
 		_ = s.repository.CompleteCallback(ctx, callback.EventID, "unmatched")
 		return fmt.Errorf("finding expected payment: %w", err)
 	}
-	actual, err := s.gateway.GetPaymentRequest(ctx, callback.PaymentRequestID)
+	actual, err := s.gateway.GetPaymentState(ctx, callback.CheckoutID)
 	if err != nil {
 		return fmt.Errorf("reconciling payment request: %w", err)
 	}
-	if callback.EventType != "payment.capture" || actual.Status != "SUCCEEDED" || actual.ProviderID != expected.ProviderID ||
-		actual.ReferenceID != expected.OrderID || actual.Currency != expected.Currency || actual.Amount != expected.Amount || actual.Channel != expected.Channel {
+	validEvent := callback.EventType == "payment.capture" && actual.Status == "SUCCEEDED"
+	if callback.EventType == "payment_session.completed" && actual.Status == "COMPLETED" {
+		validEvent = true
+	}
+	if !validEvent || actual.ProviderID != expected.ProviderID || actual.ReferenceID != expected.OrderID ||
+		actual.Currency != expected.Currency || actual.Amount != expected.Amount ||
+		(expected.Channel != "" && actual.Channel != expected.Channel) {
 		_ = s.repository.CompleteCallback(ctx, callback.EventID, "mismatched")
 		return ErrPaymentMismatch
 	}

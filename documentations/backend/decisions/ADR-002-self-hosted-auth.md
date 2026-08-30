@@ -42,10 +42,10 @@ already an OIDC provider we can consume directly with `go-oidc`.
    an existing account with `email_verified_at` set is attached to that
    account. Unverified emails never link.
 4. Email verification and password reset use single-use, hashed, expiring
-   challenge tokens (24h verification, 1h reset). In this iteration links are
-   delivered by logging them to the server console (an `EmailSender` port with
-   a console implementation); SMTP or a provider API can be wired later
-   behind the same port without schema changes.
+   challenge tokens (24h verification, 1h reset). The `EmailSender` port has a
+   console implementation for local development and a Gmail SMTP implementation
+   for configured delivery; both sit behind the same port without schema
+   changes.
 5. Brute-force mitigations for password login: Argon2id verification cost, a
    dummy-hash verification on unknown emails to equalize timing, and a
    10-failure / 15-minute lockout stored per credential.
@@ -64,8 +64,9 @@ already an OIDC provider we can consume directly with `go-oidc`.
   keyed by lowercased email.
 - Password reset revokes all of the user's sessions; email verification is
   required before password login succeeds.
-- Real email delivery and per-IP/per-account rate limiting (BE-072) remain
-  deferred; Argon2id plus lockout are the interim mitigations.
+- Per-IP/per-account rate limiting (BE-072) remains deferred; Argon2id plus
+  lockout are the interim mitigations. Gmail delivery is available when its
+  provider credentials are configured.
 - The Auth0 adapter, `AUTH0_*` configuration, the hosted password-reset
   request, and the `POST /internal/auth/password-reset-completed` webhook are
   removed. Existing `provider='auth0'` identity rows in development databases

@@ -37,7 +37,8 @@ Trust boundaries:
 | Duplicate/unknown Stellar submission | Double settlement | Stable intent, account serialization, network reconciliation before retry, unique purpose constraint |
 | Webhook SSRF | Access to internal/metadata services | HTTPS policy, IP/DNS validation, block private/link-local/metadata ranges, no redirects, revalidation |
 | SQL/injection attacks | Data corruption/exposure | Schema validation, parameterized queries/ORM, no shell interpolation, least-privilege DB account |
-| Cross-client access | Order data exposure | Authentication context in every repository query, ownership checks, enumeration policy tests |
+| Cross-client/cross-user access | Order data exposure | Explicit principal context in every repository query, ownership checks, enumeration policy tests |
+| Cookie-authenticated order CSRF | Unauthorized consumer order creation | SameSite session cookie plus exact `Origin`/`Referer` allowlist for order mutations |
 | Secret leakage in public evidence | Credential compromise | Redaction, secret scanning, sanitized fixtures/logs/screenshots, release checklist |
 | Misleading production claim | Legal/reputational risk | Persistent sandbox/testnet labels and explicit non-goals |
 
@@ -56,19 +57,21 @@ Recommended format: `pk_test_<public_id>_<random_secret>`.
 
 ## 5. Authentication and authorization
 
-- Auth0 callback handling resolves a provider subject to one local user; authentication middleware then resolves either one active API client or one active retail session. A request cannot silently switch between contexts.
-- Application/repository methods receive explicit API-client, user, and/or retail-session context as required by the operation.
+- Self-hosted email/password or Google OIDC resolves to one local user; authentication middleware then resolves either one active API client or one active retail session. A request cannot silently switch between contexts.
+- Application/repository methods receive an explicit API-client or retail-session `OrderPrincipal` for order operations; an empty client ID is never used as a retail signal.
 - Provider subjects are stored in `user_identities` with a unique `(provider, subject)` constraint; email is not used as the authentication key.
-- Every API order and webhook endpoint query is scoped by API-client ownership; every developer-management query is scoped through the client owner; every retail order query is scoped by user/session ownership.
+- Every API order and webhook endpoint query is scoped by API-client ownership; every developer-management query is scoped through the client owner; every retail order query requires no API client, a non-null creating session, and the authenticated user as creator.
 - Retail session tokens are high entropy, stored only as hashes, sent only through secure HTTP-only cookies, expired and revocable, and protected against CSRF for browser mutations.
-- The Auth0 callback uses Authorization Code + PKCE, validates issuer, audience, signature, expiry, subject, and nonce, and consumes a database-backed state transaction once. PKCE verifiers are encrypted at rest; state, nonce, and local session lookup values are HMAC-SHA-256 digests.
-- The browser receives only the KailoPay local session cookie. Auth0 access, refresh, and ID tokens remain inside the backend callback exchange and are discarded.
+- The Google callback uses Authorization Code + PKCE, validates issuer, audience, signature, expiry, subject, and nonce, and consumes a database-backed state transaction once. PKCE verifiers are encrypted at rest; state, nonce, and local session lookup values are HMAC-SHA-256 digests.
+- The browser receives only the KailoPay local session cookie. Google provider tokens remain inside the backend callback exchange and are discarded.
 - Local sessions use an eight-hour absolute lifetime, thirty-minute idle timeout, logout revocation, disabled-user checks, `SameSite=Lax`, `HttpOnly`, and `Secure` outside local development.
-- Forgot-password requests return the same accepted response regardless of account existence; Auth0 hosts password entry and reset-token validation.
-- A dedicated high-entropy Auth0 Action callback secret protects password-reset completion notifications, which revoke every local session for the stable Auth0 subject.
+- Forgot-password requests return the same accepted response regardless of account existence; the local backend owns password-reset token validation.
+- Email-verification and password-reset tokens are high-entropy, single-use, stored only as HMAC hashes, and delivered through the configured console or Gmail adapter.
 - Profile avatars accept only bounded JPEG, PNG, or WebP bytes, use server-generated object keys, stay in a private MinIO bucket, and are streamed only after local-session authorization.
 - Developer Mode and direct `owner_user_id` checks are enforced before developer-session configuration actions.
 - Developer-session endpoints use CSRF/session protections appropriate to the selected frontend auth approach.
+- Session-authenticated `POST /v1/onramps` and `POST /v1/offramps` require an exact configured `Origin`; if `Origin` is absent, a matching `Referer` origin is accepted. API-key requests skip this browser-origin check.
+- Order reads and replay lookups use the same authenticated owner scope. Retail idempotency is keyed by user, not by the current session ID, so a renewed session cannot create a duplicate retry.
 - There is no public endpoint that accepts an arbitrary `client_id` as authorization.
 - Operator/admin functionality is not publicly exposed in `v0.1.0`; use controlled database/runbook procedures where necessary.
 
@@ -108,7 +111,7 @@ Production HSM, MPC, multisig governance, custody policy, and dual control are F
 Secret categories:
 
 - Database credential.
-- Auth0 client secret and callback configuration.
+- Google OIDC client secret and callback configuration, when Google sign-in is enabled.
 - Gateway sandbox credential and callback secret/token.
 - Stellar testnet secret keys.
 - API-key hashing pepper/key.
@@ -159,7 +162,9 @@ Screenshots and demo recordings require the same review as source code.
 ## 13. Security verification checklist
 
 - Invalid/revoked API keys fail and are not logged.
-- Cross-client order access fails.
+- Cross-client and cross-user order access fails.
+- Retail order reads/replays remain visible across valid sessions for the same user.
+- Session-authenticated order mutations reject missing and mismatched origins.
 - Callback with missing/invalid authentication cannot mutate state.
 - Callback replay cannot duplicate settlement.
 - Amount/currency/reference mismatch cannot confirm payment.

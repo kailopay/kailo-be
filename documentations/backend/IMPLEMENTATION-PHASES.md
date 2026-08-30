@@ -27,7 +27,7 @@ Each slice includes:
 
 ### Work
 
-- Test Xendit sandbox Payment Requests v3 for QRIS, BRI virtual account, callback authentication, and status lookup.
+- Test Xendit sandbox Payment Sessions for hosted checkout, QRIS/BRI virtual-account restrictions, callback authentication, and status lookup.
 - Select Xendit and record `ADR-001-xendit-native-xlm.md`.
 - Use native XLM with a pre-funded testnet distribution wallet; no issued KIDR asset or trustline is required in Week 1.
 - Decide developer-session mechanism, hosting/public URLs, repository license, secrets, and off-ramp evidence fallback.
@@ -44,16 +44,20 @@ Each slice includes:
 
 ### Outcome
 
-A developer can authenticate, create/query sandbox orders, and receive real provider sandbox QRIS/bank-transfer checkout instructions. Verified callbacks update local payment state once.
+An API client or a verified retail session can create/query sandbox orders and
+receive a real provider-hosted sandbox checkout link. Verified callbacks update
+local payment state once. Retail history is user-scoped across valid sessions;
+API history remains client-scoped.
 
 ### Build order
 
 1. Project/runtime/config structure and CI.
 2. PostgreSQL migrations, repository transaction helper, IDs/clock, and structured logging.
-3. API-key creation/verification and client ownership boundary.
+3. API-key creation/verification, retail-session authentication, and explicit
+   API-client versus retail-user ownership boundaries.
 4. Order aggregate, state transition policy, event history, idempotency records, and outbox.
-5. Create/get/list on-ramp API contracts; defer off-ramp.
-6. Selected provider adapter for QRIS and bank transfer.
+5. Create/get/list on-ramp and off-ramp contracts for both principal types.
+6. Selected provider Payment Session adapter with all-channel and restricted QRIS/BRI VA modes.
 7. Callback raw-body verification, deduplication, reconciliation, and durable settlement intent.
 8. Initial OpenAPI and integration tests.
 9. Native-XLM settlement worker with hash-first persistence and Horizon reconciliation.
@@ -64,6 +68,10 @@ A developer can authenticate, create/query sandbox orders, and receive real prov
 - Callback with invalid authentication cannot mutate an order.
 - Replayed paid callback creates one payment-confirmed transition and one settlement intent.
 - Clean database can migrate and API tests pass.
+- Session-authenticated order mutations require an allowed browser origin, and
+  cross-principal reads/replays fail safely.
+- An unknown checkout result returns a durable order ID that can be polled with
+  the same authenticated principal.
 - Public repository contains no secret.
 - A verified payment creates one durable settlement job; the worker confirms one
   native-XLM testnet transfer before completing the order.
@@ -111,6 +119,8 @@ The backend is publicly reachable and independently integrable by the web app an
 ### Week 3 gate
 
 - Web frontend can use the deployed backend without private/manual database changes.
+- Consumer buy/sell requests use the session cookie and configured origin
+  policy; Developer Mode continues to use API keys.
 - OpenAPI examples pass against the release candidate.
 - TypeScript SDK contract tests pass against the same Go release candidate, and no browser example embeds a `pk_test_` key.
 - Outgoing webhook signature verifies and retry is observable.

@@ -32,7 +32,7 @@ func NewOfframpHandler(service OfframpService, logger *slog.Logger) *OfframpHand
 }
 
 func (h *OfframpHandler) Create(c *gin.Context) {
-	principal, ok := middleware.APIPrincipal(c.Request.Context())
+	principal, ok := middleware.OrderPrincipal(c.Request.Context())
 	if !ok {
 		writeAuthError(c, http.StatusUnauthorized)
 		return
@@ -58,8 +58,11 @@ func (h *OfframpHandler) Create(c *gin.Context) {
 		return
 	}
 	command := usecase.OfframpCommand{
-		ClientID:         principal.ClientID,
+		Principal:        principal,
 		IdempotencyKey:   c.GetHeader("Idempotency-Key"),
+		AssetNetwork:     request.Asset.Network,
+		AssetCode:        request.Asset.Code,
+		FiatCurrency:     request.Withdrawal.Currency,
 		AssetAmount:      request.Asset.Amount,
 		WithdrawalMethod: entity.WithdrawalMethod(request.Withdrawal.Method),
 		DestinationToken: request.Withdrawal.DestinationToken,
