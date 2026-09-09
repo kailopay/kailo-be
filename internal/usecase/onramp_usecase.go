@@ -117,6 +117,7 @@ type CheckoutInput struct {
 
 type Checkout struct {
 	ProviderID        string
+	PaymentRequestID  string
 	Method            entity.PaymentMethod
 	Status            string
 	PresentationType  string

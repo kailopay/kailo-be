@@ -237,7 +237,10 @@ Unique: `(order_id, aggregate_version)`.
 
 Columns include ID, order ID, provider, provider checkout/session ID, method, expected currency/amount, status, hosted checkout/QR presentation reference, expiry, sanitized metadata, and timestamps.
 
-Unique: `(provider, provider_checkout_id)`. Index: `(order_id, created_at)`.
+Unique: `(provider, provider_checkout_id)`. When Xendit returns a related
+Payment Request ID, `provider_payment_request_id` is also stored under a
+provider/request unique index so legacy payment callbacks can resolve the same
+checkout. Index: `(order_id, created_at)`.
 
 ### `treasury_accounts`
 

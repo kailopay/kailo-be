@@ -14,6 +14,10 @@ The module path is `github.com/febry3/kailopay-be`.
 - CoinMarketCap reference pricing and native XLM on Stellar testnet
 - `log/slog` for structured logging
 
+The backend is intentionally implemented in Go. For this repository, that is
+the accepted implementation of the SOW's Node.js/TypeScript backend wording;
+the separate TypeScript SDK remains available for Node.js integrations.
+
 ## Layout minimum
 
 ```text
@@ -136,6 +140,8 @@ gofmt -w (rg --files -g '*.go')
 go vet ./...
 go test ./...
 go test -race ./...
+go test ./openapi -run TestDocumentValidatesAuthContract -count=1
+go build -buildvcs=false ./...
 ```
 
 See [backend documentation](documentations/backend/README.md) and

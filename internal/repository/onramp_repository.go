@@ -136,8 +136,12 @@ func (r *OnrampRepository) AttachCheckout(ctx context.Context, orderID string, c
 		metadata, _ := json.Marshal(map[string]string{"presentation_type": checkout.PresentationType, "presentation_value": checkout.PresentationValue,
 			"payment_link_url": checkout.PaymentLinkURL})
 		presentation := checkout.PresentationValue
+		var paymentRequestID *string
+		if checkout.PaymentRequestID != "" {
+			paymentRequestID = &checkout.PaymentRequestID
+		}
 		row := entity.PaymentCheckout{ID: checkoutID, OrderID: orderID, Provider: "xendit", ProviderCheckoutID: checkout.ProviderID,
-			Method: string(checkout.Method), Currency: "IDR", AmountMinor: order.FiatAmountMinor, Status: checkout.Status,
+			ProviderPaymentRequestID: paymentRequestID, Method: string(checkout.Method), Currency: "IDR", AmountMinor: order.FiatAmountMinor, Status: checkout.Status,
 			PresentationReference: &presentation, ExpiresAt: checkout.ExpiresAt, Metadata: metadata, CreatedAt: now, UpdatedAt: now}
 		if err := tx.Create(&row).Error; err != nil {
 			return fmt.Errorf("creating payment checkout: %w", err)
@@ -191,15 +195,25 @@ func (r *OnrampRepository) RecordCallbackReceipt(ctx context.Context, receipt us
 	row := entity.GatewayEvent{ID: id, Provider: "xendit", ProviderEventID: receipt.EventID, EventType: receipt.EventType,
 		CheckoutReference: &providerReference, PayloadHash: receipt.PayloadHash, SignatureVerified: true,
 		MatchingResult: "pending", ReceivedAt: time.Now().UTC(), ProcessingStatus: "received"}
-	if err := r.db.WithContext(ctx).Create(&row).Error; err != nil {
-		return false, fmt.Errorf("creating callback receipt: %w", err)
+	result := r.db.WithContext(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(&row)
+	if result.Error != nil {
+		return false, fmt.Errorf("creating callback receipt: %w", result.Error)
 	}
-	return false, nil
+	if result.RowsAffected > 0 {
+		return false, nil
+	}
+	if err := r.db.WithContext(ctx).Where("provider = ? AND provider_event_id = ?", "xendit", receipt.EventID).First(&existing).Error; err != nil {
+		return false, fmt.Errorf("finding concurrent callback receipt: %w", err)
+	}
+	if existing.PayloadHash != receipt.PayloadHash {
+		return false, usecase.ErrPaymentMismatch
+	}
+	return existing.ProcessedAt != nil, nil
 }
 
 func (r *OnrampRepository) ExpectedPayment(ctx context.Context, providerID string) (usecase.ExpectedPayment, error) {
 	var checkout entity.PaymentCheckout
-	if err := r.db.WithContext(ctx).Where("provider = ? AND provider_checkout_id = ?", "xendit", providerID).First(&checkout).Error; err != nil {
+	if err := r.db.WithContext(ctx).Where("provider = ? AND (provider_checkout_id = ? OR provider_payment_request_id = ?)", "xendit", providerID, providerID).First(&checkout).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return usecase.ExpectedPayment{}, usecase.ErrOrderNotFound
 		}
@@ -216,7 +230,7 @@ func (r *OnrampRepository) ExpectedPayment(ctx context.Context, providerID strin
 	if checkout.Method == string(usecase.PaymentMethodXendit) {
 		channel = ""
 	}
-	return usecase.ExpectedPayment{OrderID: order.ID, ProviderID: checkout.ProviderCheckoutID, Amount: entity.IDR(checkout.AmountMinor),
+	return usecase.ExpectedPayment{OrderID: order.ID, ProviderID: providerID, Amount: entity.IDR(checkout.AmountMinor),
 		Currency: checkout.Currency, Channel: channel, AssetAmount: entity.Stroops(order.AssetAmountStroops)}, nil
 }
 

@@ -44,7 +44,9 @@ Processing:
 1. Validate order is `created` and route is supported.
 2. Persist the order, idempotency record, and XLM reservation atomically.
 3. The API calls Xendit synchronously after that transaction commits, using the order ID as `reference_id`.
-4. Persist the Payment Session ID, hosted payment-link URL, requested method, amount, expiry, and sanitized metadata.
+4. Persist the Payment Session ID, the related Payment Request ID when the
+   provider returns one, hosted payment-link URL, requested method, amount,
+   expiry, and sanitized metadata.
 5. Move order to `payment_pending`.
 
 If the provider outcome is unknown, reconcile by the external ID before retrying.
@@ -74,7 +76,9 @@ Xendit authenticates the webhook with `x-callback-token`. KailoPay compares the
 configured token in constant time, stores the exact-body digest, then retrieves
 `GET /sessions/{payment_session_id}` before moving value. When the session
 contains a payment request ID, KailoPay also retrieves the related Payment
-Request to verify the captured channel and exact amount.
+Request to verify the captured channel and exact amount. Legacy payment
+callbacks may instead identify the stored checkout by payment-request ID;
+those callbacks use the same provider-state reconciliation before settlement.
 
 General requirements:
 

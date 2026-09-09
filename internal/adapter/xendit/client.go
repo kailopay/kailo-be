@@ -104,10 +104,14 @@ func (c *Client) VerifyCallback(raw []byte, token string) (usecase.Callback, err
 		return usecase.Callback{EventID: payload.Event + ":" + payload.Data.PaymentSessionID, EventType: payload.Event,
 			CheckoutID: payload.Data.PaymentSessionID}, nil
 	case "payment.capture":
-		if payload.Data.PaymentID == "" || payload.Data.PaymentRequestID == "" {
+		if payload.Data.PaymentID == "" || (payload.Data.PaymentSessionID == "" && payload.Data.PaymentRequestID == "") {
 			return usecase.Callback{}, usecase.ErrInvalidCallback
 		}
-		return usecase.Callback{EventID: payload.Data.PaymentID, EventType: payload.Event, CheckoutID: payload.Data.PaymentRequestID}, nil
+		checkoutID := payload.Data.PaymentRequestID
+		if payload.Data.PaymentSessionID != "" {
+			checkoutID = payload.Data.PaymentSessionID
+		}
+		return usecase.Callback{EventID: payload.Data.PaymentID, EventType: payload.Event, CheckoutID: checkoutID}, nil
 	default:
 		return usecase.Callback{}, usecase.ErrInvalidCallback
 	}
@@ -279,7 +283,7 @@ func (c *Client) CreateCheckout(ctx context.Context, input usecase.CheckoutInput
 		parsed = parsed.UTC()
 		expiresAt = &parsed
 	}
-	return usecase.Checkout{ProviderID: provider.PaymentSessionID, Method: input.Method, Status: provider.Status,
+	return usecase.Checkout{ProviderID: provider.PaymentSessionID, PaymentRequestID: provider.PaymentRequestID, Method: input.Method, Status: provider.Status,
 		PresentationType: "PAYMENT_LINK", PresentationValue: provider.PaymentLinkURL, PaymentLinkURL: provider.PaymentLinkURL,
 		ExpiresAt: expiresAt}, nil
 }

@@ -91,7 +91,7 @@ func TestCreateCheckoutCreatesHostedPaymentSession(t *testing.T) {
 			t.Errorf("hosted checkout should leave payment channels unrestricted: %#v", body)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{"payment_session_id":"ps-1","reference_id":"order-1","currency":"IDR","amount":100000,"status":"ACTIVE","expires_at":"2026-08-20T01:05:00Z","payment_link_url":"https://checkout-staging.xendit.co/sessions/ps-1"}`)
+		_, _ = io.WriteString(w, `{"payment_session_id":"ps-1","payment_request_id":"pr-1","reference_id":"order-1","currency":"IDR","amount":100000,"status":"ACTIVE","expires_at":"2026-08-20T01:05:00Z","payment_link_url":"https://checkout-staging.xendit.co/sessions/ps-1"}`)
 	}))
 	defer server.Close()
 	client, err := New(Config{BaseURL: server.URL, SecretKey: "xnd_development_secret", CallbackToken: "01234567890123456789012345678901", APIVersion: "2024-11-11", QRISChannel: "QRIS", VAChannel: "BRI_VIRTUAL_ACCOUNT", HTTPClient: server.Client()})
@@ -106,7 +106,7 @@ func TestCreateCheckoutCreatesHostedPaymentSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateCheckout() error = %v", err)
 	}
-	if checkout.ProviderID != "ps-1" || checkout.PresentationType != "PAYMENT_LINK" ||
+	if checkout.ProviderID != "ps-1" || checkout.PaymentRequestID != "pr-1" || checkout.PresentationType != "PAYMENT_LINK" ||
 		checkout.PresentationValue != "https://checkout-staging.xendit.co/sessions/ps-1" {
 		t.Fatalf("checkout = %+v", checkout)
 	}
@@ -176,5 +176,39 @@ func TestVerifyCallbackAcceptsPaymentSessionCompleted(t *testing.T) {
 	}
 	if callback.EventID != "payment_session.completed:ps-1" || callback.CheckoutID != "ps-1" {
 		t.Fatalf("callback = %+v", callback)
+	}
+}
+
+func TestVerifyCallbackUsesPaymentSessionWhenPresent(t *testing.T) {
+	client, err := New(Config{BaseURL: "https://api.xendit.co", SecretKey: "xnd_development_secret",
+		CallbackToken: "01234567890123456789012345678901", APIVersion: "2024-11-11",
+		QRISChannel: "QRIS", VAChannel: "BRI_VIRTUAL_ACCOUNT", HTTPClient: http.DefaultClient})
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := []byte(`{"event":"payment.capture","data":{"payment_id":"py-1","payment_session_id":"ps-1"}}`)
+	callback, err := client.VerifyCallback(payload, "01234567890123456789012345678901")
+	if err != nil {
+		t.Fatalf("VerifyCallback() error = %v", err)
+	}
+	if callback.CheckoutID != "ps-1" {
+		t.Fatalf("callback checkout ID = %q, want ps-1", callback.CheckoutID)
+	}
+}
+
+func TestVerifyCallbackFallsBackToPaymentRequestID(t *testing.T) {
+	client, err := New(Config{BaseURL: "https://api.xendit.co", SecretKey: "xnd_development_secret",
+		CallbackToken: "01234567890123456789012345678901", APIVersion: "2024-11-11",
+		QRISChannel: "QRIS", VAChannel: "BRI_VIRTUAL_ACCOUNT", HTTPClient: http.DefaultClient})
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := []byte(`{"event":"payment.capture","data":{"payment_id":"py-1","payment_request_id":"pr-1"}}`)
+	callback, err := client.VerifyCallback(payload, "01234567890123456789012345678901")
+	if err != nil {
+		t.Fatalf("VerifyCallback() error = %v", err)
+	}
+	if callback.CheckoutID != "pr-1" {
+		t.Fatalf("callback checkout ID = %q, want pr-1", callback.CheckoutID)
 	}
 }

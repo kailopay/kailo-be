@@ -613,6 +613,11 @@ paths:
   /callbacks/payments/xendit:
     post:
       summary: Receive an authenticated Xendit payment webhook
+      description: |
+        Accepts Xendit `payment_session.completed` and `payment.capture`
+        callbacks. The backend correlates a callback by payment-session ID or
+        payment-request ID, re-checks the provider state, and applies the
+        payment transition idempotently before enqueueing Stellar settlement.
       security:
         - xenditCallback: []
       requestBody:
@@ -763,7 +768,7 @@ components:
             amount_minor: {type: string, pattern: '^[1-9][0-9]*$'}
         payment_method:
           type: string
-          description: xendit opens the hosted checkout with all activated Xendit channels; qris and bri_va restrict it to one channel.
+          description: xendit opens the hosted checkout with all activated Xendit channels, including QRIS and BRI Virtual Account when enabled on the merchant account; qris and bri_va restrict it to one channel.
           enum: [xendit, qris, bri_va]
         stellar_destination:
           type: object

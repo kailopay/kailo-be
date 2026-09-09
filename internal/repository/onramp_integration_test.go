@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -286,10 +287,78 @@ func TestSharedOrderViewIncludesOfframpSettlementDetails(t *testing.T) {
 func attachTestCheckout(t *testing.T, store *integrationStore, orderID string, method entity.PaymentMethod) {
 	t.Helper()
 	expiresAt := time.Now().UTC().Add(5 * time.Minute)
-	checkout := usecase.Checkout{ProviderID: "pr-" + orderID, Method: method, Status: "REQUIRES_ACTION",
+	checkout := usecase.Checkout{ProviderID: "ps-" + orderID, PaymentRequestID: "pr-" + orderID, Method: method, Status: "REQUIRES_ACTION",
 		PresentationType: "QR_STRING", PresentationValue: "000201010211123", ExpiresAt: &expiresAt}
 	if _, err := store.onramp.AttachCheckout(context.Background(), orderID, checkout); err != nil {
 		t.Fatalf("AttachCheckout() error = %v", err)
+	}
+}
+
+func TestExpectedPaymentResolvesPaymentRequestID(t *testing.T) {
+	store := newIntegrationStore(t)
+	ctx := context.Background()
+	orderID := "00000000-0000-4000-8000-0000000000f1"
+	if err := store.onramp.ReserveAndCreate(ctx, testCreateRecord(orderID, entity.PaymentMethodBRIVA, 100_000, 40_000_000, time.Now().UTC().Add(5*time.Minute)), 1_000_000_000); err != nil {
+		t.Fatalf("ReserveAndCreate() error = %v", err)
+	}
+	attachTestCheckout(t, store, orderID, entity.PaymentMethodBRIVA)
+
+	checks := []struct {
+		name       string
+		providerID string
+	}{
+		{name: "payment session", providerID: "ps-" + orderID},
+		{name: "payment request", providerID: "pr-" + orderID},
+	}
+	for _, check := range checks {
+		t.Run(check.name, func(t *testing.T) {
+			expected, err := store.onramp.ExpectedPayment(ctx, check.providerID)
+			if err != nil {
+				t.Fatalf("ExpectedPayment() error = %v", err)
+			}
+			if expected.OrderID != orderID || expected.ProviderID != check.providerID {
+				t.Fatalf("ExpectedPayment() = %+v, want order %s and provider %s", expected, orderID, check.providerID)
+			}
+		})
+	}
+}
+
+func TestRecordCallbackReceiptConcurrentReplay(t *testing.T) {
+	store := newIntegrationStore(t)
+	receipt := usecase.CallbackReceipt{EventID: "payment-concurrent-1", EventType: "payment.capture", CheckoutID: "pr-concurrent-1", PayloadHash: "payload-hash-1"}
+	results := make(chan struct {
+		processed bool
+		err       error
+	}, 2)
+	var waitGroup sync.WaitGroup
+	waitGroup.Add(2)
+	for range 2 {
+		go func() {
+			defer waitGroup.Done()
+			processed, err := store.onramp.RecordCallbackReceipt(context.Background(), receipt)
+			results <- struct {
+				processed bool
+				err       error
+			}{processed: processed, err: err}
+		}()
+	}
+	waitGroup.Wait()
+	close(results)
+
+	processedCount := 0
+	for result := range results {
+		if result.err != nil {
+			t.Fatalf("RecordCallbackReceipt() error = %v", result.err)
+		}
+		if result.processed {
+			processedCount++
+		}
+	}
+	if processedCount > 1 {
+		t.Fatalf("processed result count = %d, want at most 1", processedCount)
+	}
+	if count := countRows(t, store.db, &entity.GatewayEvent{}); count != 1 {
+		t.Fatalf("gateway event count = %d, want 1", count)
 	}
 }
 
@@ -361,6 +430,42 @@ func TestConfirmPaymentAndEnqueueIsIdempotent(t *testing.T) {
 	}
 	if count := countRows(t, store.db, &entity.OrderEvent{}); count != 4 {
 		t.Fatalf("order events = %d, want 4 (created, checkout, payment confirmed, transfer requested)", count)
+	}
+}
+
+func TestConfirmPaymentAndEnqueueIsConcurrentIdempotent(t *testing.T) {
+	store := newIntegrationStore(t)
+	ctx := context.Background()
+	orderID := "00000000-0000-4000-8000-0000000000f2"
+	if err := store.onramp.ReserveAndCreate(ctx, testCreateRecord(orderID, entity.PaymentMethodBRIVA, 100_000, 40_000_000, time.Now().UTC().Add(5*time.Minute)), 1_000_000_000); err != nil {
+		t.Fatalf("ReserveAndCreate() error = %v", err)
+	}
+	attachTestCheckout(t, store, orderID, entity.PaymentMethodBRIVA)
+
+	confirmation := usecase.PaymentConfirmation{EventID: "event-concurrent-confirmation", EventType: "payment.capture", PayloadHash: "hash-concurrent",
+		Expected: usecase.ExpectedPayment{OrderID: orderID, ProviderID: "pr-" + orderID, Amount: 100_000, Currency: "IDR", Channel: "BRI_VIRTUAL_ACCOUNT"}}
+	errors := make(chan error, 2)
+	var waitGroup sync.WaitGroup
+	waitGroup.Add(2)
+	for range 2 {
+		go func() {
+			defer waitGroup.Done()
+			errors <- store.onramp.ConfirmPaymentAndEnqueue(ctx, confirmation)
+		}()
+	}
+	waitGroup.Wait()
+	close(errors)
+	for err := range errors {
+		if err != nil {
+			t.Fatalf("ConfirmPaymentAndEnqueue() error = %v", err)
+		}
+	}
+
+	if count := countRows(t, store.db, &entity.StellarTransaction{}); count != 1 {
+		t.Fatalf("settlement intents = %d, want 1", count)
+	}
+	if count := countRows(t, store.db, &entity.OutboxMessage{}); count != 1 {
+		t.Fatalf("outbox messages = %d, want 1", count)
 	}
 }
 

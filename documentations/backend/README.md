@@ -10,13 +10,17 @@
 | Logging | Standard-library `log/slog` |
 | External environments | Optional Google sign-in, one payment gateway sandbox, and Stellar testnet |
 | Architecture | Modular monolith with asynchronous workers and transactional outbox |
-| Status | Self-hosted authentication and principal-scoped consumer order slice implemented; provider/testnet evidence remains staged |
+| Status | Week 1 backend slice implemented in Go; provider and testnet evidence remains staged |
 
 ## Purpose
 
 This folder translates the product-level requirements in the parent `documentations/` folder into an actionable backend design. It covers only the 30-day sandbox/testnet commitment unless a section is explicitly labelled Future.
 
 The documents describe intended behavior and boundaries. The checked-in OpenAPI file, reviewed migrations, configuration schema, and automated tests become the executable contracts once implementation begins. The repository currently includes a Go/Gin/GORM bootstrap under `cmd/` and `internal/`; business use cases and provider adapters are added incrementally.
+
+The SOW names Node.js/TypeScript for the backend deliverable. The accepted
+implementation in this repository is Go/Gin/GORM; the TypeScript SDK is an
+integration client for the public API, not a second backend runtime.
 
 ## Go implementation notes
 
