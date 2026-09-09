@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/big"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -40,20 +41,53 @@ type Client struct {
 
 type latestQuoteResponse struct {
 	Status struct {
-		ErrorCode int `json:"error_code"`
+		ErrorCode *latestErrorCode `json:"error_code"`
 	} `json:"status"`
 	Data []latestQuoteAsset `json:"data"`
 }
 
+type latestErrorCode int
+
+func (code *latestErrorCode) UnmarshalJSON(data []byte) error {
+	raw := bytes.TrimSpace(data)
+	if len(raw) == 0 {
+		return errors.New("invalid coinmarketcap error code")
+	}
+	if raw[0] == '"' {
+		var value string
+		if err := json.Unmarshal(raw, &value); err != nil {
+			return errors.New("invalid coinmarketcap error code")
+		}
+		raw = []byte(value)
+	}
+	parsed, err := strconv.Atoi(string(raw))
+	if err != nil {
+		return errors.New("invalid coinmarketcap error code")
+	}
+	*code = latestErrorCode(parsed)
+	return nil
+}
+
 type latestQuoteAsset struct {
-	ID    int                 `json:"id"`
-	Quote latestCurrencyQuote `json:"quote"`
+	ID     int                   `json:"id"`
+	Symbol string                `json:"symbol"`
+	Quote  []latestCurrencyQuote `json:"quote"`
 }
 
 type latestCurrencyQuote struct {
+	ID          int         `json:"id"`
 	Symbol      string      `json:"symbol"`
 	Price       json.Number `json:"price"`
 	LastUpdated string      `json:"last_updated"`
+}
+
+func validPrice(price json.Number) bool {
+	value := price.String()
+	if value == "" {
+		return false
+	}
+	parsed, ok := new(big.Rat).SetString(value)
+	return ok && parsed.Sign() > 0
 }
 
 func New(config Config) (*Client, error) {
@@ -102,8 +136,13 @@ func (c *Client) LatestXLMIDR(ctx context.Context) (usecase.MarketPrice, error) 
 	var payload latestQuoteResponse
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.UseNumber()
-	if err := decoder.Decode(&payload); err != nil || payload.Status.ErrorCode != 0 {
+	if err := decoder.Decode(&payload); err != nil ||
+		payload.Status.ErrorCode == nil ||
+		*payload.Status.ErrorCode != 0 {
 		return usecase.MarketPrice{}, fmt.Errorf("%w: invalid quote response", ErrUnavailable)
+	}
+	if len(payload.Data) == 0 {
+		return usecase.MarketPrice{}, fmt.Errorf("%w: quote data missing", ErrUnavailable)
 	}
 	var xlm *latestQuoteAsset
 	for index := range payload.Data {
@@ -113,14 +152,24 @@ func (c *Client) LatestXLMIDR(ctx context.Context) (usecase.MarketPrice, error) 
 		}
 	}
 	if xlm == nil {
-		return usecase.MarketPrice{}, fmt.Errorf("%w: XLM quote missing", ErrUnavailable)
+		return usecase.MarketPrice{}, fmt.Errorf("%w: unexpected asset ID", ErrUnavailable)
 	}
-	if xlm.Quote.Symbol != quoteCurrencyIDR || xlm.Quote.Price.String() == "" {
+	var idrQuote *latestCurrencyQuote
+	for index := range xlm.Quote {
+		if xlm.Quote[index].Symbol == quoteCurrencyIDR {
+			idrQuote = &xlm.Quote[index]
+			break
+		}
+	}
+	if idrQuote == nil {
 		return usecase.MarketPrice{}, fmt.Errorf("%w: IDR quote missing", ErrUnavailable)
 	}
-	observedAt, err := time.Parse(time.RFC3339Nano, xlm.Quote.LastUpdated)
+	if !validPrice(idrQuote.Price) {
+		return usecase.MarketPrice{}, fmt.Errorf("%w: invalid IDR price", ErrUnavailable)
+	}
+	observedAt, err := time.Parse(time.RFC3339Nano, idrQuote.LastUpdated)
 	if err != nil {
 		return usecase.MarketPrice{}, fmt.Errorf("%w: invalid quote timestamp", ErrUnavailable)
 	}
-	return usecase.MarketPrice{IDRPerXLM: xlm.Quote.Price.String(), ObservedAt: observedAt.UTC()}, nil
+	return usecase.MarketPrice{IDRPerXLM: idrQuote.Price.String(), ObservedAt: observedAt.UTC()}, nil
 }
