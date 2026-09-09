@@ -146,5 +146,6 @@ go build -buildvcs=false ./...
 ```
 
 See [backend documentation](documentations/backend/README.md) and
+[the server deployment guide](deploy/README.md) and
 [the agent architecture rules](AGENTS.md) for the full boundary and safety
 guidance.

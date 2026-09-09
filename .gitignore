@@ -41,3 +41,8 @@ go.work.sum
 
 /docs/*
 .zcode/
+
+/deploy/*.env
+/deploy/minio/certs/*
+!/deploy/minio/certs/.gitkeep
+!/deploy/minio/certs/README.md
