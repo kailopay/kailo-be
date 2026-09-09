@@ -3,8 +3,10 @@ package httpapi
 import (
 	"errors"
 	"log/slog"
+	"net/http"
 
 	"github.com/febry3/kailopay-be/internal/handler/middleware"
+	openapi "github.com/febry3/kailopay-be/openapi"
 	"github.com/gin-gonic/gin"
 )
 
@@ -91,6 +93,7 @@ func NewRouter(logger *slog.Logger, health *HealthHandler, authHandler *AuthHand
 	if logger == nil {
 		logger = slog.Default()
 	}
+	documentationHandler := openapi.UIHandler()
 	configured := routerOptions{}
 	for _, option := range options {
 		if option == nil {
@@ -115,6 +118,10 @@ func NewRouter(logger *slog.Logger, health *HealthHandler, authHandler *AuthHand
 	router.GET("/health", health.Health)
 	router.GET("/healthz", health.Liveness)
 	router.GET("/ready", health.Ready)
+	router.GET("/docs", func(c *gin.Context) {
+		c.Redirect(http.StatusPermanentRedirect, "/docs/")
+	})
+	router.GET("/docs/*path", gin.WrapH(http.StripPrefix("/docs", documentationHandler)))
 	router.POST("/auth/register", authHandler.Register)
 	router.POST("/auth/login", authHandler.Login)
 	router.GET("/auth/google/login", authHandler.GoogleLogin)

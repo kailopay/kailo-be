@@ -88,6 +88,7 @@ one file per table; repository queries remain in `internal/repository`.
 
    Health endpoints are available at `/livez`, `/readyz`, and `/startupz`.
    `/health`, `/healthz`, and `/ready` remain compatibility aliases.
+   Interactive Swagger UI is available at `http://localhost:8080/docs/`.
 
    For live reload during development, run Air instead:
 

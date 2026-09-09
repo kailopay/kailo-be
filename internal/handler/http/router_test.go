@@ -103,6 +103,45 @@ func TestRouterRegistersWeek1Routes(t *testing.T) {
 	}
 }
 
+func TestRouterServesOpenAPIDocumentation(t *testing.T) {
+	authHandler := testAuthHandler(t, &fakeAuthService{})
+	health := NewHealthHandler(func(context.Context) error { return nil }, time.Second, nil)
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	requireSession := middleware.RequireSession(fakeSessionAuthenticator{user: auth.AuthenticatedUser{User: auth.UserProfile{ID: "user-id"}}})
+	router, err := NewRouter(logger, health, authHandler, requireSession)
+	if err != nil {
+		t.Fatalf("NewRouter() error = %v", err)
+	}
+
+	tests := []struct {
+		name         string
+		path         string
+		contentType  string
+		bodyContains string
+	}{
+		{name: "swagger ui", path: "/docs/", contentType: "text/html", bodyContains: `id="swagger-ui"`},
+		{name: "openapi document", path: "/docs/openapi.yaml", contentType: "text/yaml", bodyContains: "openapi: 3.0.3"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			response := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodGet, test.path, nil)
+			router.ServeHTTP(response, request)
+
+			if response.Code != http.StatusOK {
+				t.Fatalf("status = %d, want %d, body = %q", response.Code, http.StatusOK, response.Body.String())
+			}
+			if contentType := response.Header().Get("Content-Type"); !strings.HasPrefix(contentType, test.contentType) {
+				t.Fatalf("Content-Type = %q, want prefix %q", contentType, test.contentType)
+			}
+			if !strings.Contains(response.Body.String(), test.bodyContains) {
+				t.Fatalf("body does not contain %q", test.bodyContains)
+			}
+		})
+	}
+}
+
 func TestRouterAcceptsRetailSessionForOrderCreation(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	service := &fakeOnrampService{}
