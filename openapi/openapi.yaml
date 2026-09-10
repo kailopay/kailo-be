@@ -614,10 +614,14 @@ paths:
     post:
       summary: Receive an authenticated Xendit payment webhook
       description: |
-        Accepts Xendit `payment_session.completed` and `payment.capture`
-        callbacks. The backend correlates a callback by payment-session ID or
-        payment-request ID, re-checks the provider state, and applies the
-        payment transition idempotently before enqueueing Stellar settlement.
+        Accepts Xendit `payment_session.completed`,
+        `payment_session.expired`, and `payment.capture` callbacks. Payment
+        Session callbacks may identify the session with either
+        `data.payment_session_id` or the `data.id` field used by the Xendit
+        dashboard test fixture. The backend correlates a callback by
+        payment-session ID or payment-request ID, re-checks the provider
+        state, and applies the payment transition idempotently before
+        enqueueing Stellar settlement.
       security:
         - xenditCallback: []
       requestBody:
@@ -625,13 +629,12 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              additionalProperties: true
+              $ref: '#/components/schemas/XenditCallbackRequest'
       responses:
         '200':
           description: Callback accepted, replayed, or safely retained
         '401':
-          description: Invalid callback token
+          description: Invalid callback token or malformed/unsupported callback payload
 components:
   securitySchemes:
     kailoSession:
@@ -947,3 +950,50 @@ components:
           type: string
           format: uuid
           description: Durable order identifier returned when checkout creation has an unknown provider outcome; poll GET /v1/orders/{id}.
+    XenditCallbackRequest:
+      oneOf:
+        - $ref: '#/components/schemas/XenditPaymentSessionCallback'
+        - $ref: '#/components/schemas/XenditPaymentCaptureCallback'
+    XenditPaymentSessionCallback:
+      type: object
+      additionalProperties: true
+      required: [event, data]
+      properties:
+        event:
+          type: string
+          enum: [payment_session.completed, payment_session.expired]
+        data:
+          type: object
+          additionalProperties: true
+          anyOf:
+            - required: [payment_session_id]
+            - required: [id]
+          properties:
+            id:
+              type: string
+              description: Payment Session identifier used by the Xendit dashboard test fixture.
+            payment_session_id:
+              type: string
+              description: Payment Session identifier used by the provider callback payload.
+    XenditPaymentCaptureCallback:
+      type: object
+      additionalProperties: true
+      required: [event, data]
+      properties:
+        event:
+          type: string
+          enum: [payment.capture]
+        data:
+          type: object
+          additionalProperties: true
+          required: [payment_id]
+          anyOf:
+            - required: [payment_session_id]
+            - required: [payment_request_id]
+          properties:
+            payment_id:
+              type: string
+            payment_session_id:
+              type: string
+            payment_request_id:
+              type: string

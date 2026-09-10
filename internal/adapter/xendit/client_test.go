@@ -179,6 +179,24 @@ func TestVerifyCallbackAcceptsPaymentSessionCompleted(t *testing.T) {
 	}
 }
 
+func TestVerifyCallbackAcceptsDashboardPaymentSessionID(t *testing.T) {
+	client, err := New(Config{BaseURL: "https://api.xendit.co", SecretKey: "xnd_development_secret",
+		CallbackToken: "01234567890123456789012345678901", APIVersion: "2024-11-11",
+		QRISChannel: "QRIS", VAChannel: "BRI_VIRTUAL_ACCOUNT", HTTPClient: http.DefaultClient})
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := []byte(`{"event":"payment_session.completed","data":{"id":"ps-dashboard-1","amount":100000}}`)
+
+	callback, err := client.VerifyCallback(payload, "01234567890123456789012345678901")
+	if err != nil {
+		t.Fatalf("VerifyCallback() error = %v", err)
+	}
+	if callback.EventID != "payment_session.completed:ps-dashboard-1" || callback.CheckoutID != "ps-dashboard-1" {
+		t.Fatalf("callback = %+v", callback)
+	}
+}
+
 func TestVerifyCallbackUsesPaymentSessionWhenPresent(t *testing.T) {
 	client, err := New(Config{BaseURL: "https://api.xendit.co", SecretKey: "xnd_development_secret",
 		CallbackToken: "01234567890123456789012345678901", APIVersion: "2024-11-11",

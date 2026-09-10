@@ -88,6 +88,7 @@ func (c *Client) VerifyCallback(raw []byte, token string) (usecase.Callback, err
 		Event string `json:"event"`
 		Data  struct {
 			PaymentID        string `json:"payment_id"`
+			ID               string `json:"id"`
 			PaymentSessionID string `json:"payment_session_id"`
 			PaymentRequestID string `json:"payment_request_id"`
 		} `json:"data"`
@@ -98,11 +99,15 @@ func (c *Client) VerifyCallback(raw []byte, token string) (usecase.Callback, err
 	}
 	switch payload.Event {
 	case "payment_session.completed", "payment_session.expired":
-		if payload.Data.PaymentSessionID == "" {
+		sessionID := payload.Data.PaymentSessionID
+		if sessionID == "" {
+			sessionID = payload.Data.ID
+		}
+		if sessionID == "" {
 			return usecase.Callback{}, usecase.ErrInvalidCallback
 		}
-		return usecase.Callback{EventID: payload.Event + ":" + payload.Data.PaymentSessionID, EventType: payload.Event,
-			CheckoutID: payload.Data.PaymentSessionID}, nil
+		return usecase.Callback{EventID: payload.Event + ":" + sessionID, EventType: payload.Event,
+			CheckoutID: sessionID}, nil
 	case "payment.capture":
 		if payload.Data.PaymentID == "" || (payload.Data.PaymentSessionID == "" && payload.Data.PaymentRequestID == "") {
 			return usecase.Callback{}, usecase.ErrInvalidCallback

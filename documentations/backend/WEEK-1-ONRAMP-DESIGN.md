@@ -188,8 +188,8 @@ trusted parsing or order lookup.
 For an authenticated callback:
 
 1. Hash the exact body and derive event identity from the Xendit event and
-   `payment_session_id`, or use the provider payment ID for a legacy
-   `payment.capture` callback.
+   `payment_session_id` (or the dashboard fixture's `id` field), or use the
+   provider payment ID for a legacy `payment.capture` callback.
 2. Insert the receipt under a unique `(provider, provider_event_id)` constraint.
 3. Return the previous acknowledgement for a processed replay.
 4. Resolve the stored Payment Session or related Payment Request and order.
