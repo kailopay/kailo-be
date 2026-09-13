@@ -320,6 +320,19 @@ func TestKYCWebhookKeepsCompletedInquiryNonEligible(t *testing.T) {
 	}
 }
 
+func TestKYCWebhookReturnsUnknownInquiryForProviderRetry(t *testing.T) {
+	now := time.Date(2026, 9, 13, 0, 0, 0, 0, time.UTC)
+	persona := &fakePersonaGateway{webhookEvent: PersonaEvent{
+		ID: "evt-unknown", Type: "inquiry.approved", InquiryID: "inq-not-attached", Status: "approved", CreatedAt: now,
+	}}
+	service := newTestKYCUsecase(t, &fakeKYCRepository{providerFound: false}, persona, now)
+
+	err := service.ProcessPersonaWebhook(context.Background(), []byte(`{"data":{}}`), "valid", now)
+	if !errors.Is(err, ErrKYCInquiryNotFound) {
+		t.Fatalf("ProcessPersonaWebhook() error = %v, want %v", err, ErrKYCInquiryNotFound)
+	}
+}
+
 func TestAPIKeyCreationRequiresApprovedKYC(t *testing.T) {
 	store := &fakeStore{developerEnabled: true}
 	service := newTestServiceWithKYC(t, store, &fakeKYCStatusReader{})

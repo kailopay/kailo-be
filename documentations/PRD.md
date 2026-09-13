@@ -51,7 +51,7 @@ KailoPay addresses the first infrastructure gap by proving the technical and pro
 | G-01 | Demonstrate a complete IDR-to-Stellar sandbox on-ramp | A reviewer can create an order, complete a sandbox QRIS or bank-transfer payment, and inspect the resulting Stellar testnet transaction hash. |
 | G-02 | Demonstrate a complete Stellar-to-IDR sandbox off-ramp | A reviewer can initiate a sell order, submit the configured test asset, and observe the burn/retirement and withdrawal state progression. |
 | G-03 | Provide reusable developer infrastructure | Public REST API, `pk_test_` API key authentication, OpenAPI specification, TypeScript SDK, webhook delivery, and integration documentation are publicly reviewable. |
-| G-04 | Prove the anchor architecture | SEP-24 deposit and withdrawal skeleton, KYC stub, `stellar.toml`, and federation configuration are available on Stellar testnet. |
+| G-04 | Prove the anchor architecture | SEP-24 deposit and withdrawal skeleton, a Persona-backed sandbox KYC status gate, `stellar.toml`, and federation configuration are available on Stellar testnet. |
 | G-05 | Make completion independently verifiable | Public repository, live sandbox URLs, transaction hashes, webhook logs, test results, demo recording, and Completion Report are supplied. |
 
 ### 4.2 Product success metrics
@@ -74,7 +74,8 @@ The following are explicitly out of scope for the 30-day release:
 
 - Live production payments or real-money settlement.
 - Stellar mainnet deployment.
-- Full KYC integration with providers such as VIDA or PrivyID.
+- Production KYC/AML integration, sanctions screening, and regulatory case
+  management. Persona sandbox status gating is included in the anchor flow.
 - Bappebti licensing, legal opinions, or completion of regulatory compliance.
 - Native iOS or Android applications.
 - Merchant acquiring, merchant checkout, or a merchant payment gateway.
@@ -145,8 +146,9 @@ Needs: structured logs, searchable order identifiers, safe replay procedures, en
 
 1. Wallet discovers the anchor through `stellar.toml`.
 2. Wallet initiates an interactive deposit or withdrawal request.
-3. User completes the stubbed KYC step.
-4. The interactive flow creates the corresponding KailoPay order.
+3. User completes Persona sandbox identity verification.
+4. The current interactive skeleton discloses the KYC gate; a complete SEP-24
+   lifecycle will create a corresponding KailoPay order only after approval.
 5. Order status reflects payment and on-chain state changes through the testnet lifecycle.
 
 ## 8. Functional requirements
@@ -207,7 +209,7 @@ Needs: structured logs, searchable order identifiers, safe replay procedures, en
 |---|---|---|
 | FR-040 | Committed | KailoPay shall expose a Stellar testnet SEP-24 deposit flow skeleton. |
 | FR-041 | Committed | KailoPay shall expose a Stellar testnet SEP-24 withdrawal flow skeleton. |
-| FR-042 | Committed | The interactive flow shall contain a clearly labelled KYC stub and shall not claim that production identity verification has occurred. |
+| FR-042 | Committed | The interactive flow shall use Persona sandbox inquiry/status callbacks, require local `approved` status before API-key or order creation, and clearly state that this is not production identity verification. |
 | FR-043 | Committed | A valid `stellar.toml` shall be publicly accessible and advertise the implemented testnet services. |
 | FR-044 | Committed | Federation configuration or a minimal federation service shall be publicly accessible and documented. |
 | FR-045 | Derived | SEP-24 transaction status shall map consistently to the internal order state model. |
@@ -309,7 +311,7 @@ The OpenAPI document is the contract authority for request and response schemas.
 | NFR-002 | Security | Derived | All public deployments shall use HTTPS. |
 | NFR-003 | Security | Derived | Input shall be validated at the API boundary and database access shall use parameterized operations/ORM protections. |
 | NFR-004 | Security | Derived | Gateway callbacks and outgoing developer webhooks shall use documented authenticity controls. |
-| NFR-005 | Data protection | Derived | The KYC stub shall use synthetic data and avoid collecting real identity documents. |
+| NFR-005 | Data protection | Derived | The Persona sandbox integration shall avoid storing raw identity documents, raw provider webhook bodies, and unnecessary identity fields; it shall retain only normalized status and safe correlation metadata. |
 | NFR-006 | Reliability | Derived | Payment callbacks, order creation, asset issuance, and webhook consumption shall be idempotent. |
 | NFR-007 | Reliability | Derived | State transitions shall be transactional where order state and external references are persisted together. |
 | NFR-008 | Observability | Derived | Logs shall be structured and correlate order ID, external payment ID, webhook event ID, and Stellar transaction hash without exposing secrets. |
@@ -376,11 +378,19 @@ Given a valid `pk_test_` key, when a developer creates an order and registers a 
 
 ### AC-07: SEP-24 discovery
 
-Given a compatible test wallet or manual reviewer, when it reads `stellar.toml` and starts deposit/withdrawal, then the advertised endpoints resolve to the interactive sandbox flows and expose a KYC stub.
+Given a compatible test wallet or manual reviewer, when it reads `stellar.toml` and starts deposit/withdrawal, then the advertised endpoints resolve to the interactive sandbox flows and expose the Persona sandbox KYC status gate.
 
 ### AC-08: Evidence review
 
 Given only the published evidence package, when the Ambassador reviewer follows the verification checklist, then each of the three SOW deliverables can be classified as present, partial, or missing without private system access.
+
+### AC-09: Approved KYC gate
+
+Given an authenticated user whose Persona status is not `approved`, when the
+user creates an API key or an on/off-ramp order, then the API rejects the
+mutation with `KYC_REQUIRED` and no key or order is created. Given a verified
+Persona approval callback, the same user may continue through the documented
+sandbox flow.
 
 ## 15. Assumptions and decisions required
 
@@ -394,6 +404,7 @@ Given only the published evidence package, when the Ambassador reviewer follows 
 | DEC-06 | Repository license | SOW requires a public repository with a license. | Select the open-source license before publication. |
 | DEC-07 | Backend runtime | The repository implements the backend in Go with Gin, GORM PostgreSQL, Viper, and `log/slog`. | Project decision for `v0.1.0`: document this implementation-stack variance because the original SOW described Node.js/TypeScript; functional deliverables and acceptance evidence remain unchanged. |
 | DEC-08 | Developer SDK runtime | The official integration SDK remains implemented in TypeScript and is versioned against the public API/OpenAPI contract. | Approved for `v0.1.0`: keep the SDK separate from the Go backend and target server-side Node.js for secret-key operations. |
+| DEC-09 | Identity verification | The anchor requires a user-scoped identity status before API-key and value-movement access. | Approved by ADR-004: use Persona sandbox inquiries and signed callbacks; only local `approved` status unlocks the operations, while production KYC/AML remains Future scope. |
 
 Unresolved decisions shall be recorded in an ADR or project decision log and must not silently expand scope.
 
@@ -403,7 +414,7 @@ Unresolved decisions shall be recorded in an ADR or project decision log and mus
 |---|---|---|
 | Gateway approval or sandbox feature limitations | Blocks QRIS, bank transfer, or payout evidence | Validate sandbox accounts and the exact supported methods in Phase 0; document any provider limitation immediately. |
 | Duplicate callbacks or uncertain network submission | Duplicate asset movement | Enforce idempotency, persist external IDs, and verify network state before retry. |
-| SEP-24 scope becomes larger than a skeleton | Consumes the 30-day delivery window | Limit to deposit/withdraw interactive flows, KYC stub, discovery, and testnet lifecycle required by the SOW. |
+| SEP-24 scope becomes larger than a skeleton | Consumes the 30-day delivery window | Limit to deposit/withdraw interactive flows, Persona sandbox KYC status gating, discovery, and testnet lifecycle required by the SOW. |
 | One developer across API, anchor, web, docs, and deployment | Schedule slippage | Use a vertical-slice sequence, enforce a Must-have cut line, and create evidence continuously. |
 | Public repository exposes secrets or private keys | Security incident and invalid delivery | Use secret scanning, `.env.example`, test-only funded accounts, and a release security checklist. |
 | Regulatory expectations are mistaken for production readiness | Reputational/legal risk | Display sandbox/testnet labels and explicitly document that licensing, production KYC, and real-money operation are excluded. |

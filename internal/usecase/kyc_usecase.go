@@ -236,7 +236,7 @@ func (s *KYCUsecase) ProcessPersonaWebhook(ctx context.Context, rawBody []byte, 
 		return fmt.Errorf("finding kyc inquiry for persona event: %w", err)
 	}
 	if !found {
-		return nil
+		return ErrKYCInquiryNotFound
 	}
 	eventID, err := s.dependencies.NewID()
 	if err != nil {

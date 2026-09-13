@@ -27,7 +27,7 @@ func NewKYCRepository(db *gorm.DB) *KYCRepository {
 func (r *KYCRepository) FindCurrent(ctx context.Context, userID string) (usecase.KYCInquiryRecord, bool, error) {
 	var row entity.KYCInquiry
 	err := r.db.WithContext(ctx).Where("user_id = ?", strings.TrimSpace(userID)).
-		Order("updated_at DESC, id DESC").First(&row).Error
+		Order("created_at DESC, id DESC").First(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return usecase.KYCInquiryRecord{}, false, nil
 	}
@@ -68,7 +68,7 @@ func (r *KYCRepository) Reserve(ctx context.Context, userID, internalID, request
 
 		var existing entity.KYCInquiry
 		err = tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("user_id = ?", userID).
-			Order("updated_at DESC, id DESC").First(&existing).Error
+			Order("created_at DESC, id DESC").First(&existing).Error
 		if err == nil {
 			if existing.Status == entity.KYCInquiryApproved || retainInquiry(existing, now) {
 				result = kycInquiryRecord(existing)
@@ -89,17 +89,22 @@ func (r *KYCRepository) Reserve(ctx context.Context, userID, internalID, request
 			ID: internalID, UserID: userID, Provider: kycProvider, ProviderRequestKey: requestKey,
 			Status: entity.KYCInquiryCreating, CreatedAt: now, UpdatedAt: now,
 		}
-		if err := tx.Create(&row).Error; err != nil {
-			if isUniqueViolation(err) {
-				var concurrent entity.KYCInquiry
-				findErr := tx.Where("user_id = ? AND status IN ?", userID, activeKYCEntityStatuses()).
-					Order("updated_at DESC, id DESC").First(&concurrent).Error
-				if findErr == nil {
-					result = kycInquiryRecord(concurrent)
-					return nil
-				}
+		createResult := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&row)
+		if createResult.Error != nil {
+			return fmt.Errorf("creating kyc inquiry reservation: %w", createResult.Error)
+		}
+		if createResult.RowsAffected == 0 {
+			var concurrent entity.KYCInquiry
+			findErr := tx.Where("user_id = ? AND status IN ?", userID, activeKYCEntityStatuses()).
+				Order("created_at DESC, id DESC").First(&concurrent).Error
+			if findErr == nil {
+				result = kycInquiryRecord(concurrent)
+				return nil
 			}
-			return fmt.Errorf("creating kyc inquiry reservation: %w", err)
+			if !errors.Is(findErr, gorm.ErrRecordNotFound) {
+				return fmt.Errorf("finding concurrent kyc inquiry reservation: %w", findErr)
+			}
+			return errors.New("kyc inquiry reservation conflicts with an existing record")
 		}
 		result = kycInquiryRecord(row)
 		created = true
@@ -183,24 +188,26 @@ func (r *KYCRepository) RecordProviderEvent(ctx context.Context, event usecase.K
 			ID: event.ID, Provider: event.Provider, ProviderEventID: event.ProviderEventID, InquiryID: event.InquiryID,
 			EventType: event.EventType, ProviderEventAt: event.ProviderEventAt, PayloadHash: event.PayloadHash, ReceivedAt: event.ReceivedAt,
 		}
-		if err := tx.Create(&row).Error; err != nil {
-			if isUniqueViolation(err) {
-				var concurrent entity.KYCProviderEvent
-				findErr := tx.Where("provider = ? AND provider_event_id = ?", event.Provider, event.ProviderEventID).First(&concurrent).Error
-				if findErr == nil && concurrent.PayloadHash == event.PayloadHash && concurrent.InquiryID == event.InquiryID {
-					return nil
-				}
-				if findErr == nil {
-					return usecase.ErrKYCProviderEventConflict
-				}
-			}
-			return fmt.Errorf("creating kyc provider event: %w", err)
+		createResult := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&row)
+		if createResult.Error != nil {
+			return fmt.Errorf("creating kyc provider event: %w", createResult.Error)
 		}
-
-		if inquiry.ProviderEventAt != nil && event.ProviderEventAt.Before(*inquiry.ProviderEventAt) {
+		if createResult.RowsAffected == 0 {
+			var concurrent entity.KYCProviderEvent
+			findErr := tx.Where("provider = ? AND provider_event_id = ?", event.Provider, event.ProviderEventID).First(&concurrent).Error
+			if findErr != nil {
+				if errors.Is(findErr, gorm.ErrRecordNotFound) {
+					return errors.New("kyc provider event conflicts with an existing record")
+				}
+				return fmt.Errorf("finding concurrent kyc provider event: %w", findErr)
+			}
+			if concurrent.PayloadHash != event.PayloadHash || concurrent.InquiryID != event.InquiryID {
+				return usecase.ErrKYCProviderEventConflict
+			}
 			return nil
 		}
-		if inquiry.Status == entity.KYCInquiryApproved && mappedStatus != usecase.KYCStatusApproved {
+
+		if !isProviderEventNewer(inquiry.ProviderEventAt, inquiry.LastProviderEventID, event.ProviderEventAt, event.ProviderEventID) {
 			return nil
 		}
 		updates := map[string]any{
@@ -208,6 +215,7 @@ func (r *KYCRepository) RecordProviderEvent(ctx context.Context, event usecase.K
 			"last_provider_event_id": event.ProviderEventID,
 			"provider_status":        strings.TrimSpace(providerStatus),
 			"status":                 string(mappedStatus),
+			"approved_at":            nil,
 			"updated_at":             now,
 		}
 		switch mappedStatus {
@@ -227,6 +235,22 @@ func (r *KYCRepository) RecordProviderEvent(ctx context.Context, event usecase.K
 		}
 		return nil
 	})
+}
+
+func isProviderEventNewer(currentAt *time.Time, currentID *string, eventAt time.Time, eventID string) bool {
+	if currentAt == nil {
+		return true
+	}
+	if eventAt.After(*currentAt) {
+		return true
+	}
+	if eventAt.Before(*currentAt) {
+		return false
+	}
+	if currentID == nil || strings.TrimSpace(*currentID) == "" {
+		return true
+	}
+	return eventID > *currentID
 }
 
 func kycInquiryRecord(row entity.KYCInquiry) usecase.KYCInquiryRecord {

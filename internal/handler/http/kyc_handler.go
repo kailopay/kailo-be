@@ -71,7 +71,10 @@ func (h *KYCHandler) ServeHTTP(w http.ResponseWriter, request *http.Request) {
 	case errors.Is(err, usecase.ErrKYCProviderEventConflict):
 		writeCallbackJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid callback"})
 	case errors.Is(err, usecase.ErrKYCInquiryNotFound):
-		writeCallbackJSON(w, http.StatusOK, map[string]string{"status": "retained"})
+		// A callback can race the short window between provider inquiry
+		// creation and local attachment. Keep it retryable so approval cannot
+		// be lost before the local correlation record exists.
+		writeCallbackJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "temporarily unavailable"})
 	default:
 		h.logger.ErrorContext(request.Context(), "processing Persona KYC callback failed", slog.Any("error", err))
 		writeCallbackJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "temporarily unavailable"})

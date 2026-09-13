@@ -64,17 +64,17 @@ This repository package supplies the first four planning documents. The implemen
 | Data model and state-machine reference | P0 | Backend Developer | Week 1-2 | Developers, QA, operators | Entities, relationships, precision rules, on/off-ramp states, allowed transitions, and invariants are documented. |
 | Payment gateway integration guide | P0 | Backend Developer | Week 2 | Developers, operators | Selected provider setup, sandbox methods, callback verification, reconciliation, idempotency, error mapping, and known sandbox limitations are covered. |
 | Stellar asset and settlement guide | P0 | Stellar Developer | Week 2 | Developers, reviewers | Network, accounts/roles, asset code/issuer, issuance, burn/retirement, correlation, retry safety, and explorer verification are documented without secret keys. |
-| SEP-24 and anchor discovery guide | P0 | Stellar Developer | Week 2-3 | Wallet developers, reviewers | `stellar.toml`, federation, deposit/withdraw endpoints, KYC stub, status mapping, and manual verification steps are documented. |
+| SEP-24 and anchor discovery guide | P0 | Stellar Developer | Week 2-3 | Wallet developers, reviewers | `stellar.toml`, federation, deposit/withdraw endpoints, Persona sandbox KYC status gate, status mapping, and manual verification steps are documented. |
 | ADRs | P0 | Decision owner | As decisions occur | Maintainers | Each material decision records context, chosen option, alternatives, rationale, consequences, and supersession status. |
 
 Recommended ADRs for `v0.1.0`:
 
-- ADR-001: Xendit versus Midtrans selection.
-- ADR-002: Test asset issuance, distribution, and burn/retirement model.
-- ADR-003: Order state machine and exactly-once settlement strategy.
-- ADR-004: Off-ramp payout sandbox evidence model.
-- ADR-005: Hosting and public URL topology.
-- ADR-006: Demo user/developer authentication approach.
+- ADR-001: Xendit and native-XLM sandbox settlement selection.
+- ADR-002: Self-hosted authentication and identity linking.
+- ADR-003: Off-ramp retirement and payout sandbox evidence model.
+- ADR-004: Persona sandbox KYC status gate.
+- Hosting/public URL topology and any remaining material decisions are recorded
+  when their options are resolved.
 
 ### 4.4 API and integration documentation
 
@@ -95,7 +95,7 @@ Recommended ADRs for `v0.1.0`:
 | Sandbox user guide | P0 | Product/Developer | Week 4 | Users, Ambassador reviewer | Buy, sell, status, history, and explorer-verification steps include screenshots and prominent sandbox/testnet warnings. |
 | Reviewer verification guide | P0 | Project Owner | Week 4 | Ambassador reviewer | Each SOW deliverable has a short verification procedure, expected result, and evidence link requiring minimal technical knowledge. |
 | Demo script and recording | P0 | Project Owner | Week 4 | Sponsor, public | Recording shows environment warning, QRIS/bank-transfer context, buy flow, sell flow, API/docs, testnet hashes, and known limitations. |
-| FAQ and known limitations | P1 | Product Owner | Week 4 | All users | Clearly distinguishes testnet assets, sandbox payment behavior, KYC stub, payout simulation, and excluded production capabilities. |
+| FAQ and known limitations | P1 | Product Owner | Week 4 | All users | Clearly distinguishes testnet assets, sandbox payment behavior, Persona sandbox status gating, payout simulation, and excluded production capabilities. |
 
 ### 4.6 Quality, security, and operations documentation
 
@@ -105,6 +105,7 @@ Recommended ADRs for `v0.1.0`:
 | Test results | P0 | QA/Developer | Week 3-4 | Team, Ambassador reviewer | Environment, build/version, cases, expected/actual result, evidence, defects, and final disposition are recorded. |
 | Minimal threat model and security checklist | P0 | Tech Lead | Week 3 | Engineering, sponsor | Assets, trust boundaries, abuse cases, callback/webhook threats, secret/private-key risks, mitigations, and residual sandbox risks are reviewed. |
 | Deployment runbook | P0 | DevOps/Developer | Week 3 | Maintainers | Prerequisites, configuration, migration, deploy, verification, rollback, log access, and public endpoint checks are executable. |
+| Persona KYC integration runbook | P0 | Backend Developer | Week 2 | Developers, operators, reviewers | Persona sandbox setup, signed callback verification, inquiry flow, replay handling, safe evidence, and non-production limitations are executable. |
 | Demo operations and recovery runbook | P1 | Developer | Week 4 | Maintainers | Restart, failed-order diagnosis, safe retry, test data cleanup, provider outage, and evidence fallback procedures are documented. |
 | Backup/restore note | P1 | Developer | Week 4 | Maintainers | Sandbox database backup and restore are tested or limitations are explicitly recorded. |
 | Security disclosure policy | P1 | Project Owner | Week 4 | Public researchers | A safe private contact route and response expectations are published without promising a production SLA. |
@@ -125,7 +126,7 @@ The final project should instantiate the following matrix with working links:
 | SOW deliverable | Required evidence | Verification action | Owner | Status |
 |---|---|---|---|---|
 | Deliverable 1: On/off-ramp API and payment integration | Public repo, live API URL, OpenAPI, test key guide, order screenshots/responses, QRIS and bank-transfer sandbox checkout evidence | Create or inspect buy/sell orders, verify status responses, and confirm provider sandbox checkout | Backend/Project Owner | Planned |
-| Deliverable 2: Stellar testnet anchor skeleton | Testnet transaction hashes, `stellar.toml`, federation URL, SEP-24 deposit/withdrawal demo, KYC stub, webhook logs | Open explorer links, validate discovery files, follow interactive flows, and inspect webhook evidence | Stellar Developer/Project Owner | Planned |
+| Deliverable 2: Stellar testnet anchor skeleton | Testnet transaction hashes, `stellar.toml`, federation URL, SEP-24 deposit/withdrawal demo, Persona sandbox KYC status/callback evidence, webhook logs | Open explorer links, validate discovery files, follow interactive flows, and inspect webhook evidence | Stellar Developer/Project Owner | Planned |
 | Deliverable 3: Web app and demo materials | Live app URL, user guide, developer docs, demo recording, Completion Report | Complete or watch buy/sell flows and review mapped final report | Frontend/Project Owner | Planned |
 
 Allowed final statuses are `Present`, `Partial`, or `Missing`. `Partial` and `Missing` require a written explanation, impact, and corrective action.

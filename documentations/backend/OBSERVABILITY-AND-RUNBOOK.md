@@ -8,6 +8,7 @@ Observability must answer:
 - Did a gateway callback authenticate and reconcile?
 - Was a Stellar transaction submitted, confirmed, failed, or left unknown?
 - Was a developer webhook delivered or exhausted?
+- Did the Persona callback authenticate, deduplicate, and update the KYC status?
 - Is the API/worker ready, and which external dependency is degraded?
 
 The sandbox requires actionable diagnostics and evidence, not a production 24/7 SRE program.
@@ -24,6 +25,7 @@ Use JSON logs with consistent fields:
 | `route`, `method`, `status`, `duration` | HTTP outcome using bounded route templates |
 | `order_id`, `client_id` | Business correlation |
 | `provider`, `provider_reference`, `gateway_event_id` | Payment correlation |
+| `kyc_inquiry_id`, `kyc_provider_event_id`, `kyc_status` | Persona KYC correlation |
 | `stellar_intent_id`, `stellar_tx_hash` | Testnet correlation |
 | `webhook_event_id`, `webhook_attempt_id` | Delivery correlation |
 | `error_code`, `retryable`, `duration_ms` | Outcome diagnostics |
@@ -74,6 +76,13 @@ Minimum metrics:
 - Webhook delivery outcome/duration by status class.
 - Worker lease/poll errors.
 
+### KYC
+
+- Inquiry creation/resume outcome and duration.
+- Callback received, authentication failed, duplicate, conflicting, unmatched,
+  and processed counts.
+- Current inquiries by safe local status and age.
+
 Avoid high-cardinality IDs as metric labels; keep IDs in logs/traces.
 
 ## 4. Health and readiness
@@ -108,6 +117,7 @@ At minimum, provide safe queries or a lightweight dashboard to find:
 - Order event timeline.
 - Payment checkout and callback matching results.
 - Stellar intents/transactions by order and state.
+- KYC inquiries and provider events by safe status/age; never raw identity data.
 - Outbox messages and webhook attempts by order/event.
 - Non-terminal orders older than expected thresholds.
 
@@ -123,6 +133,10 @@ These tools must not expose secrets or require a public admin endpoint.
 6. Use only documented idempotent recovery commands/procedures.
 7. Capture sanitized evidence and final resolution.
 8. Add or update a regression test for application defects.
+
+For a KYC issue, inspect the local inquiry, provider event ID/hash, and safe
+status timeline. Never request or copy raw identity documents or provider
+webhook bodies into an incident record.
 
 ## 7. Runbook: API unavailable
 
@@ -222,6 +236,7 @@ Because live dependencies may be unavailable during review, retain:
 - Sanitized screenshots and request/response examples.
 - Order IDs and immutable event histories.
 - Provider sandbox references and callback-processing logs.
+- Persona inquiry/provider-event references and sanitized callback-processing logs.
 - Stellar testnet hashes and explorer links.
 - Webhook event/attempt logs.
 - Release tag, OpenAPI, test result, and demo recording.

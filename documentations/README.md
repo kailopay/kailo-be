@@ -39,7 +39,8 @@ The `v0.1.0` target is a public, reviewable sandbox platform containing:
 - One real Indonesian payment gateway integration in sandbox mode, supporting QRIS and bank transfer.
 - Verified payment callbacks and developer webhook delivery.
 - Stellar testnet issuance/transfer and burn/retirement evidence.
-- SEP-24 deposit and withdrawal skeleton, KYC stub, `stellar.toml`, and federation configuration.
+- SEP-24 deposit and withdrawal skeleton, Persona-backed sandbox KYC status
+  gate, `stellar.toml`, and federation configuration.
 - User-facing buy/sell web app, order status, transaction history, and developer section.
 - Public repository, live sandbox URLs, OpenAPI specification, test results, demo recording, and Completion Report.
 
@@ -47,7 +48,8 @@ The `v0.1.0` target is a public, reviewable sandbox platform containing:
 
 - Production payments or real IDR settlement.
 - Stellar mainnet.
-- Full KYC-provider integration.
+- Production KYC-provider integration, AML/sanctions screening, and regulatory
+  case management. Persona sandbox status gating is included.
 - Licensing and regulatory-compliance completion.
 - Native mobile applications.
 - Merchant payment gateway and white-label products.

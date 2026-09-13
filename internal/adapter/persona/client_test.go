@@ -148,6 +148,11 @@ func TestVerifyWebhookAcceptsRotatingSignaturesAndRejectsInvalidHeaders(t *testi
 			t.Errorf("VerifyWebhook(%q) error = nil", invalid)
 		}
 	}
+	for _, extreme := range []int64{int64(-1 << 63), int64(1<<63 - 1)} {
+		if _, err := client.VerifyWebhook(rawBody, personaSignature(testPersonaSecret, extreme, rawBody), now); err == nil {
+			t.Errorf("VerifyWebhook(extreme timestamp %d) error = nil", extreme)
+		}
+	}
 }
 
 func TestVerifyWebhookRejectsEmptyBodyAndMalformedPayload(t *testing.T) {

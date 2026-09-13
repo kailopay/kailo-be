@@ -75,9 +75,9 @@ func (h *Sep24Handler) Info(c *gin.Context) {
 	})
 }
 
-// Deposit starts a SEP-24 deposit transaction record. In this skeleton the
-// response carries the order id as the SEP-24 transaction id plus the KYC
-// simulation flag; completing the fiat side happens through the normal flow.
+// Deposit starts a SEP-24 interactive transaction placeholder. The placeholder
+// does not create a value-moving order; the regular order endpoint enforces the
+// approved Persona status before any value-moving action.
 func (h *Sep24Handler) Deposit(c *gin.Context) {
 	h.startTransaction(c, "deposit")
 }
@@ -95,10 +95,10 @@ func (h *Sep24Handler) startTransaction(c *gin.Context, kind string) {
 	}
 	transactionID := fmt.Sprintf("%s-%s", kind, usecase.Sep24TransactionID())
 	c.JSON(http.StatusOK, gin.H{
-		"type":          kind,
-		"id":            transactionID,
-		"kyc_simulated": true,
-		"message":       "KYC simulation - no identity verification performed.",
+		"type":         kind,
+		"id":           transactionID,
+		"kyc_required": true,
+		"message":      "Complete Persona identity verification before creating a value-moving order.",
 	})
 }
 
@@ -111,9 +111,9 @@ func (h *Sep24Handler) Transaction(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"transaction": gin.H{
-		"status":        sepStatus,
-		"kind":          c.DefaultQuery("kind", "deposit"),
-		"id":            c.Query("id"),
-		"kyc_simulated": true,
+		"status":       sepStatus,
+		"kind":         c.DefaultQuery("kind", "deposit"),
+		"id":           c.Query("id"),
+		"kyc_required": true,
 	}})
 }

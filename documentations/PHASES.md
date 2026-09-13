@@ -104,7 +104,8 @@ Planned work:
 - Implement off-ramp asset deposit detection/verification, burn or retirement, and sandbox withdrawal processing.
 - Persist payment, asset, and transaction correlation references.
 - Implement outgoing signed developer webhooks and retry logs.
-- Add SEP-24 interactive deposit/withdrawal skeleton and KYC stub.
+- Add SEP-24 interactive deposit/withdrawal skeleton and Persona sandbox KYC
+  status gate with signed callbacks.
 - Publish `stellar.toml` and federation configuration.
 - Build basic web buy and sell screens.
 
@@ -189,7 +190,8 @@ The following may not be cut without a written SOW change:
 - QRIS and bank-transfer sandbox checkout.
 - On-ramp and off-ramp APIs and order status.
 - Verified payment callbacks and end-to-end testnet movement.
-- SEP-24 deposit/withdrawal skeleton, KYC stub, `stellar.toml`, and federation configuration.
+- SEP-24 deposit/withdrawal skeleton, Persona sandbox KYC status gate,
+  `stellar.toml`, and federation configuration.
 - User-facing buy/sell flow.
 - Test API keys, OpenAPI documentation, developer webhooks, and public review URLs.
 - Two end-to-end test flows, demo, and Completion Report.

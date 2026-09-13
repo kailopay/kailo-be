@@ -22,7 +22,8 @@ Story points are not hours. Phase 0 must validate the P0 total against actual ve
 - Dependencies/credentials are present or a verified fake/fallback is defined.
 - Acceptance and evidence are testable.
 - External effect and idempotency behavior are explicit.
-- No production/mainnet/KYC/regulatory scope is implied.
+- No production/mainnet/production-KYC/regulatory scope is implied; sandbox KYC
+  status-gating work may be explicitly included.
 
 ## 3. Definition of Done
 
@@ -118,12 +119,15 @@ Acceptance: one paid order creates one testnet settlement; wrong deposits are re
 |---|---|---:|---:|---|---|---|
 | BE-050 | Implement SEP-24 deposit initiation mapped to on-ramp order. | P0 | 5 | Week 2 | BE-024 | Implemented (skeleton) |
 | BE-051 | Implement SEP-24 withdrawal initiation mapped to off-ramp order. | P0 | 5 | Week 2 | BE-025 | Implemented (skeleton) |
-| BE-052 | Implement interactive synthetic KYC stub and explicit warning. | P0 | 2 | Week 2 | BE-050, BE-051 | Implemented |
+| BE-052 | Implement Persona-backed sandbox KYC inquiry/status flow, signed webhook processing, and the approval gate. | P0 | 2 | Week 2 | BE-050, BE-051 | Implemented |
 | BE-053 | Implement/document SEP-facing transaction status mapping. | P0 | 3 | Week 2 | BE-021, BE-050 | Implemented |
 | BE-054 | Publish and validate testnet `stellar.toml`. | P0 | 2 | Week 2 | BE-005, BE-040 | Implemented |
 | BE-055 | Implement minimal public federation lookup/configuration. | P0 | 3 | Week 2 | BE-005, BE-040 | Implemented |
 
-Acceptance: discovery resolves to implemented HTTPS endpoints; deposit/withdraw flows create valid orders; KYC never claims verification or stores real identity documents.
+Acceptance: discovery resolves to implemented HTTPS endpoints; deposit/withdraw
+flows create valid orders; Persona sandbox status is server-authoritative; only
+approved users can create API keys or orders; raw identity documents and raw
+provider payloads are never stored.
 
 ### BE6: Developer webhooks
 

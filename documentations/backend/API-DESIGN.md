@@ -32,7 +32,7 @@ Authorization: Bearer pk_test_<public_id>_<secret>
 
 Invalid, revoked, or malformed keys return `401`. An authenticated client accessing another client's resource returns `404` or `403` according to the selected enumeration policy; use one policy consistently.
 
-API-key creation/revocation requires an authenticated user session with Developer Mode enabled. The session is not replaced by passing arbitrary user or client IDs.
+API-key creation/revocation requires an authenticated user session with Developer Mode enabled. Creating a new API key also requires an approved Persona sandbox KYC status. The session is not replaced by passing arbitrary user or client IDs.
 
 Developer configuration is user-owned. A developer session may manage only API clients whose `owner_user_id` matches the authenticated user. API keys authenticate an API client; they do not authenticate the owning browser user. Disabling Developer Mode hides/blocks developer-management actions but does not silently revoke existing clients or keys.
 
@@ -44,6 +44,10 @@ request uses the API-client principal. When the header is absent, the backend
 authenticates the `kailopay_session` cookie and uses a retail-session principal.
 The session must be active and belong to an email-verified user. A malformed or
 invalid `Authorization` header does not fall back to the cookie.
+
+Creating an on-ramp or off-ramp order additionally requires the owning user to
+have `kyc.status=approved`. This gate is enforced in the usecase for both API-key
+and retail-session principals; the frontend redirect is only a convenience.
 
 | Credential | Principal | Order scope |
 |---|---|---|
@@ -137,6 +141,19 @@ and `retail_session_id`.
 | `GET` | `/v1/webhook-endpoints` | Developer session | List endpoint metadata |
 | `DELETE` | `/v1/webhook-endpoints/{id}` | Developer session | Disable endpoint |
 
+### Identity verification
+
+| Method | Path | Auth | Purpose |
+|---|---|---|---|
+| `GET` | `/v1/kyc` | Authenticated session | Return the current Persona status and safe inquiry metadata |
+| `POST` | `/v1/kyc/inquiry` | Authenticated session | Create or resume the user's Persona inquiry and return the embedded-flow inputs |
+| `POST` | `/callbacks/kyc/persona` | Persona signature | Verify, deduplicate, and apply a Persona inquiry event |
+
+The browser receives only the Persona inquiry ID, sandbox environment ID, and a
+short-lived session token when a resume is required. KailoPay does not store raw
+identity documents or raw Persona webhook bodies. The callback is authoritative;
+the browser must refresh `GET /v1/kyc` after the embedded flow completes.
+
 ### Anchor/public operations
 
 SEP-24 and federation paths follow the applicable Stellar specifications and are detailed in `STELLAR-ANCHOR-INTEGRATION.md`. Health endpoints are intentionally outside `/v1`:
@@ -165,7 +182,8 @@ Validation:
   opens a hosted checkout with all activated Xendit channels; the other two
   values restrict the hosted checkout to one channel.
 - Valid Stellar account and memo/muxed-account policy.
-- No real identity or production-bank data required.
+- An approved Persona sandbox KYC inquiry is required before order creation. The
+  demo does not accept production identity documents or production bank data.
 
 Response: `201` for a new order or `200` for an idempotent replay, with the
 immutable quote and Xendit hosted checkout URL. An unknown provider-create
@@ -223,6 +241,7 @@ Minimum stable codes:
 | 400 | `INVALID_STELLAR_ACCOUNT` | Invalid destination/source details |
 | 401 | `INVALID_API_KEY` | Missing, malformed, invalid, or revoked API key/session credentials |
 | 403 | `ORIGIN_NOT_ALLOWED` | Session-authenticated mutation has no matching configured browser origin |
+| 403 | `KYC_REQUIRED` | User has not completed approved Persona identity verification |
 | 404 | `ORDER_NOT_FOUND` | Resource absent or not visible to the authenticated principal |
 | 409 | `INVALID_ORDER_STATE` | Operation conflicts with current lifecycle |
 | 409 | `IDEMPOTENCY_KEY_REUSED` | Same key used with a different request |
@@ -231,13 +250,15 @@ Minimum stable codes:
 | 429 | `RATE_LIMITED` | Client exceeded sandbox limit |
 | 202 | `CHECKOUT_PENDING_RECONCILIATION` | Checkout transport outcome unknown; the order is held for provider reconciliation and identified by `order_id` |
 | 503 | `QUOTE_UNAVAILABLE` | Market data missing, stale, or produced an invalid quote |
+| 503 | `KYC_PROVIDER_UNAVAILABLE` | Persona inquiry creation/resume is temporarily unavailable |
 | 502/503 | `EXTERNAL_SERVICE_UNAVAILABLE` | Provider/network unavailable; safe retry guidance required |
 | 500 | `INTERNAL_ERROR` | Unexpected server error; reference request ID |
 
 Week 1 implements `INVALID_REQUEST`, `INVALID_STELLAR_ACCOUNT`,
 `INSUFFICIENT_LIQUIDITY`, `IDEMPOTENCY_KEY_REUSED`, `AMOUNT_OUT_OF_RANGE`,
 `ORDER_NOT_FOUND`, `CHECKOUT_PENDING_RECONCILIATION`, `QUOTE_UNAVAILABLE`, and
-`EXTERNAL_SERVICE_UNAVAILABLE`. The remaining catalog entries
+`EXTERNAL_SERVICE_UNAVAILABLE`, `KYC_REQUIRED`, and
+`KYC_PROVIDER_UNAVAILABLE`. The remaining catalog entries
 (`UNSUPPORTED_ROUTE`, `INVALID_API_KEY` body, `INVALID_ORDER_STATE`,
 `RATE_LIMITED`, `INTERNAL_ERROR`) are Week 3 hardening work.
 

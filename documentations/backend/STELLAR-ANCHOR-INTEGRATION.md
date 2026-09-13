@@ -14,7 +14,8 @@ All `v0.1.0` operations use **Stellar testnet**. The release demonstrates:
 - Off-ramp asset receipt, validation, and burn/retirement.
 - Testnet transaction hashes linked to orders.
 - SEP-24 deposit and withdrawal skeleton.
-- Clearly labelled KYC stub.
+- Clearly labelled Persona sandbox KYC verification flow; it is not a production
+  compliance decision.
 - Public `stellar.toml` and federation configuration/service.
 
 Mainnet, production custody, reserves, liquidity, and regulated issuance are Future scope.
@@ -114,7 +115,8 @@ Minimum components:
 - Anchor discovery points clients to the transfer server and interactive endpoints.
 - Deposit initiation creates or maps to a KailoPay on-ramp order.
 - Withdrawal initiation creates or maps to an off-ramp order and returns deposit instructions.
-- Interactive pages display the KYC stub, sandbox status, and order state.
+- Interactive pages display the Persona verification status, sandbox status, and
+  order state.
 - Transaction-status mapping remains consistent with internal states.
 
 Suggested mapping:
@@ -129,15 +131,24 @@ Suggested mapping:
 
 The implementation must verify the exact SEP-24 field/status vocabulary against the selected Stellar specification during development and cover it with contract tests.
 
-## 9. KYC stub
+## 9. Persona sandbox KYC gate
 
-The KYC screen exists only to demonstrate the interactive flow:
+KailoPay uses Persona's hosted/embedded sandbox inquiry flow as the identity
+status gate for the anchor and developer paths. The backend creates or resumes
+the inquiry, returns only the embedded-flow inputs, and accepts approval only
+after a verified Persona callback.
 
-- Use synthetic fields/data.
-- Display “KYC simulation - no identity verification performed.”
-- Do not upload or retain real identity documents.
-- Do not use the result for a production compliance decision.
-- Persist only a stub status/reference needed for the demo.
+- Configure the Persona inquiry template, environment, API key, and webhook
+  secret through environment variables; see `PERSONA-KYC-RUNBOOK.md`.
+- The browser opens Persona with the inquiry ID or short-lived resume session
+  token and never receives the Persona API key or webhook secret.
+- The backend stores normalized status, provider IDs, timestamps, and a body
+  hash, not raw identity documents or raw provider payloads.
+- Duplicate and out-of-order callbacks are safe; an approved inquiry cannot be
+  downgraded by a stale event.
+- API-key and order creation are rejected until local status is `approved`.
+- This is a sandbox integration and does not provide production KYC/AML,
+  sanctions screening, or regulatory compliance.
 
 ## 10. `stellar.toml`
 
@@ -178,4 +189,5 @@ Requirements:
 - Order-to-transaction correlation visible in safe logs/database evidence.
 - Public valid `stellar.toml`.
 - Public federation test.
-- SEP-24 deposit and withdrawal demo with KYC-stub warning.
+- SEP-24 deposit and withdrawal discovery/interactive skeleton with a Persona
+  sandbox KYC-gate disclosure; the skeleton does not create value-moving orders.

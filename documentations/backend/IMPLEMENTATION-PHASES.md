@@ -87,7 +87,8 @@ Build off-ramp and anchor capabilities on the Week 1 native-XLM settlement found
 1. Off-ramp deposit instructions, transaction lookup/detection, and exact validation.
 2. Sandbox payout intent and unknown-outcome reconciliation.
 4. Gateway payout/simulation intent and reconciliation.
-5. SEP-24 deposit/withdrawal interactive endpoints and synthetic KYC stub.
+5. SEP-24 deposit/withdrawal interactive endpoints and Persona-backed sandbox
+   KYC status gate with signed callback processing.
 6. Public `stellar.toml` and federation endpoint.
 7. Developer webhook event/outbox foundation.
 
@@ -98,6 +99,8 @@ Build off-ramp and anchor capabilities on the Week 1 native-XLM settlement found
 - Unknown Stellar result is reconciled before retry in automated tests.
 - `stellar.toml` and federation configuration validate.
 - SEP-24 state mapping does not contradict internal order state.
+- A user must reach approved Persona sandbox status before creating an API key
+  or an order; duplicate, invalid, and out-of-order KYC callbacks are safe.
 
 ## 5. Week 3: Public integration, webhooks, deployment, formal tests
 
@@ -169,7 +172,8 @@ Do not cut without written SOW change:
 - QRIS and bank-transfer sandbox integration.
 - Authenticated/idempotent gateway callback processing.
 - Testnet issuance/transfer and retirement with transaction hashes.
-- SEP-24 deposit/withdrawal skeleton, KYC stub, `stellar.toml`, and federation.
+- SEP-24 deposit/withdrawal skeleton, Persona sandbox KYC status gate,
+  `stellar.toml`, and federation.
 - Developer webhook delivery and logs.
 - Public deployment, OpenAPI, formal E2E evidence, and Completion Report inputs.
 

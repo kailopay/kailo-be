@@ -54,7 +54,7 @@ func New(config Config) (*Client, error) {
 	if err != nil || strings.TrimSpace(config.APIKey) == "" || strings.TrimSpace(config.TemplateID) == "" ||
 		len(strings.TrimSpace(config.WebhookSecret)) < 32 || config.Timeout <= 0 || config.SignatureTolerance <= 0 ||
 		config.MaxResponseBytes <= 0 || config.MaxResponseBytes > maxAllowedResponse || config.HTTPClient == nil {
-		return nil, errors.New("valid Persona configuration is required")
+		return nil, errors.New("valid persona configuration is required")
 	}
 	return &Client{
 		baseURL:            baseURL,
@@ -141,11 +141,8 @@ func (c *Client) VerifyWebhook(rawBody []byte, signature string, now time.Time) 
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
-	delta := now.Unix() - parsedTimestamp
-	if delta < 0 {
-		delta = -delta
-	}
-	if time.Duration(delta)*time.Second > c.signatureTolerance {
+	signatureTime := time.Unix(parsedTimestamp, 0)
+	if signatureTime.Before(now.Add(-c.signatureTolerance)) || signatureTime.After(now.Add(c.signatureTolerance)) {
 		return usecase.PersonaEvent{}, errInvalidPersonaResponse
 	}
 

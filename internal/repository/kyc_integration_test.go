@@ -114,6 +114,104 @@ func TestKYCProviderEventsAreIdempotentAndApplyInCreationOrder(t *testing.T) {
 	}
 }
 
+func TestKYCProviderEventNewerAdverseDecisionRevokesApproval(t *testing.T) {
+	for _, test := range []struct {
+		name          string
+		eventType     string
+		status        usecase.KYCStatus
+		providerState string
+	}{
+		{name: "declined", eventType: "inquiry.declined", status: usecase.KYCStatusDeclined, providerState: "declined"},
+		{name: "failed", eventType: "inquiry.failed", status: usecase.KYCStatusFailed, providerState: "failed"},
+		{name: "expired", eventType: "inquiry.expired", status: usecase.KYCStatusExpired, providerState: "expired"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store := newIntegrationStore(t)
+			ctx := context.Background()
+			base := time.Date(2026, 9, 13, 0, 0, 0, 0, time.UTC)
+			internalID := "00000000-0000-4000-8000-000000000407"
+			if _, _, err := store.kyc.Reserve(ctx, integrationUserID(), internalID, "kyc_"+internalID, base); err != nil {
+				t.Fatalf("Reserve() error = %v", err)
+			}
+			if err := store.kyc.AttachProviderInquiry(ctx, internalID, "inq_revoke", "pending", nil, base); err != nil {
+				t.Fatalf("AttachProviderInquiry() error = %v", err)
+			}
+			approvedAt := base.Add(time.Minute)
+			approved := usecase.KYCProviderEventRecord{
+				ID: "00000000-0000-4000-8000-000000000408", Provider: "persona", ProviderEventID: "evt-approved-revoke",
+				InquiryID: internalID, EventType: "inquiry.approved", ProviderEventAt: approvedAt, PayloadHash: "hash-approved-revoke", ReceivedAt: approvedAt,
+			}
+			if err := store.kyc.RecordProviderEvent(ctx, approved, usecase.KYCStatusApproved, "approved", approvedAt); err != nil {
+				t.Fatalf("RecordProviderEvent(approved) error = %v", err)
+			}
+			adverseAt := approvedAt.Add(time.Minute)
+			adverse := usecase.KYCProviderEventRecord{
+				ID: "00000000-0000-4000-8000-000000000409", Provider: "persona", ProviderEventID: "evt-adverse-revoke-" + test.name,
+				InquiryID: internalID, EventType: test.eventType, ProviderEventAt: adverseAt, PayloadHash: "hash-adverse-revoke-" + test.name, ReceivedAt: adverseAt,
+			}
+			if err := store.kyc.RecordProviderEvent(ctx, adverse, test.status, test.providerState, adverseAt); err != nil {
+				t.Fatalf("RecordProviderEvent(%s) error = %v", test.name, err)
+			}
+
+			record, found, err := store.kyc.FindCurrent(ctx, integrationUserID())
+			if err != nil || !found || record.Status != test.status {
+				t.Fatalf("FindCurrent() = %+v/%v/%v, want %s", record, found, err, test.status)
+			}
+			if record.ApprovedAt != nil {
+				t.Fatalf("ApprovedAt = %v, want nil after adverse decision", record.ApprovedAt)
+			}
+		})
+	}
+}
+
+func TestKYCCurrentInquiryUsesCreationOrderAfterLateOlderCallback(t *testing.T) {
+	store := newIntegrationStore(t)
+	ctx := context.Background()
+	base := time.Date(2026, 9, 13, 0, 0, 0, 0, time.UTC)
+	firstID := "00000000-0000-4000-8000-000000000410"
+	if _, _, err := store.kyc.Reserve(ctx, integrationUserID(), firstID, "kyc_"+firstID, base); err != nil {
+		t.Fatalf("first Reserve() error = %v", err)
+	}
+	if err := store.kyc.AttachProviderInquiry(ctx, firstID, "inq_old", "pending", nil, base); err != nil {
+		t.Fatalf("first AttachProviderInquiry() error = %v", err)
+	}
+	firstTerminalAt := base.Add(time.Minute)
+	if err := store.kyc.RecordProviderEvent(ctx, usecase.KYCProviderEventRecord{
+		ID: "00000000-0000-4000-8000-000000000411", Provider: "persona", ProviderEventID: "evt-old-declined",
+		InquiryID: firstID, EventType: "inquiry.declined", ProviderEventAt: firstTerminalAt, PayloadHash: "hash-old-declined", ReceivedAt: firstTerminalAt,
+	}, usecase.KYCStatusDeclined, "declined", firstTerminalAt); err != nil {
+		t.Fatalf("first terminal event error = %v", err)
+	}
+
+	secondID := "00000000-0000-4000-8000-000000000412"
+	secondCreatedAt := base.Add(2 * time.Minute)
+	if _, _, err := store.kyc.Reserve(ctx, integrationUserID(), secondID, "kyc_"+secondID, secondCreatedAt); err != nil {
+		t.Fatalf("second Reserve() error = %v", err)
+	}
+	if err := store.kyc.AttachProviderInquiry(ctx, secondID, "inq_new", "pending", nil, secondCreatedAt); err != nil {
+		t.Fatalf("second AttachProviderInquiry() error = %v", err)
+	}
+	if err := store.kyc.RecordProviderEvent(ctx, usecase.KYCProviderEventRecord{
+		ID: "00000000-0000-4000-8000-000000000413", Provider: "persona", ProviderEventID: "evt-new-pending",
+		InquiryID: secondID, EventType: "inquiry.started", ProviderEventAt: secondCreatedAt.Add(time.Minute), PayloadHash: "hash-new-pending", ReceivedAt: secondCreatedAt.Add(time.Minute),
+	}, usecase.KYCStatusPending, "pending", secondCreatedAt.Add(time.Minute)); err != nil {
+		t.Fatalf("second event error = %v", err)
+	}
+
+	lateOldAt := secondCreatedAt.Add(2 * time.Minute)
+	if err := store.kyc.RecordProviderEvent(ctx, usecase.KYCProviderEventRecord{
+		ID: "00000000-0000-4000-8000-000000000414", Provider: "persona", ProviderEventID: "evt-old-late-approved",
+		InquiryID: firstID, EventType: "inquiry.approved", ProviderEventAt: lateOldAt, PayloadHash: "hash-old-late-approved", ReceivedAt: lateOldAt,
+	}, usecase.KYCStatusApproved, "approved", lateOldAt); err != nil {
+		t.Fatalf("late older event error = %v", err)
+	}
+
+	record, found, err := store.kyc.FindCurrent(ctx, integrationUserID())
+	if err != nil || !found || record.ID != secondID || record.ProviderInquiryID != "inq_new" {
+		t.Fatalf("FindCurrent() = %+v/%v/%v, want the newer inquiry", record, found, err)
+	}
+}
+
 func integrationUserID() string {
 	return "00000000-0000-4000-8000-0000000000aa"
 }

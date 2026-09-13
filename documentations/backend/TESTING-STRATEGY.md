@@ -7,6 +7,7 @@ Testing must prove both business outcomes and failure safety:
 - A verified payment causes one on-ramp settlement.
 - A verified asset deposit and retirement precede one off-ramp withdrawal result.
 - Duplicates, concurrency, timeouts, and unknown external outcomes do not create duplicate value movement.
+- Only users with approved Persona sandbox KYC status can create API keys or orders.
 - Public API, SEP-24, and webhook behavior match their contracts.
 - The TypeScript SDK remains compatible with the Go API and preserves exact amounts, idempotency, errors, and webhook signatures.
 - Evidence is reproducible in payment-gateway sandbox and Stellar testnet.
@@ -72,6 +73,10 @@ Minimum cases:
 - Health/readiness responses leak no configuration.
 - Profile updates cannot change Auth0-owned email fields; avatar upload enforces authentication, MIME allowlists, and size limits.
 - Forgot-password responses do not disclose account existence; password-reset callbacks reject invalid secrets and revoke all local sessions for the provider subject.
+- KYC status/inquiry endpoints require an authenticated session, return no raw
+  provider payload, and map provider-unavailable errors safely.
+- API-key and order creation return stable `KYC_REQUIRED` until the owning
+  user's status is approved.
 
 OpenAPI tests validate the document and compare representative request/response examples with the running API.
 
@@ -146,7 +151,8 @@ Tests must not assume instant ledger availability; use bounded polling with mean
 
 - `stellar.toml` syntax, HTTPS location, advertised URLs, asset, and testnet context.
 - Deposit/withdraw initiation and status mapping.
-- KYC stub warning and synthetic-data behavior.
+- Persona sandbox inquiry/status behavior, approved-only gating, and explicit
+  non-production KYC wording.
 - Federation valid lookup, unknown name, malformed query, and safe output.
 - Contract behavior checked against the selected Stellar specification/tooling.
 
@@ -158,6 +164,9 @@ Tests must not assume instant ledger availability; use bounded polling with mean
 - Oversized callback/API body.
 - Header/log redaction.
 - Open redirect and callback return-URL manipulation.
+- Persona raw-body signature positive/negative vectors, timestamp tolerance,
+  duplicate event replay, conflicting event identity, out-of-order events, and
+  approved-status downgrade prevention.
 - Webhook SSRF cases.
 - Startup fails if environment is configured for mainnet/production in the Instaward deployment.
 

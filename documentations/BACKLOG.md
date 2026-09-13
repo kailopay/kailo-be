@@ -138,13 +138,13 @@ A story is done when:
 - Off-ramp rejects wrong asset, network, amount, or missing order correlation.
 - A retry first checks the network/recorded submission state and cannot blindly resubmit an already successful transaction.
 
-### Epic E5: SEP-24, KYC stub, and discovery
+### Epic E5: SEP-24, Persona sandbox KYC, and discovery
 
 | ID | Story | Priority | SP | Target | Requirement | Status |
 |---|---|---:|---:|---|---|---|
 | KLP-050 | As a wallet tester, I can initiate a SEP-24 interactive deposit flow that creates a KailoPay on-ramp order. | P0 | 5 | Week 2 | FR-040 | Blocked by KLP-022 |
 | KLP-051 | As a wallet tester, I can initiate a SEP-24 interactive withdrawal flow that creates a KailoPay off-ramp order. | P0 | 5 | Week 2 | FR-041 | Blocked by KLP-023 |
-| KLP-052 | As a reviewer, I see a clearly labelled synthetic KYC stub so the flow is demonstrated without claiming production verification. | P0 | 2 | Week 2 | FR-042, NFR-005 | Ready |
+| KLP-052 | As a reviewer, I can complete a Persona sandbox inquiry and see a clearly labelled status gate without the product claiming production verification. | P0 | 2 | Week 2 | FR-042, NFR-005 | Implemented |
 | KLP-053 | As a wallet tester, I can discover the testnet anchor from a valid public `stellar.toml`. | P0 | 2 | Week 2 | FR-043 | Blocked by KLP-004 |
 | KLP-054 | As a wallet tester, I can resolve the documented federation configuration/service. | P0 | 3 | Week 2 | FR-044 | Blocked by KLP-004 |
 | KLP-055 | As an operator, I can map SEP-24 transaction statuses to internal states consistently. | P1 | 3 | Week 2 | FR-045 | Blocked by KLP-050, KLP-051 |
@@ -153,7 +153,9 @@ A story is done when:
 
 - Public `stellar.toml` is syntactically valid, uses testnet-safe endpoints, and advertises only implemented services.
 - Deposit and withdrawal interactive pages identify both `Sandbox` and `Stellar Testnet`.
-- KYC uses synthetic data and clearly states that no production identity decision is made.
+- Persona sandbox KYC status is server-authoritative, only approved status
+  unlocks API-key/order creation, and the product clearly states that no
+  production identity decision is made.
 - SEP-24 status never contradicts the internal order state.
 
 ### Epic E6: User-facing web application

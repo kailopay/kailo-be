@@ -60,6 +60,10 @@ func TestDocumentValidatesAuthContract(t *testing.T) {
 			t.Fatalf("POST %s must document the KYC-required response", path)
 		}
 	}
+	kycInquiry := document.Paths.Find("/v1/kyc/inquiry").Post
+	if kycInquiry == nil || kycInquiry.Responses.Value("500") == nil {
+		t.Fatal("POST /v1/kyc/inquiry must document the internal error response")
+	}
 	if document.Paths.Find("/internal/auth/password-reset-completed") != nil {
 		t.Error("the Auth0 password-reset webhook path must not exist")
 	}

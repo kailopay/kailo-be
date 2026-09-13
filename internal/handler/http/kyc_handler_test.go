@@ -180,6 +180,39 @@ func TestKYCWebhookHandlerRejectsInvalidSignatureAndMalformedPayload(t *testing.
 	}
 }
 
+func TestKYCWebhookHandlerRetriesUnknownInquiry(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler := NewKYCHandler(&fakeKYCService{webhookErr: usecase.ErrKYCInquiryNotFound}, nil)
+	request := httptest.NewRequest(http.MethodPost, "/callbacks/kyc/persona", strings.NewReader(`{"data":{}}`))
+	request.Header.Set("Persona-Signature", "valid")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d; body = %q", response.Code, http.StatusServiceUnavailable, response.Body.String())
+	}
+	if strings.Contains(response.Body.String(), "retained") {
+		t.Fatalf("unknown inquiry was acknowledged permanently: %q", response.Body.String())
+	}
+}
+
+func TestKYCHandlerMapsUnexpectedFailureToDocumentedInternalError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler := NewKYCHandler(&fakeKYCService{inquiryErr: errors.New("database unavailable")}, nil)
+	router := gin.New()
+	router.POST("/v1/kyc/inquiry", middleware.RequireSession(fakeSessionAuthenticator{user: usecase.AuthenticatedUser{
+		User: usecase.UserProfile{ID: "user-1"},
+	}}), handler.Inquiry)
+	request := httptest.NewRequest(http.MethodPost, "/v1/kyc/inquiry", nil)
+	request.AddCookie(&http.Cookie{Name: middleware.DefaultSessionCookieName, Value: "session"})
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+
+	if response.Code != http.StatusInternalServerError || !strings.Contains(response.Body.String(), `"code":"INTERNAL_ERROR"`) {
+		t.Fatalf("status/body = %d/%q", response.Code, response.Body.String())
+	}
+}
+
 func TestKYCWebhookHandlerRejectsOversizedBody(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	handler := NewKYCHandler(&fakeKYCService{}, nil)

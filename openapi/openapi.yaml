@@ -391,6 +391,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/KYCError'
+        '500':
+          description: Unexpected server failure
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KYCError'
   /v1/api-keys:
     post:
       summary: Create a sandbox API key
@@ -842,7 +848,7 @@ components:
           properties:
             code:
               type: string
-              enum: [INVALID_REQUEST, KYC_PROVIDER_UNAVAILABLE, KYC_INQUIRY_NOT_FOUND, KYC_REQUIRED]
+              enum: [INVALID_REQUEST, KYC_PROVIDER_UNAVAILABLE, KYC_INQUIRY_NOT_FOUND, KYC_REQUIRED, INTERNAL_ERROR]
             message:
               type: string
         request_id:

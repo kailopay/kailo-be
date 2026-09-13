@@ -20,6 +20,7 @@ flowchart LR
     Anchor --> API
     API <--> PG[("PostgreSQL")]
     API <--> Gateway["Payment gateway sandbox"]
+    API <--> Persona["Persona sandbox"]
     API <--> Stellar["Stellar testnet"]
     API --> Consumer["Developer webhook endpoint"]
     Reviewer["Ambassador reviewer"] --> Web
@@ -34,7 +35,7 @@ The TypeScript SDK is an external client package, not a backend module or deploy
 
 | Process | Responsibility | Scaling unit |
 |---|---|---|
-| `api` | REST API, SEP-24 endpoints, gateway callbacks, federation, liveness/readiness/startup probes | Stateless HTTP replicas; one is sufficient for sandbox |
+| `api` | REST API, SEP-24 endpoints, gateway and Persona callbacks, federation, liveness/readiness/startup probes | Stateless HTTP replicas; one is sufficient for sandbox |
 | `worker` | Outbox consumption, payment processing, Stellar submission/reconciliation, developer webhook delivery | One process initially; jobs use database leases |
 | `automigrate` | Local/test schema bootstrap using GORM `AutoMigrate` | One-shot local/test command |
 | `migrate` | Future reviewed/versioned PostgreSQL migrations for shared environments | One-shot deployment job |
@@ -45,11 +46,11 @@ The web frontend is a separate deliverable and communicates only through public/
 
 | Module | Owns | May depend on |
 |---|---|---|
-| `identity` | Auth0 login/reset, local profiles/sessions, private avatars, API clients, test-key issuance/revocation | Shared crypto/time abstractions, persistence, private object storage |
+| `identity` | Auth0 login/reset, local profiles/sessions, Persona sandbox KYC inquiry/status, private avatars, API clients, test-key issuance/revocation | Shared crypto/time abstractions, persistence, private object storage, Persona adapter |
 | `orders` | Quotes, orders, state transitions, order event history, orchestration commands | Payment and Stellar ports, outbox, persistence |
 | `payments` | Gateway checkout, callback normalization/verification, payout request and reconciliation | Selected provider adapter, orders port |
 | `stellar` | Testnet accounts, asset transfer/issuance, deposit verification, retirement, transaction reconciliation | Stellar SDK adapter, orders port |
-| `anchor` | SEP-24 interactive deposit/withdrawal, KYC stub, `stellar.toml`, federation | Orders application usecases |
+| `anchor` | SEP-24 interactive deposit/withdrawal, `stellar.toml`, federation | Orders and KYC application usecases |
 | `developer_webhooks` | Endpoint registration, event envelope, signing, attempts, retries | Outbox, orders event feed |
 | `evidence` | Test/evidence references and sanitized export helpers | Read-only access to order/integration metadata |
 | `platform` | Configuration, database, logging, metrics, clock, IDs, and crypto plumbing | External libraries only |
@@ -196,6 +197,8 @@ Configuration is parsed and validated once at process startup. Required groups:
 - Private object-storage endpoint, bucket, region, TLS mode, and credentials.
 - API-key hashing/pepper secret.
 - Gateway provider, sandbox endpoint, credentials, and callback secret/token.
+- Persona sandbox endpoint, API key, inquiry template/environment identifiers,
+  webhook secret, timeout, body limit, and signature tolerance.
 - Stellar network passphrase, Horizon/RPC endpoint, account roles, asset code/issuer, and encrypted/injected secret keys.
 - Webhook signing secret/version and retry schedule.
 - Worker polling, lease, and reconciliation intervals.

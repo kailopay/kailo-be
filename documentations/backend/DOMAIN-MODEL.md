@@ -54,7 +54,30 @@ Invariants:
 - Session tokens are high entropy, displayed only to the browser, and never stored or logged in plaintext.
 - An active authenticated user may enable Developer Mode for developer-management access.
 - Disabling Developer Mode does not silently revoke API clients or keys; revocation is explicit.
-- Production identity verification and real identity documents are not part of `v0.1.0`.
+- Persona provides a sandbox identity-verification status gate in `v0.1.0`; this
+  is not production KYC/AML compliance and KailoPay does not retain raw identity
+  documents.
+
+### 3.1.1 KYC inquiry
+
+`KYCInquiry` is the local, provider-neutral record of one Persona sandbox
+verification attempt. The provider adapter translates Persona's inquiry and
+webhook vocabulary into the local status set:
+
+`creating → created → pending → completed → pending_review → approved`
+
+`declined`, `failed`, and `expired` are terminal outcomes. A terminal inquiry
+remains in history, while the partial uniqueness rule permits a later attempt.
+
+Invariants:
+
+- There is at most one active inquiry for a user.
+- Only a verified Persona webhook can move an inquiry to an approval or other
+  provider status; the browser's embedded-flow callback is not authoritative.
+- Provider event identity is unique and duplicate delivery is idempotent.
+- Unknown/out-of-order events cannot downgrade an already approved inquiry.
+- KailoPay stores status, provider IDs, timestamps, and a payload hash, never raw
+  identity documents or raw provider webhook bodies.
 
 ### 3.1.1 Order principal
 
@@ -85,6 +108,7 @@ Invariants:
 - Full key plaintext is returned only at creation.
 - Revoked clients/keys cannot authenticate new requests.
 - Developer-management access requires the authenticated user to own the API client.
+- Creating an API key requires an approved KYC inquiry in addition to Developer Mode.
 - Operator access is private and is not inferred from retail or Developer Mode access.
 
 ### 3.3 Order aggregate
@@ -104,6 +128,7 @@ Invariants:
 - Currency, asset, network, and ownership route are immutable after checkout/asset instructions are issued.
 - An order is owned either by an API client or by a retail user/session, never both.
 - API authorization is resolved from the authenticated API client; retail authorization is resolved from the authenticated user plus active creating session. A user can read consumer orders created in an earlier valid session.
+- Creating an order requires an approved KYC inquiry for the owning user, regardless of whether the principal is an API client or a retail session.
 - State changes use optimistic versioning and a legal transition table.
 - A completed on-ramp has a reconciled payment and successful Stellar transaction.
 - A completed off-ramp has verified asset receipt, successful burn/retirement, and payout/simulation evidence.
@@ -162,6 +187,7 @@ Primary commands:
 - `InitiateSandboxPayout`
 - `ReconcileExternalOperation`
 - `CreateApiKey` / `RevokeApiKey`
+- `StartKYCInquiry` / `ProcessPersonaWebhook`
 - `RegisterWebhookEndpoint`
 - `DeliverDeveloperWebhook`
 
@@ -202,6 +228,7 @@ Each end-to-end flow must be traceable using:
 - Provider checkout/event/payout reference.
 - Stellar intent ID, memo/correlation value, and transaction hash.
 - Developer webhook event and attempt ID.
+- KYC inquiry and provider event ID.
 
 Logs use these identifiers, never private keys or full API-key secrets.
 
@@ -216,13 +243,17 @@ Logs use these identifiers, never private keys or full API-key secrets.
 
 ## 9. Data retention for sandbox
 
-`v0.1.0` stores only data required to demonstrate and debug sandbox orders. Use synthetic identities and destinations. Retention length may be operationally configured, but deletion must not remove evidence needed for the agreed review period.
+`v0.1.0` stores only data required to demonstrate and debug sandbox orders and
+the Persona status gate. Use synthetic identities and destinations. Retention
+length may be operationally configured, but deletion must not remove evidence
+needed for the agreed review period.
 
 Production PII, identity documents, AML records, and legal retention schedules are Future scope.
 
 ## 10. Domain acceptance invariants
 
 - No payment confirmation without a verified, matched callback.
+- No API key creation or order creation without an approved KYC inquiry.
 - No on-ramp asset movement before payment confirmation.
 - No off-ramp withdrawal before valid asset receipt and retirement.
 - No terminal success without durable external evidence.

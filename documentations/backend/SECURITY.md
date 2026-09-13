@@ -4,7 +4,9 @@
 
 Protect sandbox credentials, testnet signing keys, order integrity, and external-effect correctness while clearly avoiding any claim of production security or regulatory readiness.
 
-Security controls in `v0.1.0` focus on the highest-risk boundaries: API keys, payment callbacks, Stellar signing, webhook SSRF/signing, secret handling, idempotency, and public evidence.
+Security controls in `v0.1.0` focus on the highest-risk boundaries: API keys,
+Persona KYC callbacks, payment callbacks, Stellar signing, webhook
+SSRF/signing, secret handling, idempotency, and public evidence.
 
 ## 2. Security boundaries and assets
 
@@ -13,6 +15,7 @@ Assets:
 - Payment gateway sandbox credentials and callback-authentication secret/token.
 - Stellar testnet secret keys.
 - API-key and webhook-signing secrets.
+- Persona API/webhook credentials and KYC status integrity.
 - Order/payment/transaction integrity and audit records.
 - Deployment/database credentials.
 - Public repository and release artifacts.
@@ -21,6 +24,7 @@ Trust boundaries:
 
 - Public client to API.
 - Payment provider to callback endpoint.
+- Persona to the KYC callback endpoint.
 - API/worker to PostgreSQL.
 - Worker to payment provider and Stellar testnet.
 - Worker to arbitrary developer webhook endpoints.
@@ -39,6 +43,7 @@ Trust boundaries:
 | SQL/injection attacks | Data corruption/exposure | Schema validation, parameterized queries/ORM, no shell interpolation, least-privilege DB account |
 | Cross-client/cross-user access | Order data exposure | Explicit principal context in every repository query, ownership checks, enumeration policy tests |
 | Cookie-authenticated order CSRF | Unauthorized consumer order creation | SameSite session cookie plus exact `Origin`/`Referer` allowlist for order mutations |
+| Forged/replayed Persona callback | Unauthorized approval or KYC state corruption | Timestamped raw-body HMAC verification, bounded body, unique provider event, idempotent processing, and safe out-of-order handling |
 | Secret leakage in public evidence | Credential compromise | Redaction, secret scanning, sanitized fixtures/logs/screenshots, release checklist |
 | Misleading production claim | Legal/reputational risk | Persistent sandbox/testnet labels and explicit non-goals |
 
@@ -69,6 +74,8 @@ Recommended format: `pk_test_<public_id>_<random_secret>`.
 - Email-verification and password-reset tokens are high-entropy, single-use, stored only as HMAC hashes, and delivered through the configured console or Gmail adapter.
 - Profile avatars accept only bounded JPEG, PNG, or WebP bytes, use server-generated object keys, stay in a private MinIO bucket, and are streamed only after local-session authorization.
 - Developer Mode and direct `owner_user_id` checks are enforced before developer-session configuration actions.
+- Approved Persona KYC is enforced before API-key creation and order creation;
+  the backend gate remains authoritative over frontend redirects.
 - Developer-session endpoints use CSRF/session protections appropriate to the selected frontend auth approach.
 - Session-authenticated `POST /v1/onramps` and `POST /v1/offramps` require an exact configured `Origin`; if `Origin` is absent, a matching `Referer` origin is accepted. API-key requests skip this browser-origin check.
 - Order reads and replay lookups use the same authenticated owner scope. Retail idempotency is keyed by user, not by the current session ID, so a renewed session cannot create a duplicate retry.
@@ -94,6 +101,22 @@ Recommended format: `pk_test_<public_id>_<random_secret>`.
 - Never perform Stellar signing directly in the callback request.
 - Rate/size-limit callbacks without blocking valid provider ranges unless the provider supplies authoritative IP guidance.
 
+## 7.1 Persona KYC callback security
+
+- Verify the `Persona-Signature` header over the exact raw body using the
+  configured webhook secret. The signed message is `timestamp + "." + raw body`.
+- Reject malformed signatures, invalid HMACs, and timestamps outside the
+  configured tolerance before parsing provider fields.
+- Bound the request body and never persist the raw callback. Store only the
+  provider event ID, normalized event type/status, timestamps, and SHA-256 body
+  hash.
+- Enforce unique `(provider, provider_event_id)` handling. Duplicate delivery is
+  acknowledged idempotently; a conflicting event identity is rejected.
+- Accept provider event reordering without allowing a later/unknown event to
+  downgrade an approved inquiry.
+- Treat the Persona embedded SDK `onComplete` callback as a prompt to refresh;
+  only the verified server callback can establish approval.
+
 ## 8. Stellar key and transaction security
 
 - Signing secrets are injected into the worker only.
@@ -113,6 +136,9 @@ Secret categories:
 - Database credential.
 - Google OIDC client secret and callback configuration, when Google sign-in is enabled.
 - Gateway sandbox credential and callback secret/token.
+- Persona API key and webhook-signing secret; Persona template and environment
+  IDs are configuration identifiers and must still be kept out of public
+  evidence when they reveal deployment details.
 - Stellar testnet secret keys.
 - API-key hashing pepper/key.
 - Webhook signing/encryption master key.
@@ -143,10 +169,12 @@ Never log or publish:
 - Payment gateway credentials/signatures/tokens.
 - Stellar secret seeds or signed envelopes that create avoidable risk.
 - Webhook signing secrets.
+- Persona inquiry session tokens, API keys, webhook secrets, and raw identity or
+  verification payloads.
 - Database URLs with credentials.
 - Real identity documents, bank details, or unnecessary raw callbacks.
 
-Safe logs use IDs, provider name, safe status/code, payload hash, amount/currency where appropriate, and transaction hash/public account.
+Safe logs use IDs, provider name, safe status/code, payload hash, amount/currency where appropriate, and transaction hash/public account. For KYC, log only the local inquiry ID, provider event ID, safe status, and payload hash.
 
 Screenshots and demo recordings require the same review as source code.
 
@@ -167,6 +195,10 @@ Screenshots and demo recordings require the same review as source code.
 - Session-authenticated order mutations reject missing and mismatched origins.
 - Callback with missing/invalid authentication cannot mutate state.
 - Callback replay cannot duplicate settlement.
+- Invalid Persona signatures and stale/replayed timestamps cannot change KYC state.
+- Duplicate and out-of-order Persona events are safe, and an approved inquiry
+  cannot be downgraded by a later event.
+- API-key and order creation are rejected until KYC status is approved.
 - Amount/currency/reference mismatch cannot confirm payment.
 - Unknown Stellar result reconciles before retry.
 - Webhook registration blocks loopback/private/link-local/metadata destinations and redirects.
@@ -176,4 +208,9 @@ Screenshots and demo recordings require the same review as source code.
 
 ## 14. Residual risk and future requirements
 
-`v0.1.0` is a sandbox demonstration and is not suitable for real funds. Before production, complete independent threat modelling, penetration testing, secure custody/key management, KYC/AML/privacy controls, incident response, vulnerability management, access governance, regulatory review, reconciliation, and production operations design.
+`v0.1.0` is a sandbox demonstration and is not suitable for real funds. The
+Persona integration is a sandbox status gate, not production KYC/AML or
+regulatory compliance. Before production, complete independent threat modelling,
+penetration testing, secure custody/key management, production KYC/AML/privacy
+controls, incident response, vulnerability management, access governance,
+regulatory review, reconciliation, and production operations design.

@@ -17,6 +17,12 @@ single-use verification/reset challenge tokens, and a partial unique index on
 `migrations/000006_consumer_order_ownership.up.sql` adds retail-user
 idempotency ownership, partial owner indexes, and the consumer history index
 while preserving existing API-client records.
+`migrations/000008_kyc.up.sql` adds Persona inquiry state, provider-event
+deduplication, and the partial unique index that permits one active inquiry per
+user while retaining completed/terminal history. Migration
+`000009_kyc_current_attempt` changes current-attempt lookup to immutable
+`created_at` ordering so late callbacks cannot make an older attempt appear
+current.
 Runtime services use explicit transactions; `AutoMigrate` remains local/test
 bootstrap only.
 
@@ -43,6 +49,8 @@ erDiagram
     USERS ||--o{ USER_IDENTITIES : links
     USERS ||--o{ RETAIL_SESSIONS : authenticates
     USERS ||--o{ API_CLIENTS : owns
+    USERS ||--o{ KYC_INQUIRIES : verifies
+    KYC_INQUIRIES ||--o{ KYC_PROVIDER_EVENTS : records
     API_CLIENTS ||--o{ API_KEYS : owns
     USERS ||--o{ ORDERS : creates_retail
     RETAIL_SESSIONS ||--o{ ORDERS : scopes
@@ -158,6 +166,48 @@ Single-use hashed tokens for email verification (24h) and password reset (1h).
 
 Consumption is guarded like login transactions: lock, conditional update, and
 row-count verification.
+
+### `kyc_inquiries`
+
+One local inquiry record represents a user's Persona sandbox verification
+attempt. It stores provider state and safe correlation metadata only; raw
+identity documents and raw provider payloads are not stored.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | `uuid` | Primary key |
+| `user_id` | `uuid` | FK to `users` |
+| `provider` | `text` | Check: `persona` |
+| `provider_inquiry_id` | `text` | Nullable Persona inquiry ID; unique when present |
+| `provider_request_key` | `text` | Unique idempotency key used for provider creation |
+| `provider_status` | `text` | Nullable provider status copied from the normalized event/response |
+| `status` | `text` | `creating`, `created`, `pending`, `completed`, `pending_review`, `approved`, `declined`, `failed`, `expired` |
+| `provider_event_at`, `started_at`, `completed_at`, `approved_at`, `expires_at` | `timestamptz` | Nullable UTC lifecycle timestamps |
+| `last_provider_event_id` | `text` | Safe provider-event correlation |
+| `created_at`, `updated_at` | `timestamptz` | UTC |
+
+The partial unique index on `user_id` covers active statuses only, so a new
+attempt can be started after a terminal/expired inquiry while the prior record
+remains available for audit. A second index supports current-status reads by
+user and update time.
+
+### `kyc_provider_events`
+
+Normalized Persona webhook facts retained for idempotency and auditability.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | `uuid` | Local event ID |
+| `provider` | `text` | Check: `persona` |
+| `provider_event_id` | `text` | Provider event identity |
+| `inquiry_id` | `uuid` | FK to `kyc_inquiries` |
+| `event_type` | `text` | Normalized event name |
+| `provider_event_at`, `received_at` | `timestamptz` | Provider and local UTC timestamps |
+| `payload_hash` | `text` | SHA-256 of the verified raw body; raw body is not retained |
+
+Unique: `(provider, provider_event_id)`. Duplicate delivery is treated as an
+idempotent replay; a conflicting payload for the same provider event is
+rejected.
 
 ### `api_clients`
 
@@ -360,6 +410,9 @@ Minimum indexes:
 - Provider-reference indexes on payment and gateway tables; implemented.
 - `stellar_transactions(order_id, purpose)` and unique non-null hash; implemented.
 - `treasury_reservations(status, expires_at)` for the reservation-expiry sweep; implemented.
+- `kyc_inquiries(user_id) WHERE status IN ('creating', 'created', 'pending', 'completed', 'pending_review')` unique for one active inquiry per user; implemented in migration 000008.
+- `kyc_inquiries(user_id, created_at desc, id desc)` for stable current-attempt reads; implemented in migration 000009.
+- `kyc_provider_events(provider, provider_event_id)` unique for callback deduplication; implemented in migration 000008.
 - `webhook_attempts(status, scheduled_at)` for delivery worker; deferred with the webhook pipeline.
 - `outbox_messages(available_at) where processed_at is null` partial; implemented.
 - `idempotency_records(expires_at)` for retention cleanup; deferred until the cleanup job ships.
@@ -407,4 +460,5 @@ Before final evidence collection:
 - Illegal amounts, directions, networks, and aggregate versions fail safely.
 - Order update, order event, and outbox insert commit or roll back together.
 - API keys cannot be reconstructed from stored values.
+- A user cannot have two active KYC inquiries, and duplicate Persona events do not apply a status transition twice.
 - Database dumps and diagnostic queries do not contain private keys or full API-key plaintext.

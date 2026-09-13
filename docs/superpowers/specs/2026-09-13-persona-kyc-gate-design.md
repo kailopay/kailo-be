@@ -75,13 +75,13 @@ constraint. Store event type, inquiry ID, event timestamp, payload hash, and
 receipt timestamp only. Do not persist the raw webhook body or extracted
 identity fields.
 
-At most one inquiry in `created`, `pending`, or `pending_review` may be active
-for a user. An approved inquiry remains the user's current eligibility result;
-declined, failed, and expired inquiries are terminal attempts that may be
-replaced by a later inquiry. Concurrent inquiry creation is serialized by a
-user row lock plus a database uniqueness rule. Retrying the inquiry endpoint
-returns the existing inquiry or a resumable session rather than creating
-duplicates.
+At most one inquiry in `creating`, `created`, `pending`, `completed`, or
+`pending_review` may be active for a user. An approved inquiry remains the
+user's current eligibility result; declined, failed, and expired inquiries are
+terminal attempts that may be replaced by a later inquiry. Concurrent inquiry
+creation is serialized by a user row lock plus a database uniqueness rule.
+Retrying the inquiry endpoint returns the existing inquiry or a resumable
+session rather than creating duplicates.
 
 ## Persona flow
 

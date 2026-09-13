@@ -10,7 +10,7 @@
 | Logging | Standard-library `log/slog` |
 | External environments | Optional Google sign-in, one payment gateway sandbox, and Stellar testnet |
 | Architecture | Modular monolith with asynchronous workers and transactional outbox |
-| Status | Week 1 backend slice implemented in Go; provider and testnet evidence remains staged |
+| Status | Week 2 backend slice implemented in Go; provider and testnet evidence remains staged |
 
 ## Purpose
 
@@ -43,13 +43,14 @@ integration client for the public API, not a second backend runtime.
 6. [Consumer Session Order Flow](CONSUMER-SESSION-ORDER-FLOW.md)
 7. [Payment Gateway Integration](PAYMENT-GATEWAY-INTEGRATION.md)
 8. [Stellar Anchor Integration](STELLAR-ANCHOR-INTEGRATION.md)
-9. [Webhook Design](WEBHOOK-DESIGN.md)
-10. [TypeScript SDK Design](TYPESCRIPT-SDK-DESIGN.md)
-11. [Security](SECURITY.md)
-12. [Observability and Runbook](OBSERVABILITY-AND-RUNBOOK.md)
-13. [Testing Strategy](TESTING-STRATEGY.md)
-14. [Implementation Phases](IMPLEMENTATION-PHASES.md)
-15. [Backend Backlog](BACKEND-BACKLOG.md)
+9. [Persona KYC Runbook](PERSONA-KYC-RUNBOOK.md)
+10. [Webhook Design](WEBHOOK-DESIGN.md)
+11. [TypeScript SDK Design](TYPESCRIPT-SDK-DESIGN.md)
+12. [Security](SECURITY.md)
+13. [Observability and Runbook](OBSERVABILITY-AND-RUNBOOK.md)
+14. [Testing Strategy](TESTING-STRATEGY.md)
+15. [Implementation Phases](IMPLEMENTATION-PHASES.md)
+16. [Backend Backlog](BACKEND-BACKLOG.md)
 
 ## Parent documents
 
@@ -70,7 +71,8 @@ integration client for the public API, not a second backend runtime.
 - PostgreSQL persistence, migrations, order events, and external-reference correlation.
 - One payment gateway adapter for sandbox QRIS, bank transfer/virtual account, callbacks, and the available payout simulation.
 - Stellar testnet asset issuance/transfer, deposit verification, burn/retirement, and transaction correlation.
-- SEP-24 deposit and withdrawal skeleton, KYC stub, public `stellar.toml`, and federation configuration.
+- SEP-24 deposit and withdrawal skeleton, Persona-backed sandbox KYC status
+  gate, public `stellar.toml`, and federation configuration.
 - Signed developer webhook delivery with bounded retries and attempt logs.
 - Separate TypeScript SDK for server-side Node.js integrations; it consumes the Go backend's public API and OpenAPI contract.
 - Structured logging, metrics, health/readiness checks, safe recovery procedures, and release evidence.
@@ -79,7 +81,8 @@ integration client for the public API, not a second backend runtime.
 
 - Production payment credentials or real IDR settlement.
 - Stellar mainnet and production custody.
-- Full KYC/AML, sanctions screening, or identity-document collection.
+- Production KYC/AML, sanctions screening, regulatory case management, or
+  identity-document collection by KailoPay.
 - Regulatory licensing implementation.
 - Multi-gateway routing, merchant gateway, white-label, and mobile-specific backend features.
 - Production SLA, 24/7 on-call, or high-availability commitments.
@@ -93,7 +96,8 @@ integration client for the public API, not a second backend runtime.
 5. A database transaction cannot make an external payment or Stellar transaction atomic; external effects use durable intent, idempotent processing, and reconciliation.
 6. Order history is append-only, principal-scoped, and sufficient to reconstruct why a state changed.
 7. Secrets, private keys, full API keys, and raw sensitive provider payloads never enter public logs.
-8. Production-only requirements remain in roadmap documents and do not silently enter the Instaward release.
+8. API-key and order creation require approved Persona sandbox KYC status.
+9. Production-only requirements remain in roadmap documents and do not silently enter the Instaward release.
 
 ## Source-of-truth order
 
@@ -113,6 +117,8 @@ Material design changes require an ADR and synchronized updates to affected docu
 - Confirm test asset code, precision, issuer/distributor accounts, and retirement method.
 - Agree acceptable off-ramp evidence when the selected gateway cannot execute a true sandbox payout.
 - Select deployment topology, public hostnames, and managed-secret mechanism.
+- ~~Select a KYC provider and gate policy~~ Resolved by ADR-004: Persona sandbox
+  status gate; only `approved` unlocks API-key and order creation.
 - ~~Configure the selected Auth0 OIDC tenant~~ Resolved by ADR-002: authentication is self-hosted email + optional Google.
 
 Until those decisions are resolved, payment-provider classes, URLs, and secret names remain adapter/configuration concerns rather than embedded domain logic.
