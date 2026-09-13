@@ -15,16 +15,39 @@ import (
 
 type fakeOfframpHandlerService struct {
 	command usecase.OfframpCommand
+	err     error
 }
 
 func (s *fakeOfframpHandlerService) Create(_ context.Context, command usecase.OfframpCommand) (usecase.OrderView, bool, error) {
 	s.command = command
+	if s.err != nil {
+		return usecase.OrderView{}, false, s.err
+	}
 	return usecase.OrderView{
 		ID:              "order-off-1",
 		Status:          entity.OrderStatusAssetPending,
 		FiatAmountMinor: 100_000,
 		AssetAmount:     400_000_000,
 	}, false, nil
+}
+
+func TestOfframpHandlerMapsKYCRequired(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	service := &fakeOfframpHandlerService{err: usecase.ErrKYCRequired}
+	handler := NewOfframpHandler(service, nil)
+	router := gin.New()
+	router.POST("/v1/offramps", middleware.RequestID(), middleware.RequireOrderPrincipal(fixedAPIAuthenticator{}, nil, middleware.DefaultSessionCookieName, nil), handler.Create)
+	request := httptest.NewRequest(http.MethodPost, "/v1/offramps", strings.NewReader(`{"asset":{"network":"stellar_testnet","code":"XLM","amount":"25.0000000"},"withdrawal":{"currency":"IDR","method":"sandbox_bank_transfer","destination_token":"sandbox-bank-user-01"}}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Authorization", "Bearer pk_test_public_secret")
+	request.Header.Set("Idempotency-Key", "idem-off-kyc-1")
+	request.Header.Set("X-Request-ID", "req-kyc-off-1")
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if response.Code != http.StatusForbidden || !strings.Contains(response.Body.String(), `"code":"KYC_REQUIRED"`) ||
+		!strings.Contains(response.Body.String(), `"request_id":"req-kyc-off-1"`) || strings.Contains(response.Body.String(), "persona") {
+		t.Fatalf("status = %d, body = %q", response.Code, response.Body.String())
+	}
 }
 
 func TestOfframpHandlerCreatesRetailSessionOwnedOrder(t *testing.T) {

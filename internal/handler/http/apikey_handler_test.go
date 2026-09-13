@@ -18,10 +18,14 @@ type fakeAPIKeyService struct {
 	owner   string
 	name    string
 	revoked string
+	err     error
 }
 
 func (s *fakeAPIKeyService) Create(_ context.Context, owner, name string) (usecase.CreatedKey, error) {
 	s.owner, s.name = owner, name
+	if s.err != nil {
+		return usecase.CreatedKey{}, s.err
+	}
 	return s.created, nil
 }
 
@@ -73,5 +77,27 @@ func TestAPIKeyHandlerRevokesOwnedKey(t *testing.T) {
 
 	if response.Code != http.StatusNoContent || service.revoked != "key-1" {
 		t.Fatalf("status = %d, revoked = %q", response.Code, service.revoked)
+	}
+}
+
+func TestAPIKeyHandlerMapsKYCRequired(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler := NewAPIKeyHandler(&fakeAPIKeyService{err: usecase.ErrKYCRequired}, nil)
+	router := gin.New()
+	router.POST("/v1/api-keys", middleware.RequestID(), middleware.RequireSession(fakeSessionAuthenticator{user: auth.AuthenticatedUser{
+		User: auth.UserProfile{ID: "user-1"},
+	}}), handler.Create)
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/api-keys", strings.NewReader(`{"name":"Default"}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-Request-ID", "req-kyc-key-1")
+	request.AddCookie(&http.Cookie{Name: middleware.DefaultSessionCookieName, Value: "session"})
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+
+	if response.Code != http.StatusForbidden || !strings.Contains(response.Body.String(), `"code":"KYC_REQUIRED"`) ||
+		!strings.Contains(response.Body.String(), `"request_id":"req-kyc-key-1"`) ||
+		strings.Contains(response.Body.String(), "persona") {
+		t.Fatalf("status = %d, body = %q", response.Code, response.Body.String())
 	}
 }

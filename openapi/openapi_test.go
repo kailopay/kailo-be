@@ -29,15 +29,35 @@ func TestDocumentValidatesAuthContract(t *testing.T) {
 		"/auth/password/change",
 		"/auth/me",
 		"/auth/me/avatar",
+		"/v1/kyc",
+		"/v1/kyc/inquiry",
 		"/v1/api-keys",
 		"/v1/api-keys/{id}",
 		"/v1/onramps",
 		"/v1/orders",
 		"/v1/orders/{id}",
 		"/callbacks/payments/xendit",
+		"/callbacks/kyc/persona",
 	} {
 		if document.Paths.Find(path) == nil {
 			t.Errorf("missing auth path %q", path)
+		}
+	}
+	kyc := document.Paths.Find("/v1/kyc").Get
+	if kyc == nil || kyc.Security == nil || len(*kyc.Security) != 1 {
+		t.Fatal("/v1/kyc must use the kailoSession cookie security scheme")
+	}
+	if _, ok := (*kyc.Security)[0]["kailoSession"]; !ok {
+		t.Fatal("/v1/kyc must use the kailoSession cookie security scheme")
+	}
+	apiKeys := document.Paths.Find("/v1/api-keys").Post
+	if apiKeys == nil || apiKeys.Responses.Value("403") == nil {
+		t.Fatal("POST /v1/api-keys must document the KYC-required response")
+	}
+	for _, path := range []string{"/v1/onramps", "/v1/offramps"} {
+		operation := document.Paths.Find(path).Post
+		if operation == nil || operation.Responses.Value("403") == nil {
+			t.Fatalf("POST %s must document the KYC-required response", path)
 		}
 	}
 	if document.Paths.Find("/internal/auth/password-reset-completed") != nil {

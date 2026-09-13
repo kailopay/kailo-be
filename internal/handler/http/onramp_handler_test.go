@@ -131,6 +131,7 @@ func TestOnrampHandlerMapsStablePublicErrors(t *testing.T) {
 		{"stale quote", usecase.ErrStalePrice, http.StatusServiceUnavailable, "QUOTE_UNAVAILABLE"},
 		{"invalid quote", fmt.Errorf("creating quote: %w", usecase.ErrInvalidQuote), http.StatusServiceUnavailable, "QUOTE_UNAVAILABLE"},
 		{"idempotency conflict", usecase.ErrIdempotencyConflict, http.StatusConflict, "IDEMPOTENCY_KEY_REUSED"},
+		{"kyc required", usecase.ErrKYCRequired, http.StatusForbidden, "KYC_REQUIRED"},
 		{"external failure", errors.New("reading treasury balance: connection refused"), http.StatusServiceUnavailable, "EXTERNAL_SERVICE_UNAVAILABLE"},
 	}
 	for _, testCase := range cases {

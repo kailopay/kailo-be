@@ -79,6 +79,8 @@ func (h *APIKeyHandler) Revoke(c *gin.Context) {
 
 func (h *APIKeyHandler) writeError(c *gin.Context, operation string, err error) {
 	switch {
+	case errors.Is(err, usecase.ErrKYCRequired):
+		writeKYCRequiredError(c)
 	case errors.Is(err, usecase.ErrDeveloperModeRequired):
 		c.JSON(http.StatusForbidden, gin.H{"error": "Developer Mode is required"})
 	case errors.Is(err, usecase.ErrInvalidName):

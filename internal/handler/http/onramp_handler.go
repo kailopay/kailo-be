@@ -149,6 +149,8 @@ func errorMapping(err error) (string, int) {
 		return "CHECKOUT_PENDING_RECONCILIATION", http.StatusAccepted
 	case errors.Is(err, usecase.ErrInvalidPrice), errors.Is(err, usecase.ErrStalePrice), errors.Is(err, usecase.ErrInvalidQuote):
 		return "QUOTE_UNAVAILABLE", http.StatusServiceUnavailable
+	case errors.Is(err, usecase.ErrKYCRequired):
+		return "KYC_REQUIRED", http.StatusForbidden
 	default:
 		return "", 0
 	}
@@ -172,6 +174,8 @@ func publicErrorMessage(code string) string {
 		return "The checkout outcome is being reconciled with the payment provider."
 	case "QUOTE_UNAVAILABLE":
 		return "A fresh quote is currently unavailable; retry shortly."
+	case "KYC_REQUIRED":
+		return "Complete identity verification before using this feature."
 	default:
 		return "An external service is temporarily unavailable."
 	}

@@ -90,6 +90,16 @@ func (h *KYCHandler) writeError(c *gin.Context, operation string, err error) {
 	})
 }
 
+func writeKYCRequiredError(c *gin.Context) {
+	c.JSON(http.StatusForbidden, gin.H{
+		"error": gin.H{
+			"code":    "KYC_REQUIRED",
+			"message": "Complete identity verification before using this feature.",
+		},
+		"request_id": middleware.RequestIDFromContext(c),
+	})
+}
+
 func kycErrorMapping(err error) (string, int) {
 	switch {
 	case errors.Is(err, usecase.ErrKYCInvalidRequest):
@@ -111,6 +121,8 @@ func kycPublicErrorMessage(code string) string {
 		return "Identity verification is temporarily unavailable."
 	case "KYC_INQUIRY_NOT_FOUND":
 		return "The identity verification inquiry was not found."
+	case "KYC_REQUIRED":
+		return "Complete identity verification before using this feature."
 	default:
 		return "An internal error occurred."
 	}

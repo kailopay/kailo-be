@@ -349,10 +349,52 @@ paths:
                 $ref: '#/components/schemas/UserProfileResponse'
         '401':
           description: Missing or invalid local session
+  /v1/kyc:
+    get:
+      summary: Get the authenticated user's identity-verification status
+      description: Returns the latest webhook-backed Persona status. Only approved is eligible to create API keys or on/off-ramp orders.
+      security:
+        - kailoSession: []
+      responses:
+        '200':
+          description: Current KYC status without identity fields or provider secrets
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KYCStatusResponse'
+        '401':
+          description: Missing or invalid local session
+        '500':
+          description: Failed to read KYC status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KYCError'
+  /v1/kyc/inquiry:
+    post:
+      summary: Create or resume the authenticated user's Persona inquiry
+      description: Creates a backend-owned Persona inquiry or resumes the current inquiry. The optional session token is short-lived and intended only for the embedded browser flow.
+      security:
+        - kailoSession: []
+      responses:
+        '201':
+          description: Persona inquiry details for the embedded flow
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KYCInquiryResponse'
+        '401':
+          description: Missing or invalid local session
+        '503':
+          description: Persona is temporarily unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KYCError'
   /v1/api-keys:
     post:
       summary: Create a sandbox API key
-      description: Requires Developer Mode. The full key is returned only in this response.
+      description: Requires Developer Mode and an approved Persona identity verification. The full key is returned only in this response.
       security:
         - kailoSession: []
       requestBody:
@@ -369,7 +411,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/CreateAPIKeyResponse'
         '403':
-          description: Developer Mode is disabled
+          description: Developer Mode is disabled or approved identity verification is required (KYC_REQUIRED)
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ErrorResponse'
+                  - $ref: '#/components/schemas/KYCError'
     get:
       summary: List sandbox API keys
       security:
@@ -457,7 +505,7 @@ paths:
         '401':
           description: Missing or invalid API key/session credentials
         '403':
-          description: Verified session is required for consumer orders, or the browser origin is not allowed
+          description: Verified session is required for consumer orders, the browser origin is not allowed, or approved identity verification is required (KYC_REQUIRED)
         '409':
           description: Idempotency conflict (IDEMPOTENCY_KEY_REUSED) or insufficient liquidity (INSUFFICIENT_LIQUIDITY)
           content:
@@ -529,7 +577,7 @@ paths:
         '401':
           description: Missing or invalid API key/session credentials
         '403':
-          description: Verified session is required for consumer orders, or the browser origin is not allowed
+          description: Verified session is required for consumer orders, the browser origin is not allowed, or approved identity verification is required (KYC_REQUIRED)
         '409':
           description: Idempotency conflict
           content:
@@ -610,6 +658,34 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/OnrampError'
+  /callbacks/kyc/persona:
+    post:
+      summary: Receive signed Persona identity-verification events
+      description: Verifies the Persona-Signature header over the exact raw JSON body, deduplicates provider events, and updates the local KYC status without storing the raw payload.
+      security:
+        - personaSignature: []
+      parameters:
+        - name: Persona-Signature
+          in: header
+          required: true
+          schema:
+            type: string
+          description: Persona timestamped HMAC signature.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PersonaWebhookRequest'
+      responses:
+        '200':
+          description: Callback accepted, replayed, or safely retained
+        '400':
+          description: Callback body or event identity conflicts with the stored event
+        '401':
+          description: Missing, stale, or invalid Persona signature
+        '503':
+          description: Callback could not be durably processed and may be retried
   /callbacks/payments/xendit:
     post:
       summary: Receive an authenticated Xendit payment webhook
@@ -650,6 +726,11 @@ components:
       type: apiKey
       in: header
       name: x-callback-token
+    personaSignature:
+      type: apiKey
+      in: header
+      name: Persona-Signature
+      description: Timestamped HMAC signature calculated by Persona over the exact callback body.
   schemas:
     UserProfileResponse:
       type: object
@@ -689,6 +770,101 @@ components:
           maxLength: 100
         developer_enabled:
           type: boolean
+    KYCStatusResponse:
+      type: object
+      required: [kyc]
+      properties:
+        kyc:
+          $ref: '#/components/schemas/KYCStatus'
+    KYCStatus:
+      type: object
+      required: [provider, status, provider_status, inquiry_id]
+      properties:
+        provider:
+          type: string
+          enum: [persona]
+        status:
+          type: string
+          enum: [not_started, creating, created, pending, completed, pending_review, approved, declined, failed, expired]
+        provider_status:
+          type: string
+        inquiry_id:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+          nullable: true
+        updated_at:
+          type: string
+          format: date-time
+          nullable: true
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        approved_at:
+          type: string
+          format: date-time
+          nullable: true
+    KYCInquiryResponse:
+      type: object
+      required: [inquiry]
+      properties:
+        inquiry:
+          $ref: '#/components/schemas/KYCInquiry'
+    KYCInquiry:
+      type: object
+      required: [status, provider_status, inquiry_id, environment_id]
+      properties:
+        status:
+          type: string
+          enum: [created, pending, completed, pending_review, approved, declined, failed, expired]
+        provider_status:
+          type: string
+        inquiry_id:
+          type: string
+        environment_id:
+          type: string
+        session_token:
+          type: string
+          description: Short-lived Persona embedded-flow session token. Returned only when the server resumes an existing inquiry.
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+    KYCError:
+      type: object
+      required: [error, request_id]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum: [INVALID_REQUEST, KYC_PROVIDER_UNAVAILABLE, KYC_INQUIRY_NOT_FOUND, KYC_REQUIRED]
+            message:
+              type: string
+        request_id:
+          type: string
+    PersonaWebhookRequest:
+      type: object
+      description: Persona JSON:API event payload. The server stores only event identity, timestamps, status, and a hash of the exact body.
+      additionalProperties: true
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [id, type, attributes]
+          properties:
+            id:
+              type: string
+            type:
+              type: string
+              enum: [event]
+            attributes:
+              type: object
+              additionalProperties: true
     CreateAPIKeyRequest:
       type: object
       additionalProperties: false
@@ -941,7 +1117,7 @@ components:
               type: string
               enum: [INVALID_REQUEST, INVALID_STELLAR_ACCOUNT, AMOUNT_OUT_OF_RANGE, INSUFFICIENT_LIQUIDITY,
                      IDEMPOTENCY_KEY_REUSED, ORDER_NOT_FOUND, CHECKOUT_PENDING_RECONCILIATION,
-                     QUOTE_UNAVAILABLE, EXTERNAL_SERVICE_UNAVAILABLE]
+                     QUOTE_UNAVAILABLE, EXTERNAL_SERVICE_UNAVAILABLE, KYC_REQUIRED]
             message:
               type: string
         request_id:
