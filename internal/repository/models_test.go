@@ -132,3 +132,60 @@ func TestAuthSchemaUsesFederatedIdentityAndUserOwnedClients(t *testing.T) {
 		t.Error("entity.WebhookEndpoint must not retain OrganizationID")
 	}
 }
+
+func TestKYCMigrationModelsAreRegistered(t *testing.T) {
+	registeredTables := make(map[string]struct{})
+	for _, model := range MigrationModels() {
+		tableNamer, ok := model.(interface{ TableName() string })
+		if !ok {
+			continue
+		}
+		registeredTables[tableNamer.TableName()] = struct{}{}
+	}
+	for _, table := range []string{"kyc_inquiries", "kyc_provider_events"} {
+		if _, ok := registeredTables[table]; !ok {
+			t.Errorf("MigrationModels() is missing %q", table)
+		}
+	}
+}
+
+func TestKYCModelsHaveAuditableFieldsWithoutRawPayload(t *testing.T) {
+	inquiryType := reflect.TypeOf(entity.KYCInquiry{})
+	for _, field := range []string{
+		"ID", "UserID", "Provider", "ProviderInquiryID", "ProviderRequestKey", "ProviderStatus",
+		"Status", "ProviderEventAt", "LastProviderEventID", "ApprovedAt", "ExpiresAt", "CreatedAt", "UpdatedAt",
+	} {
+		if _, ok := inquiryType.FieldByName(field); !ok {
+			t.Errorf("entity.KYCInquiry is missing %q", field)
+		}
+	}
+
+	eventType := reflect.TypeOf(entity.KYCProviderEvent{})
+	for _, field := range []string{
+		"ID", "Provider", "ProviderEventID", "InquiryID", "EventType", "ProviderEventAt", "PayloadHash", "ReceivedAt",
+	} {
+		if _, ok := eventType.FieldByName(field); !ok {
+			t.Errorf("entity.KYCProviderEvent is missing %q", field)
+		}
+	}
+	if _, ok := eventType.FieldByName("RawPayload"); ok {
+		t.Error("entity.KYCProviderEvent must not persist RawPayload")
+	}
+}
+
+func TestKYCModelsUseExpectedTableNames(t *testing.T) {
+	for _, testCase := range []struct {
+		model any
+		want  string
+	}{
+		{model: entity.KYCInquiry{}, want: "kyc_inquiries"},
+		{model: entity.KYCProviderEvent{}, want: "kyc_provider_events"},
+	} {
+		t.Run(testCase.want, func(t *testing.T) {
+			got := reflect.ValueOf(testCase.model).MethodByName("TableName").Call(nil)[0].String()
+			if got != testCase.want {
+				t.Fatalf("TableName() = %q, want %q", got, testCase.want)
+			}
+		})
+	}
+}

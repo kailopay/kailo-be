@@ -25,5 +25,7 @@ func MigrationModels() []any {
 		&entity.TreasuryAccount{},
 		&entity.TreasuryReservation{},
 		&entity.OfframpPayout{},
+		&entity.KYCInquiry{},
+		&entity.KYCProviderEvent{},
 	}
 }
