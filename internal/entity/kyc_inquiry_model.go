@@ -8,6 +8,7 @@ const (
 	KYCInquiryCreating      KYCInquiryStatus = "creating"
 	KYCInquiryCreated       KYCInquiryStatus = "created"
 	KYCInquiryPending       KYCInquiryStatus = "pending"
+	KYCInquiryCompleted     KYCInquiryStatus = "completed"
 	KYCInquiryPendingReview KYCInquiryStatus = "pending_review"
 	KYCInquiryApproved      KYCInquiryStatus = "approved"
 	KYCInquiryDeclined      KYCInquiryStatus = "declined"

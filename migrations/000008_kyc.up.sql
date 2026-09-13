@@ -6,7 +6,7 @@ CREATE TABLE kyc_inquiries (
     provider_request_key text NOT NULL UNIQUE,
     provider_status text,
     status text NOT NULL CHECK (status IN (
-        'creating', 'created', 'pending', 'pending_review',
+        'creating', 'created', 'pending', 'completed', 'pending_review',
         'approved', 'declined', 'failed', 'expired'
     )),
     provider_event_at timestamptz,
@@ -23,7 +23,7 @@ CREATE UNIQUE INDEX idx_kyc_inquiries_provider_inquiry
     WHERE provider_inquiry_id IS NOT NULL;
 CREATE UNIQUE INDEX idx_kyc_inquiries_active_user
     ON kyc_inquiries(user_id)
-    WHERE status IN ('creating', 'created', 'pending', 'pending_review');
+    WHERE status IN ('creating', 'created', 'pending', 'completed', 'pending_review');
 CREATE INDEX idx_kyc_inquiries_user_updated
     ON kyc_inquiries(user_id, updated_at DESC, id DESC);
 
