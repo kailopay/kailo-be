@@ -22,7 +22,7 @@ import (
 //	TEST_DATABASE_DSN="postgres://postgres:postgres@localhost:5432/kailopay_test?sslmode=disable&TimeZone=UTC"
 
 var integrationTables = []string{
-	"webhook_attempts", "webhook_events", "webhook_endpoints", "outbox_messages",
+	"webhook_attempts", "webhook_events", "webhook_endpoints", "kyc_provider_events", "kyc_inquiries", "outbox_messages",
 	"idempotency_records", "stellar_transactions", "gateway_events", "payment_checkouts",
 	"order_events", "treasury_reservations", "treasury_accounts", "orders", "api_keys",
 	"api_clients", "retail_sessions", "auth_transactions", "user_identities", "users",
@@ -31,6 +31,7 @@ var integrationTables = []string{
 type integrationStore struct {
 	db         *gorm.DB
 	onramp     *OnrampRepository
+	kyc        *KYCRepository
 	settlement *SettlementRepository
 	auth       *AuthRepository
 }
@@ -80,6 +81,7 @@ func newIntegrationStore(t *testing.T) *integrationStore {
 	return &integrationStore{
 		db:         db,
 		onramp:     NewOnrampRepository(db, "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF", "stellar_testnet", 0),
+		kyc:        NewKYCRepository(db),
 		settlement: NewSettlementRepository(db, 5),
 		auth:       NewAuthRepository(db, 30*time.Minute),
 	}

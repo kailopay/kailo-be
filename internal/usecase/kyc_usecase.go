@@ -28,9 +28,11 @@ const (
 )
 
 var (
-	ErrKYCRequired            = errors.New("approved identity verification is required")
-	ErrKYCProviderUnavailable = errors.New("kyc provider is unavailable")
-	ErrKYCInvalidWebhook      = errors.New("invalid kyc webhook")
+	ErrKYCRequired              = errors.New("approved identity verification is required")
+	ErrKYCProviderUnavailable   = errors.New("kyc provider is unavailable")
+	ErrKYCInvalidWebhook        = errors.New("invalid kyc webhook")
+	ErrKYCInquiryNotFound       = errors.New("kyc inquiry not found")
+	ErrKYCProviderEventConflict = errors.New("kyc provider event conflicts with an existing event")
 )
 
 type KYCProviderUnavailableError struct {
