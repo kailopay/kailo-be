@@ -31,6 +31,7 @@ var (
 	ErrKYCRequired              = errors.New("approved identity verification is required")
 	ErrKYCProviderUnavailable   = errors.New("kyc provider is unavailable")
 	ErrKYCInvalidWebhook        = errors.New("invalid kyc webhook")
+	ErrKYCInvalidRequest        = errors.New("invalid kyc request")
 	ErrKYCInquiryNotFound       = errors.New("kyc inquiry not found")
 	ErrKYCProviderEventConflict = errors.New("kyc provider event conflicts with an existing event")
 )
@@ -114,6 +115,12 @@ type KYCStatusReader interface {
 	IsApproved(ctx context.Context, userID string) (bool, error)
 }
 
+type KYCService interface {
+	Status(ctx context.Context, userID string) (KYCStatusView, error)
+	StartInquiry(ctx context.Context, userID string) (KYCInquiryView, error)
+	ProcessPersonaWebhook(ctx context.Context, rawBody []byte, signature string, receivedAt time.Time) error
+}
+
 type KYCDependencies struct {
 	Repository KYCRepository
 	Persona    PersonaGateway
@@ -141,7 +148,7 @@ func NewKYCUsecase(dependencies KYCDependencies, config KYCServiceConfig) (*KYCU
 func (s *KYCUsecase) Status(ctx context.Context, userID string) (KYCStatusView, error) {
 	userID = strings.TrimSpace(userID)
 	if userID == "" {
-		return KYCStatusView{}, ErrKYCInvalidWebhook
+		return KYCStatusView{}, ErrKYCInvalidRequest
 	}
 	record, found, err := s.dependencies.Repository.FindCurrent(ctx, userID)
 	if err != nil {
@@ -164,7 +171,7 @@ func (s *KYCUsecase) IsApproved(ctx context.Context, userID string) (bool, error
 func (s *KYCUsecase) StartInquiry(ctx context.Context, userID string) (KYCInquiryView, error) {
 	userID = strings.TrimSpace(userID)
 	if userID == "" {
-		return KYCInquiryView{}, ErrKYCInvalidWebhook
+		return KYCInquiryView{}, ErrKYCInvalidRequest
 	}
 	now := s.now()
 	internalID, err := s.dependencies.NewID()
@@ -215,7 +222,7 @@ func (s *KYCUsecase) ProcessPersonaWebhook(ctx context.Context, rawBody []byte, 
 	}
 	event, err := s.dependencies.Persona.VerifyWebhook(rawBody, signature, receivedAt.UTC())
 	if err != nil {
-		return fmt.Errorf("verifying persona webhook: %w", err)
+		return fmt.Errorf("%w: persona webhook verification failed", ErrKYCInvalidWebhook)
 	}
 	if strings.TrimSpace(event.ID) == "" || strings.TrimSpace(event.InquiryID) == "" || event.CreatedAt.IsZero() {
 		return ErrKYCInvalidWebhook
@@ -292,32 +299,40 @@ func mapPersonaStatusForEvent(event PersonaEvent) (KYCStatus, bool) {
 	case "inquiry.expired":
 		return KYCStatusExpired, true
 	case "inquiry.transitioned":
-		return mapPersonaStatus(event.Status), true
+		return mapPersonaStatusForTransition(event.Status)
 	default:
 		return KYCStatusNotStarted, false
 	}
 }
 
 func mapPersonaStatus(providerStatus string) KYCStatus {
+	status, ok := mapPersonaStatusForTransition(providerStatus)
+	if !ok {
+		return KYCStatusCreated
+	}
+	return status
+}
+
+func mapPersonaStatusForTransition(providerStatus string) (KYCStatus, bool) {
 	switch normalizePersonaValue(providerStatus) {
 	case "created":
-		return KYCStatusCreated
+		return KYCStatusCreated, true
 	case "pending", "started":
-		return KYCStatusPending
+		return KYCStatusPending, true
 	case "completed":
-		return KYCStatusCompleted
+		return KYCStatusCompleted, true
 	case "marked_for_review", "review":
-		return KYCStatusPendingReview
+		return KYCStatusPendingReview, true
 	case "approved":
-		return KYCStatusApproved
+		return KYCStatusApproved, true
 	case "declined":
-		return KYCStatusDeclined
+		return KYCStatusDeclined, true
 	case "failed":
-		return KYCStatusFailed
+		return KYCStatusFailed, true
 	case "expired":
-		return KYCStatusExpired
+		return KYCStatusExpired, true
 	default:
-		return KYCStatusCreated
+		return KYCStatusNotStarted, false
 	}
 }
 

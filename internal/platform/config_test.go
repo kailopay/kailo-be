@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -35,6 +36,19 @@ func validObjectStorageConfig() ObjectStorageConfig {
 	}
 }
 
+func validPersonaConfig() PersonaConfig {
+	return PersonaConfig{
+		BaseURL:            "https://api.withpersona.com",
+		APIKey:             "persona-api-key",
+		TemplateID:         "itmpl_test",
+		EnvironmentID:      "env_test",
+		WebhookSecret:      strings.Repeat("s", 32),
+		Timeout:            10 * time.Second,
+		SignatureTolerance: 5 * time.Minute,
+		MaxResponseBytes:   1 << 20,
+	}
+}
+
 func setValidAuthEnv(t *testing.T) {
 	t.Helper()
 	key := base64.StdEncoding.EncodeToString(make([]byte, 32))
@@ -49,7 +63,20 @@ func setValidAuthEnv(t *testing.T) {
 	t.Setenv("MINIO_SECRET_KEY", "secret-key")
 	t.Setenv("MINIO_BUCKET", "kailopay-profile")
 	t.Setenv("MINIO_USE_SSL", "true")
+	setValidPersonaEnv(t)
 	setValidWeek1Env(t)
+}
+
+func setValidPersonaEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv("PERSONA_BASE_URL", "https://api.withpersona.com")
+	t.Setenv("PERSONA_API_KEY", "persona-api-key")
+	t.Setenv("PERSONA_TEMPLATE_ID", "itmpl_test")
+	t.Setenv("PERSONA_ENVIRONMENT_ID", "env_test")
+	t.Setenv("PERSONA_WEBHOOK_SECRET", strings.Repeat("s", 32))
+	t.Setenv("PERSONA_TIMEOUT", "10s")
+	t.Setenv("PERSONA_SIGNATURE_TOLERANCE", "5m")
+	t.Setenv("PERSONA_MAX_RESPONSE_BYTES", "1048576")
 }
 
 func setValidWeek1Env(t *testing.T) {
@@ -196,6 +223,66 @@ func TestObjectStorageConfigValidateRejectsUnsafeSettings(t *testing.T) {
 	}
 }
 
+func TestPersonaConfigValidate(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*PersonaConfig)
+		valid  bool
+		env    string
+	}{
+		{name: "valid production", valid: true, env: "production"},
+		{name: "missing API key", mutate: func(cfg *PersonaConfig) { cfg.APIKey = "" }, env: "production"},
+		{name: "missing template", mutate: func(cfg *PersonaConfig) { cfg.TemplateID = "" }, env: "production"},
+		{name: "missing environment", mutate: func(cfg *PersonaConfig) { cfg.EnvironmentID = "" }, env: "production"},
+		{name: "short webhook secret", mutate: func(cfg *PersonaConfig) { cfg.WebhookSecret = "short" }, env: "production"},
+		{name: "insecure production URL", mutate: func(cfg *PersonaConfig) { cfg.BaseURL = "http://persona.example.com" }, env: "production"},
+		{name: "non-positive timeout", mutate: func(cfg *PersonaConfig) { cfg.Timeout = 0 }, env: "production"},
+		{name: "response limit too large", mutate: func(cfg *PersonaConfig) { cfg.MaxResponseBytes = 17 << 20 }, env: "production"},
+		{name: "local HTTP URL", mutate: func(cfg *PersonaConfig) { cfg.BaseURL = "http://localhost:8081" }, valid: true, env: "local"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := validPersonaConfig()
+			if tt.mutate != nil {
+				tt.mutate(&cfg)
+			}
+			err := cfg.Validate(tt.env)
+			if tt.valid && err != nil {
+				t.Fatalf("Validate() error = %v", err)
+			}
+			if !tt.valid && err == nil {
+				t.Fatal("Validate() error = nil")
+			}
+		})
+	}
+}
+
+func TestLoadReadsPersonaEnvironmentOverrides(t *testing.T) {
+	setValidAuthEnv(t)
+	t.Setenv("APP_ENV", "test")
+	t.Setenv("DATABASE_DSN", "host=test-db user=tester password=secret dbname=test port=5432")
+	t.Setenv("PERSONA_BASE_URL", "https://persona.example.com")
+	t.Setenv("PERSONA_API_KEY", "persona-test-key")
+	t.Setenv("PERSONA_TEMPLATE_ID", "itmpl_override")
+	t.Setenv("PERSONA_ENVIRONMENT_ID", "env_override")
+	t.Setenv("PERSONA_WEBHOOK_SECRET", strings.Repeat("w", 40))
+	t.Setenv("PERSONA_TIMEOUT", "7s")
+	t.Setenv("PERSONA_SIGNATURE_TOLERANCE", "2m")
+	t.Setenv("PERSONA_MAX_RESPONSE_BYTES", "2048")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Persona.BaseURL != "https://persona.example.com" || cfg.Persona.APIKey != "persona-test-key" ||
+		cfg.Persona.TemplateID != "itmpl_override" || cfg.Persona.EnvironmentID != "env_override" ||
+		cfg.Persona.WebhookSecret != strings.Repeat("w", 40) || cfg.Persona.Timeout != 7*time.Second ||
+		cfg.Persona.SignatureTolerance != 2*time.Minute || cfg.Persona.MaxResponseBytes != 2048 {
+		t.Fatalf("persona config = %+v", cfg.Persona)
+	}
+}
+
 func TestLoadReadsMinIOEnvironmentOverrides(t *testing.T) {
 	setValidAuthEnv(t)
 	t.Setenv("APP_ENV", "local")
@@ -300,6 +387,7 @@ func TestLoadReadsEmailEnvironmentOverrides(t *testing.T) {
 }
 
 func TestLoadReadsAuthEnvironmentOverrides(t *testing.T) {
+	setValidPersonaEnv(t)
 	setValidWeek1Env(t)
 	key := base64.StdEncoding.EncodeToString(make([]byte, 32))
 	t.Setenv("APP_ENV", "local")

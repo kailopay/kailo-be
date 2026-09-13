@@ -103,6 +103,28 @@ func TestRouterRegistersWeek1Routes(t *testing.T) {
 	}
 }
 
+func TestRouterRegistersKYCRoutes(t *testing.T) {
+	authHandler := testAuthHandler(t, &fakeAuthService{})
+	health := NewHealthHandler(func(context.Context) error { return nil }, time.Second, nil)
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	requireSession := middleware.RequireSession(fakeSessionAuthenticator{user: auth.AuthenticatedUser{User: auth.UserProfile{ID: "user-id"}}})
+	router, err := NewRouter(logger, health, authHandler, requireSession, WithKYC(NewKYCHandler(&fakeKYCService{}, logger)))
+	if err != nil {
+		t.Fatalf("NewRouter() error = %v", err)
+	}
+	routes := make(map[string]bool)
+	for _, route := range router.Routes() {
+		routes[route.Method+" "+route.Path] = true
+	}
+	for _, route := range []string{
+		"GET /v1/kyc", "POST /v1/kyc/inquiry", "POST /callbacks/kyc/persona",
+	} {
+		if !routes[route] {
+			t.Errorf("missing route %s", route)
+		}
+	}
+}
+
 func TestRouterServesOpenAPIDocumentation(t *testing.T) {
 	authHandler := testAuthHandler(t, &fakeAuthService{})
 	health := NewHealthHandler(func(context.Context) error { return nil }, time.Second, nil)

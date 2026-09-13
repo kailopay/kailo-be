@@ -12,6 +12,7 @@ import (
 
 type routerOptions struct {
 	apiKeys               *APIKeyHandler
+	kyc                   *KYCHandler
 	onramp                *OnrampHandler
 	offramp               *OfframpHandler
 	sep24                 *Sep24Handler
@@ -26,6 +27,16 @@ func WithWebhooks(handler *WebhookHandler) RouterOption {
 			return errors.New("webhook handler is required")
 		}
 		options.webhooks = handler
+		return nil
+	}
+}
+
+func WithKYC(handler *KYCHandler) RouterOption {
+	return func(options *routerOptions) error {
+		if handler == nil {
+			return errors.New("kyc handler is required")
+		}
+		options.kyc = handler
 		return nil
 	}
 }
@@ -145,6 +156,13 @@ func NewRouter(logger *slog.Logger, health *HealthHandler, authHandler *AuthHand
 		apiKeyRoutes.POST("", configured.apiKeys.Create)
 		apiKeyRoutes.GET("", configured.apiKeys.List)
 		apiKeyRoutes.DELETE("/:id", configured.apiKeys.Revoke)
+	}
+	if configured.kyc != nil {
+		kycRoutes := router.Group("/v1/kyc")
+		kycRoutes.Use(requireSession)
+		kycRoutes.GET("", configured.kyc.Status)
+		kycRoutes.POST("/inquiry", configured.kyc.Inquiry)
+		router.POST("/callbacks/kyc/persona", gin.WrapH(configured.kyc))
 	}
 	if configured.webhooks != nil {
 		webhookRoutes := router.Group("/v1/webhook-endpoints")

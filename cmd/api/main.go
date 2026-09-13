@@ -18,6 +18,7 @@ import (
 	"github.com/febry3/kailopay-be/internal/adapter/google"
 	mail "github.com/febry3/kailopay-be/internal/adapter/mail"
 	"github.com/febry3/kailopay-be/internal/adapter/objectstorage"
+	personaadapter "github.com/febry3/kailopay-be/internal/adapter/persona"
 	stellaradapter "github.com/febry3/kailopay-be/internal/adapter/stellar"
 	"github.com/febry3/kailopay-be/internal/adapter/xendit"
 	"github.com/febry3/kailopay-be/internal/entity"
@@ -27,6 +28,10 @@ import (
 	"github.com/febry3/kailopay-be/internal/repository"
 	"github.com/febry3/kailopay-be/internal/usecase"
 )
+
+type systemClock struct{}
+
+func (systemClock) Now() time.Time { return time.Now().UTC() }
 
 func main() {
 	if err := run(context.Background()); err != nil {
@@ -133,9 +138,34 @@ func run(ctx context.Context) error {
 	}
 	authHandler := httpapi.NewAuthHandler(authService, cfg.Auth, appLogger)
 	sessionMiddleware := middleware.RequireSessionWithCookie(authService, cfg.Auth.CookieName)
+	personaClient, err := personaadapter.New(personaadapter.Config{
+		BaseURL:            cfg.Persona.BaseURL,
+		APIKey:             cfg.Persona.APIKey,
+		TemplateID:         cfg.Persona.TemplateID,
+		WebhookSecret:      cfg.Persona.WebhookSecret,
+		Timeout:            cfg.Persona.Timeout,
+		SignatureTolerance: cfg.Persona.SignatureTolerance,
+		MaxResponseBytes:   cfg.Persona.MaxResponseBytes,
+		HTTPClient:         &http.Client{Timeout: cfg.Persona.Timeout},
+	})
+	if err != nil {
+		return fmt.Errorf("creating Persona client: %w", err)
+	}
+	kycRepository := repository.NewKYCRepository(db)
+	kycService, err := usecase.NewKYCUsecase(usecase.KYCDependencies{
+		Repository: kycRepository,
+		Persona:    personaClient,
+		Clock:      systemClock{},
+		NewID:      platform.NewID,
+	}, usecase.KYCServiceConfig{EnvironmentID: cfg.Persona.EnvironmentID})
+	if err != nil {
+		return fmt.Errorf("creating KYC service: %w", err)
+	}
+	kycHandler := httpapi.NewKYCHandler(kycService, appLogger)
 	apiKeyRepository := repository.NewAPIKeyRepository(db)
 	apiKeyService, err := usecase.NewAPIKeyUsecase(usecase.APIKeyDependencies{
 		Repository: apiKeyRepository,
+		KYC:        kycService,
 	}, usecase.APIKeyConfig{
 		Pepper: []byte(cfg.Week1.APIKeyPepper),
 		Random: rand.Reader,
@@ -165,7 +195,7 @@ func run(ctx context.Context) error {
 	onrampRepository := repository.NewOnrampRepository(db, cfg.Week1.Stellar.TreasuryAccount, usecase.StellarTestnetNetwork,
 		entity.Stroops(cfg.Week1.Stellar.OperatingBufferStroops))
 	onrampService, err := usecase.NewOnrampUsecase(usecase.OnrampDependencies{Repository: onrampRepository, Prices: priceClient,
-		Treasury: treasuryReader, Gateway: paymentClient, Destinations: treasuryReader}, usecase.ServiceConfig{
+		Treasury: treasuryReader, Gateway: paymentClient, Destinations: treasuryReader, KYC: kycService}, usecase.ServiceConfig{
 		QuotePolicy: usecase.QuotePolicy{TTL: cfg.Week1.Onramp.QuoteTTL, MaxAge: cfg.Week1.Onramp.QuoteMaxAge,
 			SpreadBPS: cfg.Week1.Onramp.QuoteSpreadBPS}, MinIDR: entity.IDR(cfg.Week1.Onramp.MinIDR),
 		MaxIDR: entity.IDR(cfg.Week1.Onramp.MaxIDR), TreasuryAccount: cfg.Week1.Stellar.TreasuryAccount,
@@ -180,7 +210,7 @@ func run(ctx context.Context) error {
 	}
 	offrampRepository := repository.NewOfframpRepository(db, cfg.Week1.Offramp.DepositAccount, usecase.StellarTestnetNetwork)
 	offrampService, err := usecase.NewOfframpUsecase(usecase.OfframpDependencies{
-		Repository: offrampRepository, Prices: priceClient, Destinations: treasuryReader}, usecase.OfframpServiceConfig{
+		Repository: offrampRepository, Prices: priceClient, Destinations: treasuryReader, KYC: kycService}, usecase.OfframpServiceConfig{
 		QuotePolicy: usecase.QuotePolicy{TTL: cfg.Week1.Onramp.QuoteTTL, MaxAge: cfg.Week1.Onramp.QuoteMaxAge,
 			SpreadBPS: cfg.Week1.Onramp.QuoteSpreadBPS}, MinIDR: entity.IDR(cfg.Week1.Onramp.MinIDR),
 		MaxIDR: entity.IDR(cfg.Week1.Onramp.MaxIDR), DepositAccount: cfg.Week1.Offramp.DepositAccount,
@@ -208,7 +238,8 @@ func run(ctx context.Context) error {
 	callbackHandler := httpapi.NewXenditCallbackHandler(callbackService, appLogger)
 	orderPrincipalMiddleware := middleware.RequireOrderPrincipal(apiKeyService, authService, cfg.Auth.CookieName, cfg.HTTP.AllowedOrigins)
 	router, err := httpapi.NewRouter(appLogger, health, authHandler, sessionMiddleware,
-		httpapi.WithAPIKeys(apiKeyHandler), httpapi.WithOnramp(onrampHandler, orderPrincipalMiddleware),
+		httpapi.WithAPIKeys(apiKeyHandler), httpapi.WithKYC(kycHandler),
+		httpapi.WithOnramp(onrampHandler, orderPrincipalMiddleware),
 		httpapi.WithOfframp(offrampHandler), httpapi.WithSep24(sep24Handler),
 		httpapi.WithWebhooks(webhookHandler), httpapi.WithXenditCallback(callbackHandler))
 	if err != nil {
