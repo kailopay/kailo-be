@@ -128,11 +128,16 @@ func TestListAndRevokeRequireDeveloperMode(t *testing.T) {
 }
 
 func newTestService(t *testing.T, store *fakeStore) *APIKeyUsecase {
+	return newTestServiceWithKYC(t, store, &fakeKYCStatusReader{approved: true})
+}
+
+func newTestServiceWithKYC(t *testing.T, store *fakeStore, kyc KYCStatusReader) *APIKeyUsecase {
 	t.Helper()
 	ids := []string{"00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000002"}
 	index := 0
 	service, err := NewAPIKeyUsecase(APIKeyDependencies{
 		Repository: store,
+		KYC:        kyc,
 	}, APIKeyConfig{
 		Pepper: []byte("0123456789abcdef0123456789abcdef"),
 		Random: strings.NewReader(strings.Repeat("r", 128)),

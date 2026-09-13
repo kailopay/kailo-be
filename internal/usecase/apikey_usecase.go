@@ -66,6 +66,7 @@ type APIKeyRepository interface {
 
 type APIKeyDependencies struct {
 	Repository APIKeyRepository
+	KYC        KYCStatusReader
 }
 
 type APIKeyConfig struct {
@@ -81,7 +82,7 @@ type APIKeyUsecase struct {
 }
 
 func NewAPIKeyUsecase(dependencies APIKeyDependencies, config APIKeyConfig) (*APIKeyUsecase, error) {
-	if dependencies.Repository == nil {
+	if dependencies.Repository == nil || dependencies.KYC == nil {
 		return nil, errors.New("api key dependencies are required")
 	}
 	if len(config.Pepper) < 32 || config.Random == nil || config.NewID == nil || config.Now == nil {
@@ -129,6 +130,13 @@ func (s *APIKeyUsecase) Create(ctx context.Context, ownerUserID, name string) (C
 	}
 	if !enabled {
 		return CreatedKey{}, ErrDeveloperModeRequired
+	}
+	approved, err := s.dependencies.KYC.IsApproved(ctx, ownerUserID)
+	if err != nil {
+		return CreatedKey{}, fmt.Errorf("checking kyc status: %w", err)
+	}
+	if !approved {
+		return CreatedKey{}, ErrKYCRequired
 	}
 
 	clientID, err := s.config.NewID()

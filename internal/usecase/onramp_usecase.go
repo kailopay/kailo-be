@@ -76,6 +76,7 @@ type OnrampDependencies struct {
 	Treasury     TreasuryReader
 	Gateway      PaymentGateway
 	Destinations DestinationValidator
+	KYC          KYCStatusReader
 }
 
 type ServiceConfig struct {
@@ -162,7 +163,7 @@ type OnrampUsecase struct {
 }
 
 func NewOnrampUsecase(dependencies OnrampDependencies, config ServiceConfig) (*OnrampUsecase, error) {
-	if dependencies.Repository == nil || dependencies.Prices == nil || dependencies.Treasury == nil || dependencies.Gateway == nil || dependencies.Destinations == nil ||
+	if dependencies.Repository == nil || dependencies.Prices == nil || dependencies.Treasury == nil || dependencies.Gateway == nil || dependencies.Destinations == nil || dependencies.KYC == nil ||
 		config.NewID == nil || config.Now == nil || strings.TrimSpace(config.TreasuryAccount) == "" ||
 		config.MinIDR <= 0 || config.MaxIDR < config.MinIDR {
 		return nil, errors.New("valid onramp dependencies and configuration are required")
@@ -197,6 +198,13 @@ func (s *OnrampUsecase) Create(ctx context.Context, command Command) (OrderView,
 	}
 	if found {
 		return replayed, true, replayError(replayed)
+	}
+	approved, err := s.dependencies.KYC.IsApproved(ctx, command.Principal.OwnerUserID)
+	if err != nil {
+		return OrderView{}, false, fmt.Errorf("checking kyc status: %w", err)
+	}
+	if !approved {
+		return OrderView{}, false, ErrKYCRequired
 	}
 	market, err := s.dependencies.Prices.LatestXLMIDR(ctx)
 	if err != nil {

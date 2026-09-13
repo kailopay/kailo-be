@@ -114,6 +114,7 @@ type OfframpDependencies struct {
 	Repository   OfframpRepository
 	Prices       PriceReader
 	Destinations DestinationValidator
+	KYC          KYCStatusReader
 }
 
 // OfframpServiceConfig configures the off-ramp create flow.
@@ -146,7 +147,7 @@ type OfframpUsecase struct {
 }
 
 func NewOfframpUsecase(dependencies OfframpDependencies, config OfframpServiceConfig) (*OfframpUsecase, error) {
-	if dependencies.Repository == nil || dependencies.Prices == nil || dependencies.Destinations == nil ||
+	if dependencies.Repository == nil || dependencies.Prices == nil || dependencies.Destinations == nil || dependencies.KYC == nil ||
 		config.NewID == nil || config.Now == nil ||
 		strings.TrimSpace(config.DepositAccount) == "" || config.DepositExpiry <= 0 ||
 		config.MinIDR <= 0 || config.MaxIDR < config.MinIDR {
@@ -188,6 +189,13 @@ func (s *OfframpUsecase) Create(ctx context.Context, command OfframpCommand) (Or
 	}
 	if found {
 		return replayed, true, nil
+	}
+	approved, err := s.dependencies.KYC.IsApproved(ctx, command.Principal.OwnerUserID)
+	if err != nil {
+		return OrderView{}, false, fmt.Errorf("checking kyc status: %w", err)
+	}
+	if !approved {
+		return OrderView{}, false, ErrKYCRequired
 	}
 
 	now := s.config.Now().UTC()

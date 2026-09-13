@@ -95,7 +95,7 @@ func TestCreateReservesBeforeExposingCheckout(t *testing.T) {
 	now := time.Date(2026, 8, 20, 1, 0, 0, 0, time.UTC)
 	store := &createStoreFake{}
 	gateway := &gatewayFake{}
-	service, err := NewOnrampUsecase(OnrampDependencies{Repository: store, Prices: priceFake{now: now}, Treasury: treasuryFake{}, Gateway: gateway, Destinations: destinationFake{}}, ServiceConfig{
+	service, err := NewOnrampUsecase(OnrampDependencies{Repository: store, Prices: priceFake{now: now}, Treasury: treasuryFake{}, Gateway: gateway, Destinations: destinationFake{}, KYC: &fakeKYCStatusReader{approved: true}}, ServiceConfig{
 		QuotePolicy: QuotePolicy{TTL: 5 * time.Minute, MaxAge: 2 * time.Minute},
 		MinIDR:      10_000, MaxIDR: 10_000_000, TreasuryAccount: "G" + string(make([]byte, 55)),
 		NewID: func() (string, error) { return "order-1", nil }, Now: func() time.Time { return now },
@@ -121,7 +121,7 @@ func TestCreateReservesBeforeExposingCheckout(t *testing.T) {
 func TestCreateDefaultsToHostedXenditPaymentMethod(t *testing.T) {
 	now := time.Date(2026, 8, 20, 1, 0, 0, 0, time.UTC)
 	store := &createStoreFake{}
-	service, err := NewOnrampUsecase(OnrampDependencies{Repository: store, Prices: priceFake{now: now}, Treasury: treasuryFake{}, Gateway: &gatewayFake{}, Destinations: destinationFake{}}, ServiceConfig{
+	service, err := NewOnrampUsecase(OnrampDependencies{Repository: store, Prices: priceFake{now: now}, Treasury: treasuryFake{}, Gateway: &gatewayFake{}, Destinations: destinationFake{}, KYC: &fakeKYCStatusReader{approved: true}}, ServiceConfig{
 		QuotePolicy: QuotePolicy{TTL: 5 * time.Minute, MaxAge: 2 * time.Minute},
 		MinIDR:      10_000, MaxIDR: 10_000_000, TreasuryAccount: "G" + string(make([]byte, 55)),
 		NewID: func() (string, error) { return "order-1", nil }, Now: func() time.Time { return now },
@@ -147,7 +147,7 @@ func apiOrderPrincipal(clientID, ownerUserID string) OrderPrincipal {
 func TestCreateCarriesRetailPrincipalAndScopesRequestHashToOperation(t *testing.T) {
 	now := time.Date(2026, 8, 20, 1, 0, 0, 0, time.UTC)
 	store := &createStoreFake{}
-	service, err := NewOnrampUsecase(OnrampDependencies{Repository: store, Prices: priceFake{now: now}, Treasury: treasuryFake{}, Gateway: &gatewayFake{}, Destinations: destinationFake{}}, ServiceConfig{
+	service, err := NewOnrampUsecase(OnrampDependencies{Repository: store, Prices: priceFake{now: now}, Treasury: treasuryFake{}, Gateway: &gatewayFake{}, Destinations: destinationFake{}, KYC: &fakeKYCStatusReader{approved: true}}, ServiceConfig{
 		QuotePolicy: QuotePolicy{TTL: 5 * time.Minute, MaxAge: 2 * time.Minute},
 		MinIDR:      10_000, MaxIDR: 10_000_000, TreasuryAccount: "G" + string(make([]byte, 55)),
 		NewID: func() (string, error) { return "order-retail-1", nil }, Now: func() time.Time { return now },
@@ -174,7 +174,7 @@ func TestCreateCarriesRetailPrincipalAndScopesRequestHashToOperation(t *testing.
 func TestCreateRejectsInvalidOrderPrincipalBeforeSideEffects(t *testing.T) {
 	now := time.Date(2026, 8, 20, 1, 0, 0, 0, time.UTC)
 	store := &createStoreFake{}
-	service, err := NewOnrampUsecase(OnrampDependencies{Repository: store, Prices: priceFake{now: now}, Treasury: treasuryFake{}, Gateway: &gatewayFake{}, Destinations: destinationFake{}}, ServiceConfig{
+	service, err := NewOnrampUsecase(OnrampDependencies{Repository: store, Prices: priceFake{now: now}, Treasury: treasuryFake{}, Gateway: &gatewayFake{}, Destinations: destinationFake{}, KYC: &fakeKYCStatusReader{approved: true}}, ServiceConfig{
 		QuotePolicy: QuotePolicy{TTL: 5 * time.Minute, MaxAge: 2 * time.Minute},
 		MinIDR:      10_000, MaxIDR: 10_000_000, TreasuryAccount: "G" + string(make([]byte, 55)),
 		NewID: func() (string, error) { return "order-invalid-principal", nil }, Now: func() time.Time { return now },
@@ -197,7 +197,7 @@ func TestCreateRejectsInvalidOrderPrincipalBeforeSideEffects(t *testing.T) {
 func TestCreateReturnsTrackableOrderIDWhenCheckoutOutcomeIsUnknown(t *testing.T) {
 	now := time.Date(2026, 8, 20, 1, 0, 0, 0, time.UTC)
 	store := &createStoreFake{}
-	service, err := NewOnrampUsecase(OnrampDependencies{Repository: store, Prices: priceFake{now: now}, Treasury: treasuryFake{}, Gateway: unknownGatewayFake{}, Destinations: destinationFake{}}, ServiceConfig{
+	service, err := NewOnrampUsecase(OnrampDependencies{Repository: store, Prices: priceFake{now: now}, Treasury: treasuryFake{}, Gateway: unknownGatewayFake{}, Destinations: destinationFake{}, KYC: &fakeKYCStatusReader{approved: true}}, ServiceConfig{
 		QuotePolicy: QuotePolicy{TTL: 5 * time.Minute, MaxAge: 2 * time.Minute},
 		MinIDR:      10_000, MaxIDR: 10_000_000, TreasuryAccount: "G" + string(make([]byte, 55)),
 		NewID: func() (string, error) { return "order-unknown-1", nil }, Now: func() time.Time { return now },
@@ -218,7 +218,7 @@ func TestCreateReturnsTrackableOrderIDWhenCheckoutOutcomeIsUnknown(t *testing.T)
 func TestCreateReplaysTheSameTrackableOrderAfterUnknownCheckout(t *testing.T) {
 	now := time.Date(2026, 8, 20, 1, 0, 0, 0, time.UTC)
 	store := &createStoreFake{replayed: OrderView{ID: "order-unknown-existing", FailureCode: "checkout_unknown"}, found: true}
-	service, err := NewOnrampUsecase(OnrampDependencies{Repository: store, Prices: priceFake{now: now}, Treasury: treasuryFake{}, Gateway: unknownGatewayFake{}, Destinations: destinationFake{}}, ServiceConfig{
+	service, err := NewOnrampUsecase(OnrampDependencies{Repository: store, Prices: priceFake{now: now}, Treasury: treasuryFake{}, Gateway: unknownGatewayFake{}, Destinations: destinationFake{}, KYC: &fakeKYCStatusReader{approved: true}}, ServiceConfig{
 		QuotePolicy: QuotePolicy{TTL: 5 * time.Minute, MaxAge: 2 * time.Minute},
 		MinIDR:      10_000, MaxIDR: 10_000_000, TreasuryAccount: "G" + string(make([]byte, 55)),
 		NewID: func() (string, error) { return "should-not-create", nil }, Now: func() time.Time { return now },
@@ -242,7 +242,7 @@ func TestCreateRecoversConcurrentIdempotencyReplayAfterReservationRace(t *testin
 		replayed:   OrderView{ID: "order-race-existing", Status: entity.OrderStatusPaymentPending},
 		reserveErr: errors.New("duplicate idempotency record"),
 	}
-	service, err := NewOnrampUsecase(OnrampDependencies{Repository: store, Prices: priceFake{now: now}, Treasury: treasuryFake{}, Gateway: &gatewayFake{}, Destinations: destinationFake{}}, ServiceConfig{
+	service, err := NewOnrampUsecase(OnrampDependencies{Repository: store, Prices: priceFake{now: now}, Treasury: treasuryFake{}, Gateway: &gatewayFake{}, Destinations: destinationFake{}, KYC: &fakeKYCStatusReader{approved: true}}, ServiceConfig{
 		QuotePolicy: QuotePolicy{TTL: 5 * time.Minute, MaxAge: 2 * time.Minute},
 		MinIDR:      10_000, MaxIDR: 10_000_000, TreasuryAccount: "G" + string(make([]byte, 55)),
 		NewID: func() (string, error) { return "should-not-create", nil }, Now: func() time.Time { return now },

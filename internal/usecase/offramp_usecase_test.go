@@ -130,11 +130,15 @@ func (r *fakeOfframpRepo) CompleteSimulatedPayout(context.Context, string, int64
 var validDestination = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 
 func testOfframpService(t *testing.T, repo *fakeOfframpRepo) *OfframpUsecase {
+	return testOfframpServiceWithKYC(t, repo, &fakeKYCStatusReader{approved: true})
+}
+
+func testOfframpServiceWithKYC(t *testing.T, repo *fakeOfframpRepo, kyc KYCStatusReader) *OfframpUsecase {
 	t.Helper()
 	now := time.Date(2026, 8, 26, 0, 0, 0, 0, time.UTC)
 	service, err := NewOfframpUsecase(OfframpDependencies{
 		Repository: repo, Prices: priceFake{now: now},
-		Destinations: destinationFake{},
+		Destinations: destinationFake{}, KYC: kyc,
 	}, OfframpServiceConfig{
 		QuotePolicy: QuotePolicy{TTL: 5 * time.Minute, MaxAge: 2 * time.Minute},
 		MinIDR:      10_000, MaxIDR: 10_000_000,
