@@ -40,17 +40,18 @@ integration client for the public API, not a second backend runtime.
 3. [Order State Machines](ORDER-STATE-MACHINES.md)
 4. [Database Design](DATABASE-DESIGN.md)
 5. [API Design](API-DESIGN.md)
-6. [Consumer Session Order Flow](CONSUMER-SESSION-ORDER-FLOW.md)
-7. [Payment Gateway Integration](PAYMENT-GATEWAY-INTEGRATION.md)
-8. [Stellar Anchor Integration](STELLAR-ANCHOR-INTEGRATION.md)
-9. [Persona KYC Runbook](PERSONA-KYC-RUNBOOK.md)
-10. [Webhook Design](WEBHOOK-DESIGN.md)
-11. [TypeScript SDK Design](TYPESCRIPT-SDK-DESIGN.md)
-12. [Security](SECURITY.md)
-13. [Observability and Runbook](OBSERVABILITY-AND-RUNBOOK.md)
-14. [Testing Strategy](TESTING-STRATEGY.md)
-15. [Implementation Phases](IMPLEMENTATION-PHASES.md)
-16. [Backend Backlog](BACKEND-BACKLOG.md)
+6. [Frontend Capabilities and Backend Integration](FRONTEND-CAPABILITIES.md)
+7. [Consumer Session Order Flow](CONSUMER-SESSION-ORDER-FLOW.md)
+8. [Payment Gateway Integration](PAYMENT-GATEWAY-INTEGRATION.md)
+9. [Stellar Anchor Integration](STELLAR-ANCHOR-INTEGRATION.md)
+10. [Persona KYC Runbook](PERSONA-KYC-RUNBOOK.md)
+11. [Webhook Design](WEBHOOK-DESIGN.md)
+12. [TypeScript SDK Design](TYPESCRIPT-SDK-DESIGN.md)
+13. [Security](SECURITY.md)
+14. [Observability and Runbook](OBSERVABILITY-AND-RUNBOOK.md)
+15. [Testing Strategy](TESTING-STRATEGY.md)
+16. [Implementation Phases](IMPLEMENTATION-PHASES.md)
+17. [Backend Backlog](BACKEND-BACKLOG.md)
 
 ## Parent documents
 
@@ -70,10 +71,10 @@ integration client for the public API, not a second backend runtime.
 - Hashed test API keys using the `pk_test_` prefix.
 - PostgreSQL persistence, migrations, order events, and external-reference correlation.
 - One payment gateway adapter for sandbox QRIS, bank transfer/virtual account, callbacks, and the available payout simulation.
-- Stellar testnet asset issuance/transfer, deposit verification, burn/retirement, and transaction correlation.
+- Stellar testnet native-XLM transfer, deposit verification, burn/retirement, and transaction correlation.
 - Authenticated SEP-24 deposit and withdrawal order mapping, Persona-backed
   sandbox KYC status gate, public `stellar.toml`, and federation configuration.
-- Signed developer webhook delivery with bounded retries and attempt logs.
+- Developer webhook endpoint registration and transactional delivery intents. Outbound delivery, signing, and retry processing remain staged.
 - Separate TypeScript SDK for server-side Node.js integrations; it consumes the Go backend's public API and OpenAPI contract.
 - Structured logging, metrics, health/readiness checks, safe recovery procedures, and release evidence.
 
