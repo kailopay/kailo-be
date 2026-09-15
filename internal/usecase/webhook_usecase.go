@@ -28,6 +28,32 @@ const (
 	EventOrderExpired          = "order.expired"
 )
 
+// PublicWebhookEventType maps internal order events to the stable public
+// lifecycle catalog. Internal bookkeeping transitions intentionally return
+// false so they do not leak into the integration contract.
+func PublicWebhookEventType(internal string) (string, bool) {
+	switch internal {
+	case "order.created":
+		return EventOrderCreated, true
+	case "checkout.created":
+		return EventOrderPaymentPending, true
+	case "payment.confirmed":
+		return EventOrderPaymentConfirmed, true
+	case "asset.received":
+		return EventOrderAssetReceived, true
+	case "stellar.transfer_requested", "retirement.requested":
+		return EventOrderProcessing, true
+	case "stellar.transfer_confirmed", "payout.simulated":
+		return EventOrderCompleted, true
+	case "checkout.failed", "asset.invalid", "retirement.failed", "stellar.failed", "withdrawal.failed":
+		return EventOrderFailed, true
+	case "order.expired":
+		return EventOrderExpired, true
+	default:
+		return "", false
+	}
+}
+
 // ErrInvalidWebhookURL rejects endpoints that fail the activation policy.
 var ErrInvalidWebhookURL = errors.New("webhook URL must be https with a public host")
 

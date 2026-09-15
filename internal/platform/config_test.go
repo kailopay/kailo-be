@@ -56,6 +56,7 @@ func setValidAuthEnv(t *testing.T) {
 	t.Setenv("AUTH_EMAIL_LINK_BASE_URL", "https://app.example.com/")
 	t.Setenv("AUTH_TRANSACTION_ENCRYPTION_KEY", key)
 	t.Setenv("AUTH_SESSION_HMAC_KEY", key)
+	t.Setenv("ANCHOR_BASE_URL", "https://api.example.com")
 	t.Setenv("AUTH_COOKIE_SECURE", "true")
 	t.Setenv("HTTP_ALLOWED_ORIGINS", "https://app.example.com")
 	t.Setenv("MINIO_ENDPOINT", "minio.example.com:9000")
@@ -71,7 +72,7 @@ func setValidPersonaEnv(t *testing.T) {
 	t.Helper()
 	t.Setenv("PERSONA_BASE_URL", "https://api.withpersona.com")
 	t.Setenv("PERSONA_API_KEY", "persona-api-key")
-	t.Setenv("PERSONA_TEMPLATE_ID", "itmpl_test")
+	t.Setenv("PERSONA_INQUIRY_TEMPLATE_ID", "itmpl_test")
 	t.Setenv("PERSONA_ENVIRONMENT_ID", "env_test")
 	t.Setenv("PERSONA_WEBHOOK_SECRET", strings.Repeat("s", 32))
 	t.Setenv("PERSONA_TIMEOUT", "10s")
@@ -200,6 +201,34 @@ func TestAuthConfigValidateAcceptsProductionSettings(t *testing.T) {
 	}
 }
 
+func TestAnchorConfigValidate(t *testing.T) {
+	tests := []struct {
+		name   string
+		config AnchorConfig
+		env    string
+		valid  bool
+	}{
+		{name: "production HTTPS", config: AnchorConfig{BaseURL: "https://api.example.com"}, env: "production", valid: true},
+		{name: "local HTTP", config: AnchorConfig{BaseURL: "http://localhost:8080"}, env: "local", valid: true},
+		{name: "missing URL", config: AnchorConfig{}, env: "production"},
+		{name: "production HTTP", config: AnchorConfig{BaseURL: "http://api.example.com"}, env: "production"},
+		{name: "query not allowed", config: AnchorConfig{BaseURL: "https://api.example.com?x=1"}, env: "production"},
+		{name: "path prefix not allowed", config: AnchorConfig{BaseURL: "https://api.example.com/backend"}, env: "production"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.config.Validate(tt.env)
+			if tt.valid && err != nil {
+				t.Fatalf("Validate() error = %v", err)
+			}
+			if !tt.valid && err == nil {
+				t.Fatal("Validate() error = nil")
+			}
+		})
+	}
+}
+
 func TestObjectStorageConfigValidateRejectsUnsafeSettings(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -233,7 +262,9 @@ func TestPersonaConfigValidate(t *testing.T) {
 		{name: "valid production", valid: true, env: "production"},
 		{name: "missing API key", mutate: func(cfg *PersonaConfig) { cfg.APIKey = "" }, env: "production"},
 		{name: "missing template", mutate: func(cfg *PersonaConfig) { cfg.TemplateID = "" }, env: "production"},
+		{name: "inquiry used as template", mutate: func(cfg *PersonaConfig) { cfg.TemplateID = "inq_existing" }, env: "production"},
 		{name: "missing environment", mutate: func(cfg *PersonaConfig) { cfg.EnvironmentID = "" }, env: "production"},
+		{name: "invalid environment id", mutate: func(cfg *PersonaConfig) { cfg.EnvironmentID = "sandbox" }, env: "production"},
 		{name: "short webhook secret", mutate: func(cfg *PersonaConfig) { cfg.WebhookSecret = "short" }, env: "production"},
 		{name: "insecure production URL", mutate: func(cfg *PersonaConfig) { cfg.BaseURL = "http://persona.example.com" }, env: "production"},
 		{name: "non-positive timeout", mutate: func(cfg *PersonaConfig) { cfg.Timeout = 0 }, env: "production"},
@@ -264,7 +295,7 @@ func TestLoadReadsPersonaEnvironmentOverrides(t *testing.T) {
 	t.Setenv("DATABASE_DSN", "host=test-db user=tester password=secret dbname=test port=5432")
 	t.Setenv("PERSONA_BASE_URL", "https://persona.example.com")
 	t.Setenv("PERSONA_API_KEY", "persona-test-key")
-	t.Setenv("PERSONA_TEMPLATE_ID", "itmpl_override")
+	t.Setenv("PERSONA_INQUIRY_TEMPLATE_ID", "itmpl_override")
 	t.Setenv("PERSONA_ENVIRONMENT_ID", "env_override")
 	t.Setenv("PERSONA_WEBHOOK_SECRET", strings.Repeat("w", 40))
 	t.Setenv("PERSONA_TIMEOUT", "7s")

@@ -156,7 +156,28 @@ the browser must refresh `GET /v1/kyc` after the embedded flow completes.
 
 ### Anchor/public operations
 
-SEP-24 and federation paths follow the applicable Stellar specifications and are detailed in `STELLAR-ANCHOR-INTEGRATION.md`. Health endpoints are intentionally outside `/v1`:
+SEP-24 and federation paths follow the applicable Stellar specifications and are detailed in `STELLAR-ANCHOR-INTEGRATION.md`. The current sandbox SEP-24 bridge uses the existing order-principal authentication (test API key or verified retail session); SEP-10/SEP-45 token exchange is a separate interoperability slice. Health endpoints are intentionally outside `/v1`:
+
+| Method | Path | Auth | Idempotency | Purpose |
+|---|---|---|---|---|
+| `POST` | `/sep24/transactions/deposit/interactive` | Test key or verified retail session | `Idempotency-Key` required | Create and persist an owned on-ramp order mapping |
+| `POST` | `/sep24/transactions/withdraw/interactive` | Test key or verified retail session | `Idempotency-Key` required | Create and persist an owned off-ramp order mapping |
+| `GET` | `/sep24/transaction?id={transaction_id}` | Test key or verified retail session | N/A | Return current status for an owned mapping |
+| `GET` | `/sep24/interactive/{transaction_id}` | Test key or verified retail session | N/A | Return the authenticated sandbox interactive projection |
+
+Initiation requests use `multipart/form-data`. Deposit requires `asset_code=XLM`,
+`account`, and positive sandbox `amount_minor` IDR units; `memo` and
+`payment_method` are optional. Withdrawal requires `asset_code=XLM`, exact
+decimal `amount`, and the non-empty sandbox `destination_token`. `/sep24/info`
+labels deposit limits as `idr_minor` and withdrawal limits as `XLM`; this keeps
+the sandbox's fiat-denominated quote input explicit. The backend routes both
+directions through the normal order use cases, so approved Persona KYC is
+required before order creation. `sep24_transactions` stores the stable
+transaction-to-order mapping; polling resolves the order through the caller's
+authenticated owner and never trusts a client-supplied status. An unknown
+checkout outcome is reported as `pending_external` until reconciliation.
+`/sep24/deposit` and `/sep24/withdraw` are retained as local compatibility
+aliases.
 
 | Method | Path | Purpose |
 |---|---|---|

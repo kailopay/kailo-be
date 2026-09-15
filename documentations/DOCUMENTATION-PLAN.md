@@ -126,7 +126,7 @@ The final project should instantiate the following matrix with working links:
 | SOW deliverable | Required evidence | Verification action | Owner | Status |
 |---|---|---|---|---|
 | Deliverable 1: On/off-ramp API and payment integration | Public repo, live API URL, OpenAPI, test key guide, order screenshots/responses, QRIS and bank-transfer sandbox checkout evidence | Create or inspect buy/sell orders, verify status responses, and confirm provider sandbox checkout | Backend/Project Owner | Planned |
-| Deliverable 2: Stellar testnet anchor skeleton | Testnet transaction hashes, `stellar.toml`, federation URL, SEP-24 deposit/withdrawal demo, Persona sandbox KYC status/callback evidence, webhook logs | Open explorer links, validate discovery files, follow interactive flows, and inspect webhook evidence | Stellar Developer/Project Owner | Planned |
+| Deliverable 2: Stellar testnet anchor integration | Testnet transaction hashes, `stellar.toml`, federation URL, authenticated SEP-24 deposit/withdrawal order-mapping demo, Persona sandbox KYC status/callback evidence, webhook logs | Open explorer links, validate discovery files, authenticate, follow interactive flows, verify owner-scoped status mapping, and inspect webhook evidence | Stellar Developer/Project Owner | Planned |
 | Deliverable 3: Web app and demo materials | Live app URL, user guide, developer docs, demo recording, Completion Report | Complete or watch buy/sell flows and review mapped final report | Frontend/Project Owner | Planned |
 
 Allowed final statuses are `Present`, `Partial`, or `Missing`. `Partial` and `Missing` require a written explanation, impact, and corrective action.

@@ -172,8 +172,8 @@ Do not cut without written SOW change:
 - QRIS and bank-transfer sandbox integration.
 - Authenticated/idempotent gateway callback processing.
 - Testnet issuance/transfer and retirement with transaction hashes.
-- SEP-24 deposit/withdrawal skeleton, Persona sandbox KYC status gate,
-  `stellar.toml`, and federation.
+- Authenticated SEP-24 deposit/withdrawal order mapping, Persona sandbox KYC
+  status gate, `stellar.toml`, and federation.
 - Developer webhook delivery and logs.
 - Public deployment, OpenAPI, formal E2E evidence, and Completion Report inputs.
 

@@ -181,6 +181,54 @@ func TestAuthHandlerRegisterAndLogin(t *testing.T) {
 	}
 }
 
+func TestAuthHandlerRegisterReturnsValidationMessages(t *testing.T) {
+	tests := []struct {
+		name        string
+		registerErr error
+		wantStatus  int
+		wantError   string
+	}{
+		{
+			name:        "weak password",
+			registerErr: auth.ErrWeakPassword,
+			wantStatus:  http.StatusBadRequest,
+			wantError:   auth.ErrWeakPassword.Error(),
+		},
+		{
+			name:        "invalid email",
+			registerErr: auth.ErrInvalidCredentials,
+			wantStatus:  http.StatusBadRequest,
+			wantError:   auth.ErrInvalidCredentials.Error(),
+		},
+		{
+			name:        "invalid profile",
+			registerErr: auth.ErrInvalidProfile,
+			wantStatus:  http.StatusBadRequest,
+			wantError:   auth.ErrInvalidProfile.Error(),
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			service := &fakeAuthService{registerErr: test.registerErr}
+			handler := testAuthHandler(t, service)
+			router := gin.New()
+			router.POST("/auth/register", handler.Register)
+
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, jsonRequest(http.MethodPost, "/auth/register", `{"email":"user@example.com","password":"short"}`))
+
+			if response.Code != test.wantStatus {
+				t.Fatalf("status = %d, want %d; body = %q", response.Code, test.wantStatus, response.Body.String())
+			}
+			if !strings.Contains(response.Body.String(), `"error":"`+test.wantError+`"`) {
+				t.Fatalf("body = %q, want error %q", response.Body.String(), test.wantError)
+			}
+		})
+	}
+}
+
 func TestAuthHandlerLoginErrorsDoNotLeak(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	service := &fakeAuthService{loginErr: auth.ErrInvalidCredentials}

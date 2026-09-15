@@ -15,6 +15,7 @@ type fakeKYCRepository struct {
 	reserved         KYCInquiryRecord
 	reserveCreated   bool
 	reserveCalls     int
+	failed           bool
 	attached         bool
 	providerRecord   KYCInquiryRecord
 	providerFound    bool
@@ -69,6 +70,15 @@ func (r *fakeKYCRepository) AttachProviderInquiry(_ context.Context, internalID,
 	return nil
 }
 
+func (r *fakeKYCRepository) MarkFailed(_ context.Context, internalID string, now time.Time) error {
+	r.failed = true
+	r.reserved.ID = internalID
+	r.reserved.Status = KYCStatusFailed
+	r.reserved.UpdatedAt = now
+	r.current = r.reserved
+	return nil
+}
+
 func (r *fakeKYCRepository) RecordProviderEvent(_ context.Context, event KYCProviderEventRecord, mappedStatus KYCStatus, providerStatus string, now time.Time) error {
 	r.recordedEvent = event
 	r.recordedStatus = mappedStatus
@@ -93,6 +103,16 @@ type fakePersonaGateway struct {
 	webhookEvent     PersonaEvent
 	webhookErr       error
 }
+
+type permanentKYCProviderError struct {
+	err error
+}
+
+func (e permanentKYCProviderError) Error() string { return e.err.Error() }
+
+func (e permanentKYCProviderError) Unwrap() error { return e.err }
+
+func (e permanentKYCProviderError) Retryable() bool { return false }
 
 func (p *fakePersonaGateway) CreateInquiry(_ context.Context, referenceID, idempotencyKey string) (PersonaInquiry, error) {
 	p.createdCalls++
@@ -266,6 +286,21 @@ func TestKYCStartClassifiesPersonaFailureAndKeepsInquiryNonEligible(t *testing.T
 	}
 }
 
+func TestKYCStartMarksPermanentProviderFailureForFreshRetry(t *testing.T) {
+	now := time.Date(2026, 9, 13, 0, 0, 0, 0, time.UTC)
+	repository := &fakeKYCRepository{}
+	persona := &fakePersonaGateway{createErr: permanentKYCProviderError{err: errors.New("persona request returned status 400: Idempotency error")}}
+	service := newTestKYCUsecase(t, repository, persona, now)
+
+	_, err := service.StartInquiry(context.Background(), "user-1")
+	if !errors.Is(err, ErrKYCProviderUnavailable) {
+		t.Fatalf("StartInquiry() error = %v, want %v", err, ErrKYCProviderUnavailable)
+	}
+	if !repository.failed || repository.reserved.Status != KYCStatusFailed {
+		t.Fatalf("permanent provider failure was not marked failed: failed=%v record=%+v", repository.failed, repository.reserved)
+	}
+}
+
 func TestKYCWebhookMapsApprovedEventAndRecordsItsIdentity(t *testing.T) {
 	now := time.Date(2026, 9, 13, 0, 0, 0, 0, time.UTC)
 	eventAt := now.Add(-time.Second)
@@ -371,7 +406,7 @@ func TestOfframpCreationRequiresApprovedKYC(t *testing.T) {
 	_, _, err := service.Create(context.Background(), OfframpCommand{
 		Principal: apiOrderPrincipal("client-1", "owner-1"), IdempotencyKey: "idem-kyc", AssetNetwork: StellarTestnetNetwork,
 		AssetCode: NativeXLMAssetCode, FiatCurrency: IDRCurrency, AssetAmount: "40",
-		WithdrawalMethod: entity.WithdrawalMethodSandboxTransfer,
+		WithdrawalMethod: entity.WithdrawalMethodSandboxTransfer, DestinationToken: "demo-token",
 	})
 	if !errors.Is(err, ErrKYCRequired) {
 		t.Fatalf("Create() error = %v, want %v", err, ErrKYCRequired)

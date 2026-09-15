@@ -29,8 +29,10 @@ The money is never real. Two product rules follow from that:
   `"network": "stellar_testnet"`.
 - The UI must never imply real-money settlement, KYC, or production readiness.
 
-What remains out of scope for now: webhook delivery (endpoints manageable already),
-SEP-24 anchor flows, federation, rate limits, mainnet.
+What remains out of scope for the frontend for now: webhook delivery (endpoints
+manageable already), a wallet-facing SEP-24 UI, rate limits, and mainnet. The
+backend now exposes an authenticated sandbox SEP-24 order bridge and federation
+endpoints; see the backend anchor guide for its API-key/session contract.
 
 ## 2. Running the backend locally
 
@@ -329,7 +331,8 @@ Do not build against any of these:
 - Retail-session order creation/reading (orders are API-key-scoped only).
 - ~~Off-ramp / sell flow~~ now implemented: `POST /v1/offramps` creates sell orders with deposit instructions and a simulated payout (`payout` object on the order, always `simulated:true`). A dedicated guide section will follow.
 - Outgoing developer webhooks (event subscription UI has no backend yet).
-- SEP-24 interactive flows, `stellar.toml`, federation.
+- A wallet-facing SEP-24 UI. The backend SEP-24 interactive endpoints,
+  `stellar.toml`, and federation are available for authenticated sandbox use.
 - Quote preview endpoint (`GET` quote). Quotes are only produced inline by
   `POST /v1/onramps`; if you need "see rate before commit", that is a backend
   gap to request, not an existing endpoint.

@@ -106,7 +106,7 @@ Acceptance: invalid/mismatched/replayed callback cannot duplicate state/settleme
 | BE-041 | Implement serialized/account-locked transaction submission and persistent intent/result model. | P0 | 5 | Week 2 | BE-011, BE-040 | Implemented |
 | BE-042 | Implement on-ramp issuance/transfer worker with deterministic correlation. | P0 | 5 | Week 2 | BE-035, BE-041 | Implemented as pre-funded native-XLM transfer |
 | BE-043 | Implement unknown submission reconciliation before retry. | P0 | 5 | Week 2 | BE-041 | Implemented |
-| BE-044 | Generate off-ramp deposit instructions with exact asset/amount/memo and expiry. | P0 | 3 | Week 2 | BE-025, BE-040 | Implemented |
+| BE-044 | Generate off-ramp deposit instructions with exact asset/amount/memo and expiry. | P0 | 3 | Week 2 | BE-025, BE-040 | Implemented (including expiry sweep) |
 | BE-045 | Detect/look up and validate off-ramp deposit transaction. | P0 | 5 | Week 2 | BE-044 | Implemented (Horizon payment-history scan) |
 | BE-046 | Implement burn/retirement worker and transaction correlation. | P0 | 5 | Week 2 | BE-045, BE-041 | Implemented as burn-address retirement (ADR-003) |
 | BE-047 | Link transaction hashes/explorer metadata to public order result. | P0 | 2 | Week 2-3 | BE-042, BE-046 | Blocked |
@@ -117,8 +117,8 @@ Acceptance: one paid order creates one testnet settlement; wrong deposits are re
 
 | ID | Story | Pri | SP | Target | Dependency | Status |
 |---|---|---:|---:|---|---|---|
-| BE-050 | Implement SEP-24 deposit initiation mapped to on-ramp order. | P0 | 5 | Week 2 | BE-024 | Implemented (skeleton) |
-| BE-051 | Implement SEP-24 withdrawal initiation mapped to off-ramp order. | P0 | 5 | Week 2 | BE-025 | Implemented (skeleton) |
+| BE-050 | Implement SEP-24 deposit initiation mapped to on-ramp order. | P0 | 5 | Week 2 | BE-024 | Implemented with authenticated persisted mapping |
+| BE-051 | Implement SEP-24 withdrawal initiation mapped to off-ramp order. | P0 | 5 | Week 2 | BE-025 | Implemented with authenticated persisted mapping |
 | BE-052 | Implement Persona-backed sandbox KYC inquiry/status flow, signed webhook processing, and the approval gate. | P0 | 2 | Week 2 | BE-050, BE-051 | Implemented |
 | BE-053 | Implement/document SEP-facing transaction status mapping. | P0 | 3 | Week 2 | BE-021, BE-050 | Implemented |
 | BE-054 | Publish and validate testnet `stellar.toml`. | P0 | 2 | Week 2 | BE-005, BE-040 | Implemented |
@@ -126,8 +126,9 @@ Acceptance: one paid order creates one testnet settlement; wrong deposits are re
 
 Acceptance: discovery resolves to implemented HTTPS endpoints; deposit/withdraw
 flows create valid orders; Persona sandbox status is server-authoritative; only
-approved users can create API keys or orders; raw identity documents and raw
-provider payloads are never stored.
+approved users can create API keys or orders; transaction lookup is owner-scoped;
+raw identity documents and raw provider payloads are never stored. SEP-10/SEP-45
+wallet interoperability and provider evidence remain separate release work.
 
 ### BE6: Developer webhooks
 
@@ -136,7 +137,7 @@ provider payloads are never stored.
 | BE-060 | Implement webhook endpoint registration/list/disable with one-time signing secret. | P0 | 5 | Week 2-3 | BE-004, BE-020 | Implemented (delivery pending Week 3) |
 | BE-061 | Implement SSRF URL policy, DNS/IP revalidation, timeout, and redirect controls. | P0 | 5 | Week 2-3 | BE-060 | Blocked |
 | BE-062 | Define/version public event catalog and canonical payloads. | P0 | 3 | Week 2 | BE-021 | Implemented |
-| BE-063 | Persist public events transactionally from order events/outbox. | P0 | 3 | Week 2 | BE-015, BE-062 | In progress; envelope builder done, transactional emission wiring next |
+| BE-063 | Persist public events transactionally from order events/outbox. | P0 | 3 | Week 2 | BE-015, BE-062 | Implemented; mapped lifecycle events create sanitized webhook events and delivery intents |
 | BE-064 | Implement HMAC signing and delivery worker with attempt logs. | P0 | 5 | Week 2-3 | BE-061, BE-063 | Blocked |
 | BE-065 | Implement bounded retry, exhaustion, and manual sandbox replay using the same event ID. | P1 | 3 | Week 3 | BE-064 | Blocked |
 | BE-066 | Publish signature verification sample/vector and at-least-once guidance. | P0 | 2 | Week 3 | BE-064 | Blocked |

@@ -5,7 +5,7 @@ import "time"
 type APIKey struct {
 	ID         string    `gorm:"type:uuid;primaryKey"`
 	ClientID   string    `gorm:"type:uuid;not null;index"`
-	PublicID   string    `gorm:"type:text;not null;uniqueIndex"`
+	PublicID   string    `gorm:"type:text;not null;unique"`
 	Prefix     string    `gorm:"type:text;not null"`
 	SecretHash []byte    `gorm:"type:bytea;not null"`
 	CreatedAt  time.Time `gorm:"not null"`

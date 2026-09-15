@@ -5,7 +5,7 @@ import "time"
 type TreasuryReservation struct {
 	ID            string    `gorm:"type:uuid;primaryKey"`
 	TreasuryID    string    `gorm:"type:uuid;not null;index"`
-	OrderID       string    `gorm:"type:uuid;not null;uniqueIndex"`
+	OrderID       string    `gorm:"type:uuid;not null;unique"`
 	AmountStroops int64     `gorm:"not null"`
 	Status        string    `gorm:"type:text;not null;index"`
 	ExpiresAt     time.Time `gorm:"not null;index"`

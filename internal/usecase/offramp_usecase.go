@@ -173,7 +173,7 @@ func (s *OfframpUsecase) Create(ctx context.Context, command OfframpCommand) (Or
 	command.DestinationToken = strings.TrimSpace(command.DestinationToken)
 	if command.IdempotencyKey == "" || len(command.IdempotencyKey) > 255 ||
 		command.AssetNetwork != StellarTestnetNetwork || command.AssetCode != NativeXLMAssetCode || command.FiatCurrency != IDRCurrency ||
-		command.WithdrawalMethod != entity.WithdrawalMethodSandboxTransfer || len(command.DestinationToken) > 200 {
+		command.WithdrawalMethod != entity.WithdrawalMethodSandboxTransfer || command.DestinationToken == "" || len(command.DestinationToken) > 200 {
 		return OrderView{}, false, ErrInvalidWithdrawal
 	}
 	stroops, err := parseDecimalStroops(command.AssetAmount)

@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/febry3/kailopay-be/internal/entity"
-	"github.com/febry3/kailopay-be/internal/platform"
 	"github.com/febry3/kailopay-be/internal/usecase"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -295,12 +294,6 @@ func parseStroops(amount string) (entity.Stroops, error) {
 }
 
 func appendSettlementEvent(tx *gorm.DB, order entity.OrderRecord, now time.Time) error {
-	id, err := platform.NewID()
-	if err != nil {
-		return err
-	}
 	previous, next := order.Status, string(entity.OrderStatusCompleted)
-	event := entity.OrderEvent{ID: id, OrderID: order.ID, AggregateVersion: order.Version + 1, EventType: "stellar.transfer_confirmed",
-		PreviousStatus: &previous, NewStatus: &next, Source: "worker", CorrelationID: order.ID, Metadata: []byte(`{}`), CreatedAt: now}
-	return tx.Create(&event).Error
+	return appendOrderEventFromSource(tx, order.ID, order.Version+1, "stellar.transfer_confirmed", previous, next, "worker", now)
 }

@@ -4,7 +4,7 @@ import "time"
 
 type AuthTransaction struct {
 	ID                     string     `gorm:"type:uuid;primaryKey"`
-	StateHash              []byte     `gorm:"type:bytea;not null;uniqueIndex"`
+	StateHash              []byte     `gorm:"type:bytea;not null;unique"`
 	NonceHash              []byte     `gorm:"type:bytea;not null"`
 	CodeVerifierCiphertext []byte     `gorm:"type:bytea;not null"`
 	ExpiresAt              time.Time  `gorm:"not null;index"`

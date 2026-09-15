@@ -220,9 +220,6 @@ func (c *Client) doJSON(ctx context.Context, method, path, idempotencyKey string
 		return nil, fmt.Errorf("sending persona request: %w", err)
 	}
 	defer response.Body.Close()
-	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		return nil, fmt.Errorf("persona request returned status %d", response.StatusCode)
-	}
 	responseBody, err := io.ReadAll(io.LimitReader(response.Body, c.maxResponseBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("reading persona response: %w", err)
@@ -230,7 +227,68 @@ func (c *Client) doJSON(ctx context.Context, method, path, idempotencyKey string
 	if int64(len(responseBody)) > c.maxResponseBytes {
 		return nil, errors.New("persona response exceeds the configured size limit")
 	}
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		return nil, newPersonaHTTPError(response.StatusCode, response.Header.Get("Request-Id"), responseBody)
+	}
 	return responseBody, nil
+}
+
+type personaHTTPError struct {
+	status    int
+	requestID string
+	code      string
+	title     string
+	detail    string
+}
+
+func (e *personaHTTPError) Error() string {
+	message := fmt.Sprintf("persona request returned status %d", e.status)
+	parts := make([]string, 0, 3)
+	for _, value := range []string{e.code, e.title, e.detail} {
+		if value != "" {
+			parts = append(parts, value)
+		}
+	}
+	if len(parts) > 0 {
+		message += ": " + strings.Join(parts, ": ")
+	}
+	if e.requestID != "" {
+		message += " (request_id=" + e.requestID + ")"
+	}
+	return message
+}
+
+func (e *personaHTTPError) Retryable() bool {
+	return e.status == http.StatusRequestTimeout || e.status == http.StatusTooManyRequests || e.status >= http.StatusInternalServerError
+}
+
+func newPersonaHTTPError(status int, requestID string, body []byte) error {
+	var envelope struct {
+		Errors []struct {
+			Code   string `json:"code"`
+			Title  string `json:"title"`
+			Detail string `json:"detail"`
+		} `json:"errors"`
+	}
+	if err := json.Unmarshal(body, &envelope); err != nil || len(envelope.Errors) == 0 {
+		return &personaHTTPError{status: status, requestID: normalizeProviderText(requestID)}
+	}
+	providerError := envelope.Errors[0]
+	return &personaHTTPError{
+		status:    status,
+		requestID: normalizeProviderText(requestID),
+		code:      normalizeProviderText(providerError.Code),
+		title:     normalizeProviderText(providerError.Title),
+		detail:    normalizeProviderText(providerError.Detail),
+	}
+}
+
+func normalizeProviderText(value string) string {
+	value = strings.Join(strings.Fields(value), " ")
+	if len(value) > 256 {
+		value = value[:256]
+	}
+	return value
 }
 
 func parseBaseURL(raw string) (*url.URL, error) {

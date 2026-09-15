@@ -151,6 +151,24 @@ func (r *KYCRepository) AttachProviderInquiry(ctx context.Context, internalID, p
 	})
 }
 
+func (r *KYCRepository) MarkFailed(ctx context.Context, internalID string, now time.Time) error {
+	internalID = strings.TrimSpace(internalID)
+	if internalID == "" {
+		return errors.New("kyc inquiry id is required")
+	}
+	now = now.UTC()
+	return r.tx.do(ctx, func(tx *gorm.DB) error {
+		if err := tx.Model(&entity.KYCInquiry{}).
+			Where("id = ? AND status = ? AND provider_inquiry_id IS NULL", internalID, entity.KYCInquiryCreating).
+			Updates(map[string]any{
+				"status": string(entity.KYCInquiryFailed), "provider_status": "request_failed", "updated_at": now,
+			}).Error; err != nil {
+			return fmt.Errorf("marking kyc inquiry failed: %w", err)
+		}
+		return nil
+	})
+}
+
 func (r *KYCRepository) RecordProviderEvent(ctx context.Context, event usecase.KYCProviderEventRecord, mappedStatus usecase.KYCStatus, providerStatus string, now time.Time) error {
 	if strings.TrimSpace(event.ID) == "" || strings.TrimSpace(event.Provider) == "" || strings.TrimSpace(event.ProviderEventID) == "" ||
 		strings.TrimSpace(event.InquiryID) == "" || strings.TrimSpace(event.EventType) == "" || strings.TrimSpace(event.PayloadHash) == "" ||

@@ -32,7 +32,7 @@ func offrampRecord(orderID string, stroops int64, now time.Time) usecase.Offramp
 }
 
 func TestCreateOfframpPersistsInstructionsAndReplays(t *testing.T) {
-	repo, _ := newOfframpIntegration(t)
+	repo, db := newOfframpIntegration(t)
 	ctx := context.Background()
 	now := time.Now().UTC()
 	orderID := "00000000-0000-4000-8000-000000000301"
@@ -51,6 +51,29 @@ func TestCreateOfframpPersistsInstructionsAndReplays(t *testing.T) {
 	if view.DepositTransactionHash != "" {
 		t.Fatal("fresh order must not have a deposit hash yet")
 	}
+	order := loadOrder(t, db, orderID)
+	if order.Version != 2 {
+		t.Fatalf("order version = %d, want 2", order.Version)
+	}
+	var events []entity.OrderEvent
+	if err := db.Where("order_id = ?", orderID).Order("aggregate_version").Find(&events).Error; err != nil {
+		t.Fatalf("loading order events: %v", err)
+	}
+	if len(events) != 2 || events[0].AggregateVersion != 1 || events[1].AggregateVersion != 2 {
+		t.Fatalf("order event versions = %+v, want [1 2]", events)
+	}
+	var webhookEvents []entity.WebhookEvent
+	if err := db.Where("order_id = ?", orderID).Find(&webhookEvents).Error; err != nil {
+		t.Fatalf("loading webhook events: %v", err)
+	}
+	if len(webhookEvents) != 1 || webhookEvents[0].EventType != usecase.EventOrderCreated ||
+		webhookEvents[0].APIVersion != usecase.WebhookAPIVersion || len(webhookEvents[0].CanonicalPayload) == 0 {
+		t.Fatalf("webhook events = %+v, want one order.created event", webhookEvents)
+	}
+	var webhookOutbox entity.OutboxMessage
+	if err := db.Where("topic = ? AND aggregate_id = ?", "webhook.deliver", webhookEvents[0].ID).First(&webhookOutbox).Error; err != nil {
+		t.Fatalf("loading webhook outbox message: %v", err)
+	}
 
 	// Replay with the same key returns the order; conflicting request hash errors.
 	_, found, err := repo.FindOfframpReplay(ctx, integrationAPIPrincipal(),
@@ -61,6 +84,52 @@ func TestCreateOfframpPersistsInstructionsAndReplays(t *testing.T) {
 	if _, _, err := repo.FindOfframpReplay(ctx, integrationAPIPrincipal(),
 		"off-keyhash-"+orderID, "different"); err != usecase.ErrIdempotencyConflict {
 		t.Fatalf("conflict error = %v", err)
+	}
+}
+
+func TestExpiredOfframpIsExcludedAndCanBeExpired(t *testing.T) {
+	repo, db := newOfframpIntegration(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	orderID := "00000000-0000-4000-8000-000000000305"
+	record := offrampRecord(orderID, 40_000_000, now)
+	record.ExpiresAt = now.Add(-time.Minute)
+
+	if err := repo.CreateOfframp(ctx, record); err != nil {
+		t.Fatalf("CreateOfframp() error = %v", err)
+	}
+	candidates, err := repo.FindDepositCandidates(ctx, testDestination(9), 50)
+	if err != nil {
+		t.Fatalf("FindDepositCandidates() error = %v", err)
+	}
+	if len(candidates) != 0 {
+		t.Fatalf("FindDepositCandidates() = %d, want 0 for expired order", len(candidates))
+	}
+
+	expired, err := repo.ExpirePendingDeposits(ctx, now, 50)
+	if err != nil {
+		t.Fatalf("ExpirePendingDeposits() error = %v", err)
+	}
+	if expired != 1 {
+		t.Fatalf("ExpirePendingDeposits() = %d, want 1", expired)
+	}
+	view, err := repo.Get(ctx, integrationAPIPrincipal(), orderID)
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if view.Status != entity.OrderStatusExpired {
+		t.Fatalf("status = %s, want expired", view.Status)
+	}
+	order := loadOrder(t, db, orderID)
+	if order.Version != 3 {
+		t.Fatalf("expired order version = %d, want 3", order.Version)
+	}
+	var events []entity.OrderEvent
+	if err := db.Where("order_id = ?", orderID).Order("aggregate_version").Find(&events).Error; err != nil {
+		t.Fatalf("loading expired order events: %v", err)
+	}
+	if len(events) != 3 || events[2].EventType != "order.expired" || events[2].AggregateVersion != 3 {
+		t.Fatalf("expired order events = %+v, want order.expired at version 3", events)
 	}
 }
 
@@ -185,6 +254,20 @@ func TestRetirementConfirmAdvancesToWithdrawalAndPayoutCompletes(t *testing.T) {
 	view, _ = repo.Get(ctx, integrationAPIPrincipal(), orderID)
 	if view.Status != entity.OrderStatusCompleted || view.Payout == nil || !*view.Payout.Simulated {
 		t.Fatalf("final view = %+v", view)
+	}
+	var webhookEvents []entity.WebhookEvent
+	if err := db.Joins("JOIN order_events ON order_events.id = webhook_events.source_order_event_id").
+		Where("webhook_events.order_id = ?", orderID).Order("order_events.aggregate_version").Find(&webhookEvents).Error; err != nil {
+		t.Fatalf("loading lifecycle webhook events: %v", err)
+	}
+	wantTypes := []string{usecase.EventOrderCreated, usecase.EventOrderAssetReceived, usecase.EventOrderProcessing, usecase.EventOrderCompleted}
+	if len(webhookEvents) != len(wantTypes) {
+		t.Fatalf("webhook event count = %d, want %d", len(webhookEvents), len(wantTypes))
+	}
+	for index, wantType := range wantTypes {
+		if webhookEvents[index].EventType != wantType {
+			t.Fatalf("webhook event %d type = %q, want %q", index, webhookEvents[index].EventType, wantType)
+		}
 	}
 	if countRows(t, db, &entity.OutboxMessage{}) < 2 {
 		t.Fatal("expected retirement and payout outbox rows")

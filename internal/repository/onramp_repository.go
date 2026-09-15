@@ -16,6 +16,8 @@ import (
 
 const onrampCreateOperation = "onramp.create"
 
+const webhookDeliveryTopic = "webhook.deliver"
+
 type OnrampRepository struct {
 	db              *gorm.DB
 	tx              txManager
@@ -436,6 +438,10 @@ func derefStr(value *string) string {
 }
 
 func appendOrderEvent(tx *gorm.DB, orderID string, version int, eventType, previous, next string, now time.Time) error {
+	return appendOrderEventFromSource(tx, orderID, version, eventType, previous, next, "api", now)
+}
+
+func appendOrderEventFromSource(tx *gorm.DB, orderID string, version int, eventType, previous, next, source string, now time.Time) error {
 	id, err := platform.NewID()
 	if err != nil {
 		return err
@@ -448,9 +454,52 @@ func appendOrderEvent(tx *gorm.DB, orderID string, version int, eventType, previ
 		nextPtr = &next
 	}
 	event := entity.OrderEvent{ID: id, OrderID: orderID, AggregateVersion: version, EventType: eventType,
-		PreviousStatus: previousPtr, NewStatus: nextPtr, Source: "api", CorrelationID: orderID, Metadata: []byte(`{}`), CreatedAt: now}
+		PreviousStatus: previousPtr, NewStatus: nextPtr, Source: source, CorrelationID: orderID, Metadata: []byte(`{}`), CreatedAt: now}
 	if err := tx.Create(&event).Error; err != nil {
 		return fmt.Errorf("appending order event: %w", err)
+	}
+	publicType, ok := usecase.PublicWebhookEventType(eventType)
+	if !ok {
+		return nil
+	}
+	return appendPublicWebhookEvent(tx, id, orderID, publicType, next, now)
+}
+
+func appendPublicWebhookEvent(tx *gorm.DB, sourceOrderEventID, orderID, eventType, next string, now time.Time) error {
+	var order entity.OrderRecord
+	if err := tx.Where("id = ?", orderID).First(&order).Error; err != nil {
+		return fmt.Errorf("finding order for webhook event: %w", err)
+	}
+	view := baseOrderView(order)
+	if next != "" {
+		view.Status = entity.OrderStatus(next)
+	}
+	publicID, err := platform.NewID()
+	if err != nil {
+		return err
+	}
+	payload, err := usecase.BuildEventEnvelope(publicID, eventType, "sandbox", now, view)
+	if err != nil {
+		return fmt.Errorf("building webhook event payload: %w", err)
+	}
+	sourceID := sourceOrderEventID
+	webhookEvent := entity.WebhookEvent{ID: publicID, OrderID: orderID, EventType: eventType,
+		APIVersion: usecase.WebhookAPIVersion, CanonicalPayload: payload, SourceOrderEventID: &sourceID, CreatedAt: now}
+	if err := tx.Create(&webhookEvent).Error; err != nil {
+		return fmt.Errorf("creating webhook event: %w", err)
+	}
+	outboxID, err := platform.NewID()
+	if err != nil {
+		return err
+	}
+	outboxPayload, err := json.Marshal(map[string]string{"event_id": publicID})
+	if err != nil {
+		return fmt.Errorf("encoding webhook outbox message: %w", err)
+	}
+	outbox := entity.OutboxMessage{ID: outboxID, Topic: webhookDeliveryTopic, AggregateType: "webhook_event",
+		AggregateID: publicID, Payload: outboxPayload, CreatedAt: now, AvailableAt: now}
+	if err := tx.Create(&outbox).Error; err != nil {
+		return fmt.Errorf("creating webhook outbox message: %w", err)
 	}
 	return nil
 }

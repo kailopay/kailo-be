@@ -7,10 +7,10 @@ import "time"
 // must disclose that no real IDR moves in the sandbox release.
 type OfframpPayout struct {
 	ID          string `gorm:"type:uuid;primaryKey"`
-	OrderID     string `gorm:"type:uuid;not null;uniqueIndex:idx_offramp_payouts_order"`
+	OrderID     string `gorm:"type:uuid;not null;unique"`
 	Method      string `gorm:"type:text;not null"`
 	AmountMinor int64  `gorm:"not null"`
-	ReferenceID string `gorm:"type:text;not null;uniqueIndex:idx_offramp_payouts_reference"`
+	ReferenceID string `gorm:"type:text;not null;unique"`
 	State       string `gorm:"type:text;not null"`
 	CompletedAt *time.Time
 	CreatedAt   time.Time `gorm:"not null"`

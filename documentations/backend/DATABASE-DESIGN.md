@@ -267,6 +267,24 @@ Use explicit check constraints for positive amounts, supported directions, netwo
 
 The application may retain `created_by_user_id` for an API order initiated from a developer session, but public API authorization is based on the API client. Retail creation validates that the supplied session row belongs to the authenticated user before inserting the order. Public order projections never expose these ownership columns.
 
+### `sep24_transactions`
+
+This table is the durable correlation boundary between a SEP-24 protocol
+transaction and one owned order. It deliberately does not copy owner columns;
+reads join through `orders` and apply the same API-client or retail-user scope.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | `uuid` | Internal primary key |
+| `transaction_id` | `text` | Stable protocol identifier; unique |
+| `order_id` | `uuid` | FK to `orders`; unique to prevent two protocol mappings for one order |
+| `kind` | `text` | `deposit` or `withdraw`; must match `orders.direction` |
+| `created_at` | `timestamptz` | UTC mapping creation time |
+
+The mapping is inserted after the normal order workflow succeeds. A retry uses
+the same namespaced idempotency key and stable transaction ID, allowing the
+mapping insert to be safely repaired if the first request lost its response.
+
 ### `order_events`
 
 | Column | Type | Notes |
@@ -413,6 +431,7 @@ Minimum indexes:
 - `kyc_inquiries(user_id) WHERE status IN ('creating', 'created', 'pending', 'completed', 'pending_review')` unique for one active inquiry per user; implemented in migration 000008.
 - `kyc_inquiries(user_id, created_at desc, id desc)` for stable current-attempt reads; implemented in migration 000009.
 - `kyc_provider_events(provider, provider_event_id)` unique for callback deduplication; implemented in migration 000008.
+- `sep24_transactions(transaction_id)` and `sep24_transactions(order_id)` unique; implemented in migration 000010.
 - `webhook_attempts(status, scheduled_at)` for delivery worker; deferred with the webhook pipeline.
 - `outbox_messages(available_at) where processed_at is null` partial; implemented.
 - `idempotency_records(expires_at)` for retention cleanup; deferred until the cleanup job ships.

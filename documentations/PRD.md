@@ -34,7 +34,7 @@ KailoPay is an Indonesia-first fiat on-ramp and off-ramp platform for Stellar. T
 4. For off-ramp, the user sends the test asset to KailoPay and requests withdrawal to IDR.
 5. KailoPay records the asset movement, burns or retires the test asset as configured, and initiates the sandbox withdrawal process.
 
-The same capabilities are exposed through a user-facing web application, a public REST API protected by test API keys, and a SEP-24 anchor skeleton.
+The same capabilities are exposed through a user-facing web application, a public REST API protected by test API keys, and an authenticated SEP-24 anchor flow that maps protocol transactions to owned orders.
 
 ## 3. Problem statement
 
@@ -51,7 +51,7 @@ KailoPay addresses the first infrastructure gap by proving the technical and pro
 | G-01 | Demonstrate a complete IDR-to-Stellar sandbox on-ramp | A reviewer can create an order, complete a sandbox QRIS or bank-transfer payment, and inspect the resulting Stellar testnet transaction hash. |
 | G-02 | Demonstrate a complete Stellar-to-IDR sandbox off-ramp | A reviewer can initiate a sell order, submit the configured test asset, and observe the burn/retirement and withdrawal state progression. |
 | G-03 | Provide reusable developer infrastructure | Public REST API, `pk_test_` API key authentication, OpenAPI specification, TypeScript SDK, webhook delivery, and integration documentation are publicly reviewable. |
-| G-04 | Prove the anchor architecture | SEP-24 deposit and withdrawal skeleton, a Persona-backed sandbox KYC status gate, `stellar.toml`, and federation configuration are available on Stellar testnet. |
+| G-04 | Prove the anchor architecture | Authenticated SEP-24 deposit and withdrawal order flows, a Persona-backed sandbox KYC status gate, `stellar.toml`, and federation configuration are available on Stellar testnet. |
 | G-05 | Make completion independently verifiable | Public repository, live sandbox URLs, transaction hashes, webhook logs, test results, demo recording, and Completion Report are supplied. |
 
 ### 4.2 Product success metrics
@@ -145,10 +145,12 @@ Needs: structured logs, searchable order identifiers, safe replay procedures, en
 ### 7.4 SEP-24 journey
 
 1. Wallet discovers the anchor through `stellar.toml`.
-2. Wallet initiates an interactive deposit or withdrawal request.
-3. User completes Persona sandbox identity verification.
-4. The current interactive skeleton discloses the KYC gate; a complete SEP-24
-   lifecycle will create a corresponding KailoPay order only after approval.
+2. The authenticated user completes Persona sandbox identity verification.
+3. The wallet initiates an interactive deposit or withdrawal request with an
+   API-key or verified retail-session principal.
+4. KailoPay creates the corresponding owned order and persists the SEP-24
+   transaction-to-order mapping; non-approved users are rejected before order
+   creation.
 5. Order status reflects payment and on-chain state changes through the testnet lifecycle.
 
 ## 8. Functional requirements
@@ -207,8 +209,8 @@ Needs: structured logs, searchable order identifiers, safe replay procedures, en
 
 | ID | Label | Requirement |
 |---|---|---|
-| FR-040 | Committed | KailoPay shall expose a Stellar testnet SEP-24 deposit flow skeleton. |
-| FR-041 | Committed | KailoPay shall expose a Stellar testnet SEP-24 withdrawal flow skeleton. |
+| FR-040 | Committed | KailoPay shall expose a Stellar testnet SEP-24 deposit flow with an authenticated, owner-scoped mapping to an on-ramp order. |
+| FR-041 | Committed | KailoPay shall expose a Stellar testnet SEP-24 withdrawal flow with an authenticated, owner-scoped mapping to an off-ramp order. |
 | FR-042 | Committed | The interactive flow shall use Persona sandbox inquiry/status callbacks, require local `approved` status before API-key or order creation, and clearly state that this is not production identity verification. |
 | FR-043 | Committed | A valid `stellar.toml` shall be publicly accessible and advertise the implemented testnet services. |
 | FR-044 | Committed | Federation configuration or a minimal federation service shall be publicly accessible and documented. |
@@ -296,8 +298,8 @@ The exact paths may follow the implementation's versioning convention, but `v0.1
 | List orders | `GET /v1/orders` | Test API key or retail session |
 | Create/list/revoke test keys | `/v1/api-keys` | Developer session |
 | Register webhook endpoint | `/v1/webhook-endpoints` | Developer session or test API key |
-| SEP-24 interactive deposit | SEP-24 endpoint | As required by the skeleton |
-| SEP-24 interactive withdrawal | SEP-24 endpoint | As required by the skeleton |
+| SEP-24 interactive deposit | `POST /sep24/transactions/deposit/interactive` | Test API key or verified retail session |
+| SEP-24 interactive withdrawal | `POST /sep24/transactions/withdraw/interactive` | Test API key or verified retail session |
 | Federation lookup | Federation endpoint | Public |
 | Health check | `GET /health` | Public, no secrets |
 
@@ -414,7 +416,7 @@ Unresolved decisions shall be recorded in an ADR or project decision log and mus
 |---|---|---|
 | Gateway approval or sandbox feature limitations | Blocks QRIS, bank transfer, or payout evidence | Validate sandbox accounts and the exact supported methods in Phase 0; document any provider limitation immediately. |
 | Duplicate callbacks or uncertain network submission | Duplicate asset movement | Enforce idempotency, persist external IDs, and verify network state before retry. |
-| SEP-24 scope becomes larger than a skeleton | Consumes the 30-day delivery window | Limit to deposit/withdraw interactive flows, Persona sandbox KYC status gating, discovery, and testnet lifecycle required by the SOW. |
+| SEP-24 interoperability scope expands beyond the sandbox bridge | Consumes the 30-day delivery window | Limit this release to authenticated deposit/withdraw interactive flows, owner-scoped order mapping, Persona sandbox KYC status gating, discovery, and the testnet lifecycle required by the SOW; track SEP-10/SEP-45 wallet interoperability separately. |
 | One developer across API, anchor, web, docs, and deployment | Schedule slippage | Use a vertical-slice sequence, enforce a Must-have cut line, and create evidence continuously. |
 | Public repository exposes secrets or private keys | Security incident and invalid delivery | Use secret scanning, `.env.example`, test-only funded accounts, and a release security checklist. |
 | Regulatory expectations are mistaken for production readiness | Reputational/legal risk | Display sandbox/testnet labels and explicitly document that licensing, production KYC, and real-money operation are excluded. |

@@ -67,10 +67,27 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		DisplayName: request.DisplayName,
 	})
 	if err != nil {
+		if h.writeRegisterValidationError(c, err) {
+			return
+		}
 		h.writeError(c, "registering account", err)
 		return
 	}
 	c.JSON(http.StatusCreated, gin.H{"user": profile})
+}
+
+func (h *AuthHandler) writeRegisterValidationError(c *gin.Context, err error) bool {
+	switch {
+	case errors.Is(err, auth.ErrInvalidCredentials):
+		c.JSON(http.StatusBadRequest, gin.H{"error": auth.ErrInvalidCredentials.Error()})
+	case errors.Is(err, auth.ErrWeakPassword):
+		c.JSON(http.StatusBadRequest, gin.H{"error": auth.ErrWeakPassword.Error()})
+	case errors.Is(err, auth.ErrInvalidProfile):
+		c.JSON(http.StatusBadRequest, gin.H{"error": auth.ErrInvalidProfile.Error()})
+	default:
+		return false
+	}
+	return true
 }
 
 func (h *AuthHandler) Login(c *gin.Context) {

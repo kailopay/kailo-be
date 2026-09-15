@@ -24,7 +24,7 @@ import (
 var integrationTables = []string{
 	"webhook_attempts", "webhook_events", "webhook_endpoints", "kyc_provider_events", "kyc_inquiries", "outbox_messages",
 	"idempotency_records", "stellar_transactions", "gateway_events", "payment_checkouts",
-	"order_events", "treasury_reservations", "treasury_accounts", "orders", "api_keys",
+	"sep24_transactions", "order_events", "treasury_reservations", "treasury_accounts", "orders", "api_keys",
 	"api_clients", "retail_sessions", "auth_transactions", "user_identities", "users",
 }
 
@@ -40,6 +40,9 @@ func newIntegrationStore(t *testing.T) *integrationStore {
 	t.Helper()
 	dsn := os.Getenv("TEST_DATABASE_DSN")
 	if dsn == "" {
+		if os.Getenv("CI") != "" {
+			t.Fatal("TEST_DATABASE_DSN is required in CI for PostgreSQL integration tests")
+		}
 		t.Skip("TEST_DATABASE_DSN is not set; skipping PostgreSQL integration tests")
 	}
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
@@ -122,6 +125,15 @@ func countRows(t *testing.T, db *gorm.DB, model any) int64 {
 	return count
 }
 
+func countRowsForTopic(t *testing.T, db *gorm.DB, topic string) int64 {
+	t.Helper()
+	var count int64
+	if err := db.Model(&entity.OutboxMessage{}).Where("topic = ?", topic).Count(&count).Error; err != nil {
+		t.Fatalf("counting %s outbox rows: %v", topic, err)
+	}
+	return count
+}
+
 func TestReserveAndCreatePersistsQRISAndBRIVAOrders(t *testing.T) {
 	store := newIntegrationStore(t)
 	ctx := context.Background()
@@ -144,6 +156,12 @@ func TestReserveAndCreatePersistsQRISAndBRIVAOrders(t *testing.T) {
 	}
 	if count := countRows(t, store.db, &entity.OrderEvent{}); count != 2 {
 		t.Fatalf("order events count = %d, want 2", count)
+	}
+	if count := countRows(t, store.db, &entity.WebhookEvent{}); count != 2 {
+		t.Fatalf("webhook events count = %d, want 2", count)
+	}
+	if count := countRowsForTopic(t, store.db, "webhook.deliver"); count != 2 {
+		t.Fatalf("webhook outbox count = %d, want 2", count)
 	}
 	var treasury entity.TreasuryAccount
 	if err := store.db.First(&treasury).Error; err != nil {
@@ -184,6 +202,33 @@ func TestFindReplayReturnsConflictForDifferentBody(t *testing.T) {
 	_, found, err = store.onramp.FindReplay(ctx, record.Principal, record.IdempotencyKeyHash, record.RequestHash)
 	if err != nil || !found {
 		t.Fatalf("FindReplay() = %v, %v; want replay, nil", found, err)
+	}
+}
+
+func TestSettlementEventPreservesWorkerSource(t *testing.T) {
+	store := newIntegrationStore(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	orderID := "00000000-0000-4000-8000-0000000000c2"
+	if err := store.onramp.ReserveAndCreate(ctx, testCreateRecord(orderID, entity.PaymentMethodQRIS, 100_000, 40_000_000, now.Add(5*time.Minute)), 1_000_000_000); err != nil {
+		t.Fatalf("ReserveAndCreate() error = %v", err)
+	}
+	var order entity.OrderRecord
+	if err := store.db.Where("id = ?", orderID).First(&order).Error; err != nil {
+		t.Fatalf("loading order: %v", err)
+	}
+	if err := store.db.Transaction(func(tx *gorm.DB) error {
+		return appendSettlementEvent(tx, order, now)
+	}); err != nil {
+		t.Fatalf("appendSettlementEvent() error = %v", err)
+	}
+
+	var event entity.OrderEvent
+	if err := store.db.Where("order_id = ? AND event_type = ?", orderID, "stellar.transfer_confirmed").First(&event).Error; err != nil {
+		t.Fatalf("loading settlement event: %v", err)
+	}
+	if event.Source != "worker" {
+		t.Fatalf("event source = %q, want worker", event.Source)
 	}
 }
 
@@ -427,8 +472,8 @@ func TestConfirmPaymentAndEnqueueIsIdempotent(t *testing.T) {
 	if count := countRows(t, store.db, &entity.StellarTransaction{}); count != 1 {
 		t.Fatalf("settlement intents = %d, want 1", count)
 	}
-	if count := countRows(t, store.db, &entity.OutboxMessage{}); count != 1 {
-		t.Fatalf("outbox messages = %d, want 1", count)
+	if count := countRowsForTopic(t, store.db, "stellar.settle_onramp"); count != 1 {
+		t.Fatalf("settlement outbox messages = %d, want 1", count)
 	}
 	if count := countRows(t, store.db, &entity.OrderEvent{}); count != 4 {
 		t.Fatalf("order events = %d, want 4 (created, checkout, payment confirmed, transfer requested)", count)
@@ -466,8 +511,8 @@ func TestConfirmPaymentAndEnqueueIsConcurrentIdempotent(t *testing.T) {
 	if count := countRows(t, store.db, &entity.StellarTransaction{}); count != 1 {
 		t.Fatalf("settlement intents = %d, want 1", count)
 	}
-	if count := countRows(t, store.db, &entity.OutboxMessage{}); count != 1 {
-		t.Fatalf("outbox messages = %d, want 1", count)
+	if count := countRowsForTopic(t, store.db, "stellar.settle_onramp"); count != 1 {
+		t.Fatalf("settlement outbox messages = %d, want 1", count)
 	}
 }
 

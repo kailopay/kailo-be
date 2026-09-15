@@ -16,6 +16,8 @@ import (
 
 const offrampCreateOperation = "offramp.create"
 
+var errInvalidDepositPayment = errors.New("invalid off-ramp deposit payment")
+
 // OfframpRepository implements the off-ramp persistence port.
 type OfframpRepository struct {
 	db             *gorm.DB
@@ -67,12 +69,12 @@ func (r *OfframpRepository) CreateOfframp(ctx context.Context, record usecase.Of
 			return err
 		}
 		now := record.CreatedAt
-		// Two events are appended below, so the aggregate starts at version 3
+		// Two events are appended below, so the aggregate ends at version 2,
 		// keeping the row version in lockstep with order_events.
 		order := entity.OrderRecord{
 			ID: record.OrderID, ClientID: ownership.ClientID, CreatedByUserID: ownership.CreatedByUserID,
 			RetailSessionID: ownership.RetailSessionID, Direction: "offramp",
-			Status: string(entity.OrderStatusAssetPending), Version: 3,
+			Status: string(entity.OrderStatusAssetPending), Version: 2,
 			Currency: "IDR", FiatAmountMinor: int64(record.Quote.FiatAmount),
 			AssetCode: "XLM", AssetIssuer: "", Network: r.network,
 			AssetAmount: record.AssetAmount.String(), AssetAmountStroops: int64(record.AssetAmount),
@@ -115,7 +117,8 @@ func (r *OfframpRepository) CreateOfframp(ctx context.Context, record usecase.Of
 func (r *OfframpRepository) FindDepositCandidates(ctx context.Context, depositAccount string, limit int) ([]usecase.OrderView, error) {
 	var rows []entity.OrderRecord
 	err := r.db.WithContext(ctx).
-		Where("direction = ? AND status = ? AND stellar_source = ?", "offramp", entity.OrderStatusAssetPending, depositAccount).
+		Where("direction = ? AND status = ? AND stellar_source = ? AND (expires_at IS NULL OR expires_at > ?)",
+			"offramp", entity.OrderStatusAssetPending, depositAccount, time.Now().UTC()).
 		Order("created_at").Limit(limit).Find(&rows).Error
 	if err != nil {
 		return nil, fmt.Errorf("finding deposit candidates: %w", err)
@@ -129,6 +132,44 @@ func (r *OfframpRepository) FindDepositCandidates(ctx context.Context, depositAc
 		views = append(views, view)
 	}
 	return views, nil
+}
+
+// ExpirePendingDeposits marks expired off-ramp orders before the deposit
+// scanner can accept a late payment. Row locks and the aggregate version
+// condition make overlapping worker passes safe.
+func (r *OfframpRepository) ExpirePendingDeposits(ctx context.Context, now time.Time, limit int) (int, error) {
+	if limit <= 0 {
+		return 0, nil
+	}
+	now = now.UTC()
+	expired := 0
+	err := r.tx.do(ctx, func(tx *gorm.DB) error {
+		var orders []entity.OrderRecord
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).
+			Where("direction = ? AND status = ? AND expires_at IS NOT NULL AND expires_at <= ?",
+				"offramp", entity.OrderStatusAssetPending, now).
+			Order("expires_at").Limit(limit).Find(&orders).Error; err != nil {
+			return fmt.Errorf("finding expired off-ramp orders: %w", err)
+		}
+		for _, order := range orders {
+			result := tx.Model(&entity.OrderRecord{}).Where("id = ? AND version = ? AND status = ?",
+				order.ID, order.Version, entity.OrderStatusAssetPending).
+				Updates(map[string]any{"status": entity.OrderStatusExpired, "version": order.Version + 1, "updated_at": now})
+			if result.Error != nil {
+				return fmt.Errorf("expiring off-ramp order: %w", result.Error)
+			}
+			if result.RowsAffected != 1 {
+				return fmt.Errorf("expiring off-ramp order %s: %w", order.ID, entity.ErrInvalidOrderState)
+			}
+			if err := appendOrderEvent(tx, order.ID, order.Version+1, "order.expired", order.Status,
+				string(entity.OrderStatusExpired), now); err != nil {
+				return err
+			}
+			expired++
+		}
+		return nil
+	})
+	return expired, err
 }
 
 // RecordAssetReceived verifies the observed payment against the order, then
@@ -147,6 +188,9 @@ func (r *OfframpRepository) RecordAssetReceived(ctx context.Context, orderID str
 		case entity.OrderStatusAssetPending:
 		default:
 			return entity.ErrInvalidOrderState
+		}
+		if err := validateObservedDeposit(order, payment); err != nil {
+			return err
 		}
 
 		now := time.Now().UTC()
@@ -201,6 +245,16 @@ func (r *OfframpRepository) RecordAssetReceived(ctx context.Context, orderID str
 		}
 		return appendOrderEvent(tx, order.ID, order.Version+2, "retirement.requested", string(entity.OrderStatusAssetReceived), string(entity.OrderStatusRetirementProcessing), now)
 	})
+}
+
+func validateObservedDeposit(order entity.OrderRecord, payment usecase.ObservedPayment) error {
+	if order.Direction != "offramp" || order.StellarSource == nil || order.StellarMemo == nil ||
+		payment.TransactionHash == "" || payment.To != *order.StellarSource ||
+		payment.Amount != entity.Stroops(order.AssetAmountStroops) || payment.Memo != *order.StellarMemo ||
+		payment.LedgerAt.IsZero() {
+		return errInvalidDepositPayment
+	}
+	return nil
 }
 
 // RecordAssetInvalid marks a correlated but mismatched deposit as invalid.

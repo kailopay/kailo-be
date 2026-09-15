@@ -99,7 +99,7 @@ func run(ctx context.Context) error {
 		}
 		return converted, nil
 	})
-	scanner := usecase.DepositScanner{Candidates: offrampRepo, Payments: paymentWatcher, Repository: offrampRepo}
+	scanner := usecase.DepositScanner{Candidates: offrampRepo, Expiry: offrampRepo, Payments: paymentWatcher, Repository: offrampRepo}
 
 	workerID, err := platform.NewID()
 	if err != nil {
@@ -157,13 +157,20 @@ func run(ctx context.Context) error {
 			lastSweep = time.Now()
 		}
 		if time.Since(lastScan) >= depositPollInterval {
-			matched, scanErr := scanner.ScanDeposits(ctx, cfg.Week1.Offramp.DepositAccount, time.Now())
+			scanAt := time.Now().UTC()
+			expired, expireErr := scanner.ExpireDeposits(ctx, scanAt)
+			if expireErr != nil && ctx.Err() == nil {
+				logger.ErrorContext(ctx, "expiring off-ramp deposits failed", slog.Any("error", expireErr))
+			} else if expired > 0 {
+				logger.InfoContext(ctx, "expired off-ramp deposits", slog.Int("expired", expired))
+			}
+			matched, scanErr := scanner.ScanDeposits(ctx, cfg.Week1.Offramp.DepositAccount, scanAt)
 			if scanErr != nil && ctx.Err() == nil {
 				logger.ErrorContext(ctx, "deposit scan failed", slog.Any("error", scanErr))
 			} else if matched > 0 {
 				logger.InfoContext(ctx, "verified off-ramp deposits", slog.Int("matched", matched))
 			}
-			lastScan = time.Now()
+			lastScan = scanAt
 		}
 		workDone := false
 		for _, topic := range outboxTopics {

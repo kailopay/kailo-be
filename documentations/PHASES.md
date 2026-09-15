@@ -22,7 +22,7 @@
 | Phase | Name | Commitment | Primary outcome |
 |---|---|---|---|
 | 0 | Mobilization and risk burn-down | Included at the start of the 30-day sprint | Decisions, accounts, architecture, environments, and a proven gateway/testnet spike. |
-| 1 | Instaward Sandbox MVP (`v0.1.0`) | **Committed by SOW** | Public sandbox on/off-ramp, REST API, SEP-24 skeleton, web app, docs, demo, and completion evidence. |
+| 1 | Instaward Sandbox MVP (`v0.1.0`) | **Committed by SOW** | Public sandbox on/off-ramp, REST API, authenticated SEP-24 order bridge, web app, docs, demo, and completion evidence. |
 | 2 | Production-readiness foundation | Future proposal | Security, operations, reconciliation, provider contracting, and compliance design mature enough for controlled pilots. |
 | 3 | Regulated mainnet pilot | Future proposal | Limited real-user corridor operated with approved legal/compliance controls. |
 | 4 | Product expansion and scale | Future proposal | Additional rails, assets, merchants, mobile, white-label, and higher-scale operations. |
@@ -94,7 +94,7 @@ Week 1 gate:
 - A verified gateway callback changes order state once.
 - Testnet access is automated from the service environment.
 
-### 4.2 Week 2: End-to-end settlement and SEP-24 skeleton
+### 4.2 Week 2: End-to-end settlement and authenticated SEP-24
 
 **Goal:** Complete both value-flow vertical slices on testnet.
 
@@ -104,8 +104,8 @@ Planned work:
 - Implement off-ramp asset deposit detection/verification, burn or retirement, and sandbox withdrawal processing.
 - Persist payment, asset, and transaction correlation references.
 - Implement outgoing signed developer webhooks and retry logs.
-- Add SEP-24 interactive deposit/withdrawal skeleton and Persona sandbox KYC
-  status gate with signed callbacks.
+- Add authenticated SEP-24 interactive deposit/withdrawal order mapping and
+  Persona sandbox KYC status gate with signed callbacks.
 - Publish `stellar.toml` and federation configuration.
 - Build basic web buy and sell screens.
 
@@ -190,8 +190,8 @@ The following may not be cut without a written SOW change:
 - QRIS and bank-transfer sandbox checkout.
 - On-ramp and off-ramp APIs and order status.
 - Verified payment callbacks and end-to-end testnet movement.
-- SEP-24 deposit/withdrawal skeleton, Persona sandbox KYC status gate,
-  `stellar.toml`, and federation configuration.
+- Authenticated SEP-24 deposit/withdrawal order mapping, Persona sandbox KYC
+  status gate, `stellar.toml`, and federation configuration.
 - User-facing buy/sell flow.
 - Test API keys, OpenAPI documentation, developer webhooks, and public review URLs.
 - Two end-to-end test flows, demo, and Completion Report.

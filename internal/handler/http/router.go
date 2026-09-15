@@ -41,12 +41,13 @@ func WithKYC(handler *KYCHandler) RouterOption {
 	}
 }
 
-func WithSep24(handler *Sep24Handler) RouterOption {
+func WithSep24(handler *Sep24Handler, requireOrderPrincipal gin.HandlerFunc) RouterOption {
 	return func(options *routerOptions) error {
-		if handler == nil {
-			return errors.New("sep24 handler is required")
+		if handler == nil || requireOrderPrincipal == nil {
+			return errors.New("sep24 handler and order principal middleware are required")
 		}
 		options.sep24 = handler
+		options.requireOrderPrincipal = requireOrderPrincipal
 		return nil
 	}
 }
@@ -188,9 +189,16 @@ func NewRouter(logger *slog.Logger, health *HealthHandler, authHandler *AuthHand
 		router.GET("/.well-known/stellar.toml", configured.sep24.StellarToml)
 		router.GET("/federation", configured.sep24.Federation)
 		router.GET("/sep24/info", configured.sep24.Info)
-		router.POST("/sep24/deposit", configured.sep24.Deposit)
-		router.POST("/sep24/withdraw", configured.sep24.Withdraw)
-		router.GET("/sep24/transaction", configured.sep24.Transaction)
+		sep24Routes := router.Group("/sep24")
+		sep24Routes.Use(configured.requireOrderPrincipal)
+		sep24Routes.POST("/transactions/deposit/interactive", configured.sep24.Deposit)
+		sep24Routes.POST("/transactions/withdraw/interactive", configured.sep24.Withdraw)
+		sep24Routes.GET("/transaction", configured.sep24.Transaction)
+		sep24Routes.GET("/interactive/:id", configured.sep24.Interactive)
+		// Keep the original sandbox paths for existing local clients while the
+		// standard nested SEP-24 paths become the documented contract.
+		sep24Routes.POST("/deposit", configured.sep24.Deposit)
+		sep24Routes.POST("/withdraw", configured.sep24.Withdraw)
 	}
 	return router, nil
 }

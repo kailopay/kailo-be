@@ -20,6 +20,7 @@ type Config struct {
 	Database      DatabaseConfig
 	Logging       LoggingConfig
 	Auth          AuthConfig
+	Anchor        AnchorConfig
 	Persona       PersonaConfig
 	Email         EmailConfig
 	ObjectStorage ObjectStorageConfig
@@ -80,6 +81,13 @@ type AuthConfig struct {
 	CookieName               string
 	CookieSecure             bool
 	AvatarMaxBytes           int64
+}
+
+// AnchorConfig contains the public API origin advertised by stellar.toml.
+// It is separate from AuthConfig because the authentication email links point
+// to the frontend, while SEP-24 and federation must point to this API.
+type AnchorConfig struct {
+	BaseURL string
 }
 
 type PersonaConfig struct {
@@ -167,10 +175,13 @@ func Load() (Config, error) {
 			CookieSecure:             v.GetBool("auth.cookie_secure"),
 			AvatarMaxBytes:           v.GetInt64("auth.avatar_max_bytes"),
 		},
+		Anchor: AnchorConfig{
+			BaseURL: strings.TrimRight(strings.TrimSpace(v.GetString("anchor.base_url")), "/"),
+		},
 		Persona: PersonaConfig{
 			BaseURL:            strings.TrimRight(strings.TrimSpace(v.GetString("persona.base_url")), "/"),
 			APIKey:             strings.TrimSpace(v.GetString("persona.api_key")),
-			TemplateID:         strings.TrimSpace(v.GetString("persona.template_id")),
+			TemplateID:         strings.TrimSpace(v.GetString("persona.inquiry_template_id")),
 			EnvironmentID:      strings.TrimSpace(v.GetString("persona.environment_id")),
 			WebhookSecret:      strings.TrimSpace(v.GetString("persona.webhook_secret")),
 			Timeout:            v.GetDuration("persona.timeout"),
@@ -332,6 +343,9 @@ func (c Config) Validate() error {
 	if err := c.Auth.Validate(c.App.Environment); err != nil {
 		return err
 	}
+	if err := c.Anchor.Validate(c.App.Environment); err != nil {
+		return err
+	}
 	if err := c.Persona.Validate(c.App.Environment); err != nil {
 		return err
 	}
@@ -343,6 +357,22 @@ func (c Config) Validate() error {
 	}
 	if err := c.Week1.Validate(); err != nil {
 		return err
+	}
+	return nil
+}
+
+func (c AnchorConfig) Validate(environment string) error {
+	rawURL := strings.TrimSpace(c.BaseURL)
+	parsed, err := url.Parse(rawURL)
+	if err != nil || parsed == nil || !parsed.IsAbs() || parsed.Host == "" || parsed.User != nil ||
+		(parsed.Path != "" && parsed.Path != "/") || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return errors.New("anchor base URL is invalid")
+	}
+	scheme := strings.ToLower(parsed.Scheme)
+	localHTTP := strings.EqualFold(environment, "local") && scheme == "http" &&
+		(parsed.Hostname() == "localhost" || parsed.Hostname() == "127.0.0.1" || parsed.Hostname() == "::1")
+	if scheme != "https" && !localHTTP {
+		return errors.New("anchor base URL must use HTTPS outside local")
 	}
 	return nil
 }
@@ -363,6 +393,12 @@ func (c PersonaConfig) Validate(environment string) error {
 	if strings.TrimSpace(c.APIKey) == "" || strings.TrimSpace(c.TemplateID) == "" ||
 		strings.TrimSpace(c.EnvironmentID) == "" {
 		return errors.New("persona credentials and environment are required")
+	}
+	if !strings.HasPrefix(strings.TrimSpace(c.TemplateID), "itmpl_") {
+		return errors.New("persona inquiry template ID must start with itmpl_")
+	}
+	if !strings.HasPrefix(strings.TrimSpace(c.EnvironmentID), "env_") {
+		return errors.New("persona environment ID must start with env_")
 	}
 	if len(strings.TrimSpace(c.WebhookSecret)) < 32 {
 		return errors.New("persona webhook secret must be at least 32 bytes")
@@ -560,6 +596,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("auth.cookie_secure", false)
 	v.SetDefault("auth.avatar_max_bytes", int64(5<<20))
 	v.SetDefault("auth.email_link_base_url", "http://localhost:3001")
+	v.SetDefault("anchor.base_url", "http://localhost:8080")
 	v.SetDefault("persona.base_url", "https://api.withpersona.com")
 	v.SetDefault("persona.timeout", 10*time.Second)
 	v.SetDefault("persona.signature_tolerance", 5*time.Minute)
@@ -632,12 +669,13 @@ func environmentBindings() map[string]string {
 		"auth.cookie_name":                 "AUTH_COOKIE_NAME",
 		"auth.cookie_secure":               "AUTH_COOKIE_SECURE",
 		"auth.avatar_max_bytes":            "PROFILE_AVATAR_MAX_BYTES",
+		"anchor.base_url":                  "ANCHOR_BASE_URL",
 		"google.client_id":                 "GOOGLE_CLIENT_ID",
 		"google.client_secret":             "GOOGLE_CLIENT_SECRET",
 		"google.redirect_url":              "GOOGLE_REDIRECT_URL",
 		"persona.base_url":                 "PERSONA_BASE_URL",
 		"persona.api_key":                  "PERSONA_API_KEY",
-		"persona.template_id":              "PERSONA_TEMPLATE_ID",
+		"persona.inquiry_template_id":      "PERSONA_INQUIRY_TEMPLATE_ID",
 		"persona.environment_id":           "PERSONA_ENVIRONMENT_ID",
 		"persona.webhook_secret":           "PERSONA_WEBHOOK_SECRET",
 		"persona.timeout":                  "PERSONA_TIMEOUT",

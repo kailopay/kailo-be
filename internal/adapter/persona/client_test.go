@@ -24,6 +24,9 @@ func TestCreateInquiryUsesPersonaJSONAPIAndIdempotency(t *testing.T) {
 		if got := r.Header.Get("Authorization"); got != "Bearer persona-api-key" {
 			t.Errorf("authorization = %q", got)
 		}
+		if got := r.Header.Get("Persona-Environment-Id"); got != "" {
+			t.Errorf("unexpected persona environment id request header = %q", got)
+		}
 		if got := r.Header.Get("Idempotency-Key"); got != "kyc_req_1" {
 			t.Errorf("idempotency key = %q", got)
 		}
@@ -94,6 +97,24 @@ func TestPersonaClientRejectsMalformedOversizedAndHTTPErrorResponsesWithoutSecre
 				t.Fatalf("error leaks provider data: %v", err)
 			}
 		})
+	}
+}
+
+func TestPersonaClientReportsSafeProviderErrorDetails(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Request-Id", "req_persona_1")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = io.WriteString(w, `{"errors":[{"code":"environment_access_denied","title":"Forbidden","detail":"API key cannot access this environment"}]}`)
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server.URL)
+	_, err := client.CreateInquiry(context.Background(), "user-1", "req-1")
+	if err == nil || !strings.Contains(err.Error(), "environment_access_denied") ||
+		!strings.Contains(err.Error(), "API key cannot access this environment") ||
+		!strings.Contains(err.Error(), "req_persona_1") {
+		t.Fatalf("CreateInquiry() error = %v", err)
 	}
 }
 

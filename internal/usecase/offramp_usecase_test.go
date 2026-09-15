@@ -188,7 +188,7 @@ func TestOfframpCreateReplaysAndRejectsInvalidInput(t *testing.T) {
 
 	view, replay, err := service.Create(context.Background(), OfframpCommand{
 		Principal: apiOrderPrincipal("c", "owner-1"), IdempotencyKey: "k", AssetNetwork: "stellar_testnet", AssetCode: "XLM", FiatCurrency: "IDR", AssetAmount: "40",
-		WithdrawalMethod: entity.WithdrawalMethodSandboxTransfer})
+		WithdrawalMethod: entity.WithdrawalMethodSandboxTransfer, DestinationToken: "demo-token"})
 	if err != nil || !replay || view.ID != "order-off-0" {
 		t.Fatalf("replay = %v/%v/%q", err, replay, view.ID)
 	}
@@ -199,6 +199,7 @@ func TestOfframpCreateReplaysAndRejectsInvalidInput(t *testing.T) {
 	bad := []OfframpCommand{
 		{Principal: apiOrderPrincipal("c", "owner-1"), IdempotencyKey: "k", AssetNetwork: "stellar_testnet", AssetCode: "XLM", FiatCurrency: "IDR", AssetAmount: "40"},                                                             // wrong method
 		{Principal: apiOrderPrincipal("c", "owner-1"), IdempotencyKey: "k", AssetNetwork: "stellar_testnet", AssetCode: "XLM", FiatCurrency: "IDR", AssetAmount: "nope", WithdrawalMethod: entity.WithdrawalMethodSandboxTransfer}, // bad amount
+		{Principal: apiOrderPrincipal("c", "owner-1"), IdempotencyKey: "k", AssetNetwork: "stellar_testnet", AssetCode: "XLM", FiatCurrency: "IDR", AssetAmount: "40", WithdrawalMethod: entity.WithdrawalMethodSandboxTransfer},   // missing destination
 	}
 	for _, command := range bad {
 		if _, _, err := service.Create(context.Background(), command); !errors.Is(err, ErrInvalidWithdrawal) {

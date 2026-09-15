@@ -21,7 +21,7 @@ the values:
 ```text
 PERSONA_BASE_URL=https://api.withpersona.com
 PERSONA_API_KEY=<sandbox-api-key>
-PERSONA_TEMPLATE_ID=<inquiry-template-id>
+PERSONA_INQUIRY_TEMPLATE_ID=<inquiry-template-id>
 PERSONA_ENVIRONMENT_ID=<sandbox-environment-id>
 PERSONA_WEBHOOK_SECRET=<webhook-signing-secret>
 PERSONA_TIMEOUT=10s
@@ -32,7 +32,9 @@ PERSONA_MAX_RESPONSE_BYTES=1048576
 `PERSONA_API_KEY` and `PERSONA_WEBHOOK_SECRET` are secrets. The template and
 environment IDs are non-secret identifiers, but keep all Persona configuration
 out of screenshots and public evidence unless the reviewer explicitly needs
-it.
+it. `PERSONA_ENVIRONMENT_ID` remains required by this app because the KYC
+endpoint passes it to the sandbox embedded client; the Persona inquiry-create
+API itself can accept the template ID without that header.
 
 ## 2. Local verification flow
 

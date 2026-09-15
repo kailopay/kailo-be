@@ -1,9 +1,9 @@
 # Stellar Anchor Integration
 
-> Week 1 does not expose an anchor or SEP endpoint. It sends native XLM from a
-> pre-funded Stellar testnet distribution wallet after Xendit payment
-> reconciliation. SEP-24, federation, and off-ramp behavior remain later-phase
-> work and must reuse the same order and settlement invariants.
+> The Week 1 settlement foundation sends native XLM from a pre-funded Stellar
+> testnet distribution wallet after Xendit payment reconciliation. The Week 2
+> slice adds off-ramp and the authenticated SEP-24/federation surfaces on top
+> of the same order and settlement invariants.
 
 ## 1. Scope and network
 
@@ -13,7 +13,8 @@ All `v0.1.0` operations use **Stellar testnet**. The release demonstrates:
 - On-ramp issuance or distribution after confirmed sandbox payment.
 - Off-ramp asset receipt, validation, and burn/retirement.
 - Testnet transaction hashes linked to orders.
-- SEP-24 deposit and withdrawal skeleton.
+- Authenticated SEP-24 deposit and withdrawal order bridge; full SEP-10/SEP-45
+  wallet interoperability remains a separate integration slice.
 - Clearly labelled Persona sandbox KYC verification flow; it is not a production
   compliance decision.
 - Public `stellar.toml` and federation configuration/service.
@@ -108,16 +109,49 @@ Classify outcomes:
 
 Reconciliation reads the network, compares source, sequence, hash, memo, asset, amount, and destination, then updates the existing intent. It never creates an unrelated replacement transaction without resolving the prior intent.
 
-## 8. SEP-24 skeleton
+## 8. SEP-24 authenticated order bridge
 
-Minimum components:
+The current sandbox bridge uses the existing authenticated order principal: a
+valid test API key or a verified retail session. It does not yet implement the
+SEP-10/SEP-45 token exchange required for independent wallet interoperability.
+`ANCHOR_BASE_URL` must point to the public API origin; it is intentionally
+separate from `AUTH_EMAIL_LINK_BASE_URL`, which points to the frontend.
+The protocol endpoints are exposed below the configured transfer-server base:
 
-- Anchor discovery points clients to the transfer server and interactive endpoints.
-- Deposit initiation creates or maps to a KailoPay on-ramp order.
-- Withdrawal initiation creates or maps to an off-ramp order and returns deposit instructions.
-- Interactive pages display the Persona verification status, sandbox status, and
-  order state.
-- Transaction-status mapping remains consistent with internal states.
+| Method | Path | Auth | Purpose |
+|---|---|---|---|
+| `POST` | `/sep24/transactions/deposit/interactive` | API key or verified retail session | Create an on-ramp order and return the interactive transaction ID/URL |
+| `POST` | `/sep24/transactions/withdraw/interactive` | API key or verified retail session | Create an off-ramp order and return the interactive transaction ID/URL |
+| `GET` | `/sep24/transaction?id=...` | API key or verified retail session | Read the current state of an owned mapping |
+| `GET` | `/sep24/interactive/{id}` | API key or verified retail session | Read the authenticated interactive projection |
+
+Minimum behavior:
+
+- Both initiation endpoints require `Idempotency-Key` and accept the standard
+  `multipart/form-data` request shape.
+- Deposit requests support `asset_code=XLM`, `account`, `memo`, and the
+  sandbox-specific `amount_minor` IDR input required by the quote workflow.
+- Withdrawal requests support `asset_code=XLM`, the exact XLM `amount`, and the
+  non-empty sandbox `destination_token` used by the simulated payout rail.
+- `/sep24/info` labels deposit bounds as `idr_minor` and withdrawal bounds as
+  `XLM`; the distinction is intentional because deposit quotes are fiat
+  denominated in this sandbox.
+- The normal on-ramp/off-ramp use cases enforce the approved Persona KYC gate;
+  unauthenticated callers are rejected and non-approved users cannot create an
+  order.
+- A successful order is correlated in `sep24_transactions` using a stable
+  protocol transaction ID, order ID, and direction. The order remains the
+  source of ownership authorization, so another client or retail user cannot
+  read the mapping.
+- Transaction polling loads the current order state and ignores any
+  client-supplied status. The interactive response is a JSON sandbox projection
+  until a dedicated wallet-facing UI is added.
+- A provider checkout timeout leaves the mapped transaction in
+  `pending_external` until reconciliation; it is never presented as a fresh
+  user-transfer state.
+
+Legacy `/sep24/deposit` and `/sep24/withdraw` aliases remain for existing local
+clients; new integrations should use the standard nested paths.
 
 Suggested mapping:
 
@@ -126,10 +160,15 @@ Suggested mapping:
 | `created`, `payment_pending`, `asset_pending` | pending user transfer/action |
 | `payment_confirmed`, `asset_received` | transfer received / processing |
 | `stellar_processing`, `retirement_processing`, `withdrawal_processing` | in progress |
+| `checkout_unknown` failure metadata | pending_external until reconciliation |
 | `completed` | completed |
 | Terminal failure/expiry | error/expired with safe message |
 
-The implementation must verify the exact SEP-24 field/status vocabulary against the selected Stellar specification during development and cover it with contract tests.
+The implementation follows the transaction vocabulary in the [SEP-24
+specification](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0024.md)
+and covers the order/status projection with unit and HTTP tests. Full
+SEP-10/SEP-45 authentication and wallet-provider contract evidence remain open
+interoperability work.
 
 ## 9. Persona sandbox KYC gate
 
@@ -189,5 +228,6 @@ Requirements:
 - Order-to-transaction correlation visible in safe logs/database evidence.
 - Public valid `stellar.toml`.
 - Public federation test.
-- SEP-24 deposit and withdrawal discovery/interactive skeleton with a Persona
-  sandbox KYC-gate disclosure; the skeleton does not create value-moving orders.
+- SEP-24 deposit and withdrawal discovery/interactive bridge, including
+  authenticated order ownership, persisted transaction mapping, current-state
+  polling, and Persona sandbox KYC-gate disclosure.

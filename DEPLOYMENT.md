@@ -14,8 +14,10 @@ cp .env.example .env
 ```
 
 Replace every placeholder in `.env`. Set `APP_ENV=production`, use HTTPS for
-`HTTP_ALLOWED_ORIGINS`, `AUTH_SUCCESS_REDIRECT_URL`, and
-`AUTH_EMAIL_LINK_BASE_URL`, and provide real sandbox provider credentials.
+`HTTP_ALLOWED_ORIGINS`, `AUTH_SUCCESS_REDIRECT_URL`, `AUTH_EMAIL_LINK_BASE_URL`,
+and `ANCHOR_BASE_URL`, and provide real sandbox provider credentials. Set
+`ANCHOR_BASE_URL` to the public API origin; it is the base used by
+`stellar.toml`, SEP-24, and federation and must not point to the frontend.
 The Stellar signing secrets may remain in this one file; Compose passes them
 only to the worker container.
 

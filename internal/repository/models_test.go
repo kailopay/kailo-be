@@ -1,7 +1,10 @@
 package repository
 
 import (
+	"sync"
+
 	"github.com/febry3/kailopay-be/internal/entity"
+	"gorm.io/gorm/schema"
 	"reflect"
 	"testing"
 )
@@ -32,6 +35,7 @@ func TestMigrationModelsAreExplicitlyRegistered(t *testing.T) {
 		"api_keys",
 		"treasury_accounts",
 		"treasury_reservations",
+		"sep24_transactions",
 	} {
 		if _, ok := registeredTables[table]; !ok {
 			t.Errorf("MigrationModels() is missing %q", table)
@@ -42,6 +46,18 @@ func TestMigrationModelsAreExplicitlyRegistered(t *testing.T) {
 		if _, ok := registeredTables[table]; ok {
 			t.Errorf("MigrationModels() must not register obsolete table %q", table)
 		}
+	}
+}
+
+func TestSEP24TransactionModelHasStableCorrelationFields(t *testing.T) {
+	typeOf := reflect.TypeOf(entity.SEP24Transaction{})
+	for _, field := range []string{"ID", "TransactionID", "OrderID", "Kind", "CreatedAt"} {
+		if _, ok := typeOf.FieldByName(field); !ok {
+			t.Errorf("entity.SEP24Transaction is missing %q", field)
+		}
+	}
+	if got := (entity.SEP24Transaction{}).TableName(); got != "sep24_transactions" {
+		t.Fatalf("TableName() = %q, want sep24_transactions", got)
 	}
 }
 
@@ -96,6 +112,42 @@ func TestAuthTransactionHasOneTimeCallbackFields(t *testing.T) {
 		if _, ok := typeOf.FieldByName(field); !ok {
 			t.Errorf("entity.AuthTransaction is missing %q", field)
 		}
+	}
+}
+
+func TestMigrationBackedScalarUniqueFieldsUseUniqueConstraints(t *testing.T) {
+	tests := []struct {
+		name  string
+		model any
+		field string
+	}{
+		{name: "auth transaction state hash", model: &entity.AuthTransaction{}, field: "StateHash"},
+		{name: "retail session token hash", model: &entity.RetailSession{}, field: "TokenHash"},
+		{name: "api key public id", model: &entity.APIKey{}, field: "PublicID"},
+		{name: "treasury reservation order id", model: &entity.TreasuryReservation{}, field: "OrderID"},
+		{name: "stellar transaction intent id", model: &entity.StellarTransaction{}, field: "IntentID"},
+		{name: "stellar transaction hash", model: &entity.StellarTransaction{}, field: "TransactionHash"},
+		{name: "kyc provider request key", model: &entity.KYCInquiry{}, field: "ProviderRequestKey"},
+		{name: "offramp payout order id", model: &entity.OfframpPayout{}, field: "OrderID"},
+		{name: "offramp payout reference id", model: &entity.OfframpPayout{}, field: "ReferenceID"},
+		{name: "sep24 transaction id", model: &entity.SEP24Transaction{}, field: "TransactionID"},
+		{name: "sep24 order id", model: &entity.SEP24Transaction{}, field: "OrderID"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			modelSchema, err := schema.Parse(test.model, &sync.Map{}, schema.NamingStrategy{})
+			if err != nil {
+				t.Fatalf("schema.Parse() error = %v", err)
+			}
+			field := modelSchema.LookUpField(test.field)
+			if field == nil {
+				t.Fatalf("field %q not found", test.field)
+			}
+			if !field.Unique {
+				t.Fatalf("field %q must use a unique constraint for migration compatibility", test.field)
+			}
+		})
 	}
 }
 

@@ -13,6 +13,7 @@ func MigrationModels() []any {
 		&entity.APIClient{},
 		&entity.APIKey{},
 		&entity.OrderRecord{},
+		&entity.SEP24Transaction{},
 		&entity.OrderEvent{},
 		&entity.PaymentCheckout{},
 		&entity.GatewayEvent{},

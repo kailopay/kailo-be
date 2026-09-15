@@ -611,7 +611,7 @@ func (r *AuthRepository) ConsumeChallenge(ctx context.Context, tokenHash []byte,
 }
 
 func isUniqueViolation(err error) bool {
-	return err != nil && strings.Contains(err.Error(), "23505")
+	return errors.Is(err, gorm.ErrDuplicatedKey) || (err != nil && strings.Contains(err.Error(), "23505"))
 }
 
 func dereference(value *string) string {

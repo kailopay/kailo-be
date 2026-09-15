@@ -19,6 +19,7 @@ type OfframpWorkerRepository interface {
 // DepositScanner combines the ports the deposit-verification job needs.
 type DepositScanner struct {
 	Candidates DepositWatcherSource
+	Expiry     DepositExpirySource
 	Payments   DepositWatcher
 	Repository OfframpDepositSink
 }
@@ -28,10 +29,31 @@ type DepositWatcherSource interface {
 	FindDepositCandidates(ctx context.Context, depositAccount string, limit int) ([]OrderView, error)
 }
 
+// DepositExpirySource expires asset_pending orders whose deposit window has
+// elapsed. It is separate from DepositWatcherSource so the worker can run the
+// local state transition even when no external payment history is available.
+type DepositExpirySource interface {
+	ExpirePendingDeposits(ctx context.Context, now time.Time, limit int) (int, error)
+}
+
 // OfframpDepositSink persists verified or invalid deposits.
 type OfframpDepositSink interface {
 	RecordAssetReceived(ctx context.Context, orderID string, payment ObservedPayment) error
 	RecordAssetInvalid(ctx context.Context, orderID string, hash, safeReason string) error
+}
+
+// ExpireDeposits advances expired off-ramp orders before a payment scan. The
+// repository operation is idempotent, and a scanner without an expiry source
+// remains usable by lightweight callers and tests.
+func (s DepositScanner) ExpireDeposits(ctx context.Context, now time.Time) (int, error) {
+	if s.Expiry == nil {
+		return 0, nil
+	}
+	expired, err := s.Expiry.ExpirePendingDeposits(ctx, now.UTC(), 100)
+	if err != nil {
+		return 0, fmt.Errorf("expiring pending deposits: %w", err)
+	}
+	return expired, nil
 }
 
 // ScanDeposits checks every awaiting order against recent payments to the
@@ -53,7 +75,7 @@ func (s DepositScanner) ScanDeposits(ctx context.Context, depositAccount string,
 	}
 	pending := make([]ObservedPayment, 0, len(payments))
 	for _, payment := range payments {
-		if payment.To == depositAccount && payment.LedgerAt.IsZero() == false && payment.Amount > 0 {
+		if payment.To == depositAccount && payment.TransactionHash != "" && payment.LedgerAt.IsZero() == false && payment.Amount > 0 {
 			pending = append(pending, payment)
 		}
 	}
@@ -63,20 +85,22 @@ func (s DepositScanner) ScanDeposits(ctx context.Context, depositAccount string,
 		expectedMemo := OfframpDepositMemo(order.ID)
 		var match *ObservedPayment
 		var mismatchReason string
+		var mismatchHash string
 		for index := range pending {
 			payment := pending[index]
 			if payment.Memo != expectedMemo {
 				continue
 			}
 			if payment.Amount != order.AssetAmount {
-				mismatchReason = "deposit amount does not match the quoted amount"
+				if mismatchReason == "" {
+					mismatchReason = "deposit amount does not match the quoted amount"
+					mismatchHash = payment.TransactionHash
+				}
 				continue
 			}
 			match = &pending[index]
 			break
 		}
-		expired := !order.QuoteExpiresAt.IsZero() && false // expiry handled by the sweep, not the scan
-		_ = expired
 		switch {
 		case match != nil:
 			if err := s.Repository.RecordAssetReceived(ctx, order.ID, *match); err != nil {
@@ -84,7 +108,7 @@ func (s DepositScanner) ScanDeposits(ctx context.Context, depositAccount string,
 			}
 			matched++
 		case mismatchReason != "":
-			if err := s.Repository.RecordAssetInvalid(ctx, order.ID, "", mismatchReason); err != nil {
+			if err := s.Repository.RecordAssetInvalid(ctx, order.ID, mismatchHash, mismatchReason); err != nil {
 				return matched, fmt.Errorf("invalidating %s: %w", order.ID, err)
 			}
 		}

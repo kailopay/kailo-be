@@ -102,6 +102,7 @@ type KYCRepository interface {
 	FindByProviderInquiryID(ctx context.Context, provider, providerInquiryID string) (KYCInquiryRecord, bool, error)
 	Reserve(ctx context.Context, userID, internalID, requestKey string, now time.Time) (KYCInquiryRecord, bool, error)
 	AttachProviderInquiry(ctx context.Context, internalID, providerID, providerStatus string, expiresAt *time.Time, now time.Time) error
+	MarkFailed(ctx context.Context, internalID string, now time.Time) error
 	RecordProviderEvent(ctx context.Context, event KYCProviderEventRecord, mappedStatus KYCStatus, providerStatus string, now time.Time) error
 }
 
@@ -191,6 +192,14 @@ func (s *KYCUsecase) StartInquiry(ctx context.Context, userID string) (KYCInquir
 	if strings.TrimSpace(record.ProviderInquiryID) == "" {
 		inquiry, err := s.dependencies.Persona.CreateInquiry(ctx, userID, record.ProviderRequestKey)
 		if err != nil {
+			if !isRetryableKYCProviderError(err) {
+				if markErr := s.dependencies.Repository.MarkFailed(ctx, record.ID, now); markErr != nil {
+					return KYCInquiryView{}, &KYCProviderUnavailableError{Err: errors.Join(
+						fmt.Errorf("creating persona inquiry: %w", err),
+						fmt.Errorf("marking failed kyc inquiry: %w", markErr),
+					)}
+				}
+			}
 			return KYCInquiryView{}, &KYCProviderUnavailableError{Err: fmt.Errorf("creating persona inquiry: %w", err)}
 		}
 		if strings.TrimSpace(inquiry.ID) == "" {
@@ -211,6 +220,20 @@ func (s *KYCUsecase) StartInquiry(ctx context.Context, userID string) (KYCInquir
 		return KYCInquiryView{}, &KYCProviderUnavailableError{Err: fmt.Errorf("resuming persona inquiry: %w", err)}
 	}
 	return s.inquiryView(record, sessionToken), nil
+}
+
+type kycProviderRetryClassifier interface {
+	Retryable() bool
+}
+
+func isRetryableKYCProviderError(err error) bool {
+	var classifier kycProviderRetryClassifier
+	if errors.As(err, &classifier) {
+		return classifier.Retryable()
+	}
+	// Without a provider classification, the request outcome may be unknown.
+	// Preserve the idempotency key so a retry cannot create a duplicate inquiry.
+	return true
 }
 
 func (s *KYCUsecase) ProcessPersonaWebhook(ctx context.Context, rawBody []byte, signature string, receivedAt time.Time) error {

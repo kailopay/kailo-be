@@ -1,34 +1,56 @@
 package httpapi
 
 import (
-	"fmt"
+	"context"
+	"errors"
+	"log/slog"
 	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
 
+	"github.com/febry3/kailopay-be/internal/entity"
+	"github.com/febry3/kailopay-be/internal/handler/middleware"
 	"github.com/febry3/kailopay-be/internal/usecase"
 	"github.com/gin-gonic/gin"
 )
 
-// Sep24Config carries the anchor-facing settings the skeleton advertises.
+// Sep24Config carries the anchor-facing settings used by discovery and the
+// interactive response URL.
 type Sep24Config struct {
-	DepositAccount    string
-	NetworkPassphrase string
-	TransferServerURL string
-	FederationURL     string
+	DepositAccount        string
+	NetworkPassphrase     string
+	TransferServerURL     string
+	FederationURL         string
+	DepositMinAmountMinor int64
+	DepositMaxAmountMinor int64
 }
 
-// Sep24Handler serves the discovery and interactive skeleton endpoints.
-// The skeleton is deliberately honest: it creates real KailoPay orders and
-// maps their states to SEP-24 vocabulary, but payment/withdrawal completion
-// always flows through the regular API flows.
+type Sep24Service interface {
+	StartDeposit(ctx context.Context, command usecase.Sep24DepositCommand) (usecase.Sep24TransactionView, error)
+	StartWithdraw(ctx context.Context, command usecase.Sep24WithdrawCommand) (usecase.Sep24TransactionView, error)
+	GetTransaction(ctx context.Context, principal usecase.OrderPrincipal, transactionID string) (usecase.Sep24TransactionView, error)
+}
+
+// Sep24Handler serves discovery and authenticated interactive transaction
+// endpoints. Order creation and KYC decisions stay in the application service.
 type Sep24Handler struct {
 	config   Sep24Config
-	onramp   *OnrampHandler
-	offramp  *OfframpHandler
+	logger   *slog.Logger
+	service  Sep24Service
 	resolver *usecase.FederationResolver
 }
 
-func NewSep24Handler(config Sep24Config) *Sep24Handler {
-	return &Sep24Handler{config: config, resolver: &usecase.FederationResolver{DepositAccount: config.DepositAccount}}
+func NewSep24Handler(service Sep24Service, config Sep24Config, logger *slog.Logger) *Sep24Handler {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return &Sep24Handler{
+		config:   config,
+		logger:   logger,
+		service:  service,
+		resolver: &usecase.FederationResolver{DepositAccount: config.DepositAccount},
+	}
 }
 
 // StellarToml serves /.well-known/stellar.toml advertising only implemented
@@ -67,53 +89,232 @@ func (h *Sep24Handler) Federation(c *gin.Context) {
 
 // Info returns the static SEP-24 info payload.
 func (h *Sep24Handler) Info(c *gin.Context) {
-	assetInfo := map[string]any{"enabled": true, "min_amount": 1, "max_amount": 100000}
+	depositMin := h.config.DepositMinAmountMinor
+	if depositMin <= 0 {
+		depositMin = 1
+	}
+	depositMax := h.config.DepositMaxAmountMinor
+	if depositMax <= 0 {
+		depositMax = 100000
+	}
 	c.JSON(http.StatusOK, gin.H{
-		"deposit":  gin.H{"XLM": assetInfo},
-		"withdraw": gin.H{"XLM": assetInfo},
-		"fee":      gin.H{"XLM": gin.H{"type": "none"}},
+		"deposit": gin.H{"XLM": gin.H{
+			"enabled": true, "min_amount": depositMin, "max_amount": depositMax,
+			"amount_unit": "idr_minor", "fiat_currency": usecase.IDRCurrency,
+		}},
+		"withdraw": gin.H{"XLM": gin.H{
+			"enabled": true, "min_amount": 1, "max_amount": 100000,
+			"amount_unit": usecase.NativeXLMAssetCode, "fiat_currency": usecase.IDRCurrency,
+		}},
+		"fee": gin.H{"XLM": gin.H{"type": "none"}},
 	})
 }
 
-// Deposit starts a SEP-24 interactive transaction placeholder. The placeholder
-// does not create a value-moving order; the regular order endpoint enforces the
-// approved Persona status before any value-moving action.
+// Deposit starts an authenticated SEP-24 deposit and maps it to an on-ramp
+// order. The standard multipart form is accepted; amount_minor is the
+// sandbox-specific IDR input required by the KailoPay quote flow.
 func (h *Sep24Handler) Deposit(c *gin.Context) {
-	h.startTransaction(c, "deposit")
-}
-
-// Withdraw starts a SEP-24 withdrawal transaction record.
-func (h *Sep24Handler) Withdraw(c *gin.Context) {
-	h.startTransaction(c, "withdraw")
-}
-
-func (h *Sep24Handler) startTransaction(c *gin.Context, kind string) {
-	id := c.Query("asset_code")
-	if id != "XLM" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "unsupported asset_code"})
+	principal, ok := middleware.OrderPrincipal(c.Request.Context())
+	if !ok {
+		writeAuthError(c, http.StatusUnauthorized)
 		return
 	}
-	transactionID := fmt.Sprintf("%s-%s", kind, usecase.Sep24TransactionID())
+	amount, err := parseIDRMinor(sep24FormValue(c, "amount_minor"))
+	if err != nil {
+		// Keep the legacy query-only asset_code compatibility without allowing
+		// account or amount data to arrive through a URL.
+		h.writeError(c, "starting SEP-24 deposit", usecase.ErrSEP24InvalidRequest)
+		return
+	}
+	view, err := h.service.StartDeposit(c.Request.Context(), usecase.Sep24DepositCommand{
+		Principal:      principal,
+		IdempotencyKey: c.GetHeader("Idempotency-Key"),
+		AssetCode:      sep24AssetCode(c),
+		AmountMinor:    entity.IDR(amount),
+		Destination:    sep24FormValue(c, "account"),
+		Memo:           sep24FormValue(c, "memo"),
+		PaymentMethod:  entity.PaymentMethod(sep24FormValue(c, "payment_method")),
+	})
+	if err != nil {
+		h.writeError(c, "starting SEP-24 deposit", err)
+		return
+	}
+	h.writeInteractiveResponse(c, view)
+}
+
+// Withdraw starts an authenticated SEP-24 withdrawal and maps it to an
+// off-ramp order. The order's persisted deposit memo is returned by polling.
+func (h *Sep24Handler) Withdraw(c *gin.Context) {
+	principal, ok := middleware.OrderPrincipal(c.Request.Context())
+	if !ok {
+		writeAuthError(c, http.StatusUnauthorized)
+		return
+	}
+	view, err := h.service.StartWithdraw(c.Request.Context(), usecase.Sep24WithdrawCommand{
+		Principal:        principal,
+		IdempotencyKey:   c.GetHeader("Idempotency-Key"),
+		AssetCode:        sep24AssetCode(c),
+		AssetAmount:      sep24FormValue(c, "amount"),
+		DestinationToken: sep24FormValue(c, "destination_token"),
+	})
+	if err != nil {
+		h.writeError(c, "starting SEP-24 withdrawal", err)
+		return
+	}
+	h.writeInteractiveResponse(c, view)
+}
+
+// Transaction returns the current persisted order state for an owned SEP-24
+// mapping. Client-supplied internal status values are intentionally ignored.
+func (h *Sep24Handler) Transaction(c *gin.Context) {
+	principal, ok := middleware.OrderPrincipal(c.Request.Context())
+	if !ok {
+		writeAuthError(c, http.StatusUnauthorized)
+		return
+	}
+	transactionID := strings.TrimSpace(c.Query("id"))
+	if transactionID == "" {
+		h.writeError(c, "getting SEP-24 transaction", usecase.ErrSEP24InvalidRequest)
+		return
+	}
+	view, err := h.service.GetTransaction(c.Request.Context(), principal, transactionID)
+	if err != nil {
+		h.writeError(c, "getting SEP-24 transaction", err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"transaction": h.publicTransaction(view)})
+}
+
+// Interactive gives the wallet's browser a small authenticated projection of
+// the same transaction. A production wallet should use SEP-10/SEP-45 for the
+// browser hand-off; the sandbox bridge uses the existing order principal.
+func (h *Sep24Handler) Interactive(c *gin.Context) {
+	principal, ok := middleware.OrderPrincipal(c.Request.Context())
+	if !ok {
+		writeAuthError(c, http.StatusUnauthorized)
+		return
+	}
+	transactionID := strings.TrimSpace(c.Param("id"))
+	view, err := h.service.GetTransaction(c.Request.Context(), principal, transactionID)
+	if err != nil {
+		h.writeError(c, "getting SEP-24 interactive transaction", err)
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{
-		"type":         kind,
-		"id":           transactionID,
-		"kyc_required": true,
-		"message":      "Complete Persona identity verification before creating a value-moving order.",
+		"environment":  "sandbox",
+		"network":      usecase.StellarTestnetNetwork,
+		"kyc_required": false,
+		"transaction":  h.publicTransaction(view),
 	})
 }
 
-// Transaction returns one SEP-24 transaction mapped from an internal order
-// status via MapToSEP24Status.
-func (h *Sep24Handler) Transaction(c *gin.Context) {
-	sepStatus, ok := usecase.Sep24Status(c.Query("internal_status"))
-	if !ok {
-		c.JSON(http.StatusNotFound, gin.H{"error": "no transaction for that reference"})
-		return
+func (h *Sep24Handler) writeInteractiveResponse(c *gin.Context, view usecase.Sep24TransactionView) {
+	c.JSON(http.StatusOK, gin.H{
+		"type":         usecase.Sep24InteractiveResponseType,
+		"url":          h.interactiveURL(view.ID),
+		"id":           view.ID,
+		"kyc_required": false,
+		"environment":  "sandbox",
+		"network":      usecase.StellarTestnetNetwork,
+	})
+}
+
+func (h *Sep24Handler) interactiveURL(transactionID string) string {
+	base := strings.TrimRight(h.config.TransferServerURL, "/")
+	return base + "/interactive/" + url.PathEscape(transactionID)
+}
+
+func (h *Sep24Handler) publicTransaction(view usecase.Sep24TransactionView) gin.H {
+	transaction := gin.H{
+		"id":         view.ID,
+		"kind":       view.Kind,
+		"status":     view.Status,
+		"started_at": view.Order.CreatedAt,
+		"updated_at": view.Order.UpdatedAt,
 	}
-	c.JSON(http.StatusOK, gin.H{"transaction": gin.H{
-		"status":       sepStatus,
-		"kind":         c.DefaultQuery("kind", "deposit"),
-		"id":           c.Query("id"),
-		"kyc_required": true,
-	}})
+	if view.Order.StellarTransactionHash != "" {
+		transaction["stellar_transaction_id"] = view.Order.StellarTransactionHash
+	}
+	if view.Order.DepositTransactionHash != "" {
+		transaction["stellar_transaction_id"] = view.Order.DepositTransactionHash
+	}
+	if view.Kind == usecase.Sep24KindWithdraw {
+		transaction["withdraw_anchor_account"] = h.config.DepositAccount
+		transaction["withdraw_memo"] = view.Order.StellarMemo
+		transaction["withdraw_memo_type"] = "text"
+		transaction["amount_in"] = view.Order.AssetAmount.String()
+		transaction["more_info_url"] = h.interactiveURL(view.ID)
+	}
+	return transaction
+}
+
+func parseIDRMinor(value string) (int64, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, errors.New("missing idr amount")
+	}
+	amount, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || amount <= 0 {
+		return 0, errors.New("invalid idr amount")
+	}
+	return amount, nil
+}
+
+func sep24FormValue(c *gin.Context, key string) string {
+	return strings.TrimSpace(c.PostForm(key))
+}
+
+func sep24AssetCode(c *gin.Context) string {
+	if assetCode := sep24FormValue(c, "asset_code"); assetCode != "" {
+		return assetCode
+	}
+	return strings.TrimSpace(c.Query("asset_code"))
+}
+
+func (h *Sep24Handler) writeError(c *gin.Context, operation string, err error) {
+	code, status := sep24ErrorMapping(err)
+	if code == "" {
+		h.logger.ErrorContext(c.Request.Context(), operation+" failed", slog.Any("error", err))
+		code, status = "EXTERNAL_SERVICE_UNAVAILABLE", http.StatusServiceUnavailable
+	}
+	message := sep24PublicErrorMessage(code)
+	c.JSON(status, gin.H{"error": message, "request_id": middleware.RequestIDFromContext(c)})
+}
+
+func sep24ErrorMapping(err error) (string, int) {
+	switch {
+	case errors.Is(err, usecase.ErrSEP24InvalidRequest), errors.Is(err, usecase.ErrInvalidCommand), errors.Is(err, usecase.ErrInvalidWithdrawal), errors.Is(err, usecase.ErrInvalidDestination):
+		return "INVALID_REQUEST", http.StatusBadRequest
+	case errors.Is(err, usecase.ErrSEP24TransactionNotFound), errors.Is(err, usecase.ErrOrderNotFound):
+		return "TRANSACTION_NOT_FOUND", http.StatusNotFound
+	case errors.Is(err, usecase.ErrKYCRequired):
+		return "KYC_REQUIRED", http.StatusForbidden
+	case errors.Is(err, usecase.ErrAmountOutOfRange):
+		return "AMOUNT_OUT_OF_RANGE", http.StatusUnprocessableEntity
+	case errors.Is(err, usecase.ErrIdempotencyConflict), errors.Is(err, usecase.ErrSEP24TransactionConflict):
+		return "CONFLICT", http.StatusConflict
+	case errors.Is(err, usecase.ErrCheckoutUnknown):
+		return "TRANSACTION_PENDING_RECONCILIATION", http.StatusAccepted
+	default:
+		return "", 0
+	}
+}
+
+func sep24PublicErrorMessage(code string) string {
+	switch code {
+	case "INVALID_REQUEST":
+		return "The SEP-24 request is invalid."
+	case "TRANSACTION_NOT_FOUND":
+		return "The transaction does not exist or is not visible to this authenticated owner."
+	case "KYC_REQUIRED":
+		return "Complete identity verification before using this feature."
+	case "AMOUNT_OUT_OF_RANGE":
+		return "The requested amount is outside the supported range."
+	case "CONFLICT":
+		return "The transaction conflicts with an existing request."
+	case "TRANSACTION_PENDING_RECONCILIATION":
+		return "The transaction is pending external reconciliation."
+	default:
+		return "An external service is temporarily unavailable."
+	}
 }

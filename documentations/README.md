@@ -39,8 +39,8 @@ The `v0.1.0` target is a public, reviewable sandbox platform containing:
 - One real Indonesian payment gateway integration in sandbox mode, supporting QRIS and bank transfer.
 - Verified payment callbacks and developer webhook delivery.
 - Stellar testnet issuance/transfer and burn/retirement evidence.
-- SEP-24 deposit and withdrawal skeleton, Persona-backed sandbox KYC status
-  gate, `stellar.toml`, and federation configuration.
+- Authenticated SEP-24 deposit and withdrawal order mapping, Persona-backed
+  sandbox KYC status gate, `stellar.toml`, and federation configuration.
 - User-facing buy/sell web app, order status, transaction history, and developer section.
 - Public repository, live sandbox URLs, OpenAPI specification, test results, demo recording, and Completion Report.
 
@@ -59,7 +59,7 @@ The `v0.1.0` target is a public, reviewable sandbox platform containing:
 | SOW element | PRD | Phase | Backlog | Required evidence/docs |
 |---|---|---|---|---|
 | Deliverable 1: API and payment integration | FR-001-FR-026, including unified identity, user-owned Developer Mode, and API-client access FR-005-FR-009 | Phase 1, Weeks 1-3 | E1-E3, E7 | Public repo/API, OpenAPI, screenshots/responses, sandbox URL, access-control tests |
-| Deliverable 2: Stellar anchor skeleton | FR-030-FR-045 | Phase 1, Week 2 | E4-E5 | Testnet hashes, `stellar.toml`, federation, SEP-24 guide, webhook logs |
+| Deliverable 2: Stellar anchor integration | FR-030-FR-045 | Phase 1, Week 2 | E4-E5 | Testnet hashes, `stellar.toml`, federation, authenticated SEP-24 guide, webhook logs |
 | Deliverable 3: Web app and demo | FR-050-FR-076 | Phase 1, Weeks 2-4 | E6-E8 | Live app, user/API docs, demo recording, Completion Report |
 | Four-week execution plan | Release and scope control | Phase 1, Weeks 1-4 | Suggested sprint sequence | Weekly evidence and release gates |
 | Out-of-scope constraints | PRD section 5 | Phases 2-4 | Future backlog | Completion Report limitations and roadmap |

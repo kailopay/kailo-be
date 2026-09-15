@@ -28,7 +28,7 @@ Testing must prove both business outcomes and failure safety:
 ## 3. Test environment strategy
 
 - Unit/integration CI uses deterministic fake gateway and Stellar adapters.
-- PostgreSQL tests run against the same supported major version as deployment. Set `TEST_DATABASE_DSN` to a disposable database to run the repository integration suite in `internal/repository`; the tests apply the versioned migrations, verify constraints and transactions, and skip when the variable is unset.
+- PostgreSQL tests run against the same supported major version as deployment. Set `TEST_DATABASE_DSN` to a disposable database to run the repository integration suite in `internal/repository`; the tests apply the versioned migrations and verify constraints and transactions. Local runs skip when the variable is unset; CI runs fail fast instead of silently omitting this coverage.
 - Real provider sandbox tests are tagged and run manually or in protected CI with sandbox secrets.
 - Stellar testnet tests use dedicated accounts/assets and handle network flakiness explicitly.
 - API integration tests configure `HTTP_ALLOWED_ORIGINS` with exact local or
@@ -116,6 +116,8 @@ Unit/adapter tests:
 - Success, permanent failure, transient failure, and unknown submission mapping.
 - Sequence-number conflict and reconciliation.
 - Wrong asset/issuer/amount/destination/memo deposit rejection.
+- Expired off-ramp deposits are excluded from scanning and transition once to
+  `expired` with a matching order-event version.
 
 Testnet evidence tests:
 
@@ -129,6 +131,8 @@ Tests must not assume instant ledger availability; use bounded polling with mean
 ## 8. Outbox and worker tests
 
 - State/event/outbox atomic commit and rollback.
+- Mapped public order events create one durable webhook event and delivery
+  outbox intent in the same transaction as the state transition.
 - Multiple workers cannot process one lease concurrently.
 - Expired lease can be recovered.
 - Retry backoff and max-attempt behavior.

@@ -193,3 +193,44 @@ func TestRouterAcceptsRetailSessionForOrderCreation(t *testing.T) {
 		t.Fatalf("status = %d, principal = %+v, body = %q", response.Code, service.command.Principal, response.Body.String())
 	}
 }
+
+func TestRouterRegistersAuthenticatedSEP24Routes(t *testing.T) {
+	authHandler := testAuthHandler(t, &fakeAuthService{})
+	health := NewHealthHandler(func(context.Context) error { return nil }, time.Second, nil)
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	requireSession := middleware.RequireSession(fakeSessionAuthenticator{user: auth.AuthenticatedUser{User: auth.UserProfile{ID: "user-id"}}})
+	orderMiddleware := middleware.RequireOrderPrincipal(fixedAPIAuthenticator{}, nil, middleware.DefaultSessionCookieName, nil)
+	sep24 := NewSep24Handler(&sep24HandlerServiceFake{}, Sep24Config{TransferServerURL: "https://anchor.example/sep24"}, logger)
+	router, err := NewRouter(logger, health, authHandler, requireSession, WithSep24(sep24, orderMiddleware))
+	if err != nil {
+		t.Fatalf("NewRouter() error = %v", err)
+	}
+
+	routes := make(map[string]bool)
+	for _, route := range router.Routes() {
+		routes[route.Method+" "+route.Path] = true
+	}
+	for _, route := range []string{
+		"POST /sep24/transactions/deposit/interactive",
+		"POST /sep24/transactions/withdraw/interactive",
+		"GET /sep24/transaction",
+		"GET /sep24/interactive/:id",
+		"POST /sep24/deposit",
+		"POST /sep24/withdraw",
+	} {
+		if !routes[route] {
+			t.Errorf("missing route %s", route)
+		}
+	}
+
+	infoResponse := httptest.NewRecorder()
+	router.ServeHTTP(infoResponse, httptest.NewRequest(http.MethodGet, "/sep24/info", nil))
+	if infoResponse.Code != http.StatusOK {
+		t.Fatalf("info status = %d, want %d", infoResponse.Code, http.StatusOK)
+	}
+	transactionResponse := httptest.NewRecorder()
+	router.ServeHTTP(transactionResponse, httptest.NewRequest(http.MethodGet, "/sep24/transaction?id=tx-1", nil))
+	if transactionResponse.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated transaction status = %d, want %d", transactionResponse.Code, http.StatusUnauthorized)
+	}
+}

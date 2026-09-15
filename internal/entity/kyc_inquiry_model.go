@@ -21,7 +21,7 @@ type KYCInquiry struct {
 	UserID              string           `gorm:"type:uuid;not null;index"`
 	Provider            string           `gorm:"type:text;not null"`
 	ProviderInquiryID   *string          `gorm:"type:text;uniqueIndex:idx_kyc_inquiries_provider_inquiry"`
-	ProviderRequestKey  string           `gorm:"type:text;not null;uniqueIndex"`
+	ProviderRequestKey  string           `gorm:"type:text;not null;unique"`
 	ProviderStatus      string           `gorm:"type:text"`
 	Status              KYCInquiryStatus `gorm:"type:text;not null;index"`
 	ProviderEventAt     *time.Time       `gorm:"index"`

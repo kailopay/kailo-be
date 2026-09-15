@@ -15,15 +15,24 @@ import (
 const maxKYCWebhookBytes int64 = 1 << 20
 
 type KYCHandler struct {
-	service usecase.KYCService
-	logger  *slog.Logger
+	service                   usecase.KYCService
+	logger                    *slog.Logger
+	exposeProviderDiagnostics bool
 }
 
 func NewKYCHandler(service usecase.KYCService, logger *slog.Logger) *KYCHandler {
+	return NewKYCHandlerWithConfig(service, logger, KYCHandlerConfig{})
+}
+
+type KYCHandlerConfig struct {
+	ExposeProviderDiagnostics bool
+}
+
+func NewKYCHandlerWithConfig(service usecase.KYCService, logger *slog.Logger, config KYCHandlerConfig) *KYCHandler {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &KYCHandler{service: service, logger: logger}
+	return &KYCHandler{service: service, logger: logger, exposeProviderDiagnostics: config.ExposeProviderDiagnostics}
 }
 
 func (h *KYCHandler) Status(c *gin.Context) {
@@ -83,12 +92,25 @@ func (h *KYCHandler) ServeHTTP(w http.ResponseWriter, request *http.Request) {
 
 func (h *KYCHandler) writeError(c *gin.Context, operation string, err error) {
 	code, status := kycErrorMapping(err)
+	errorBody := gin.H{"code": code, "message": kycPublicErrorMessage(code)}
 	if code == "" {
 		h.logger.ErrorContext(c.Request.Context(), operation+" failed", slog.Any("error", err))
 		code, status = "INTERNAL_ERROR", http.StatusInternalServerError
+		errorBody["code"] = code
+		errorBody["message"] = kycPublicErrorMessage(code)
+	} else if errors.Is(err, usecase.ErrKYCProviderUnavailable) {
+		var providerErr *usecase.KYCProviderUnavailableError
+		if errors.As(err, &providerErr) && providerErr.Err != nil {
+			// The Persona adapter deliberately excludes response bodies and credentials
+			// from its errors, so the wrapped cause is safe for internal diagnostics.
+			h.logger.ErrorContext(c.Request.Context(), operation+" failed", slog.Any("error", providerErr.Err))
+			if h.exposeProviderDiagnostics {
+				errorBody["details"] = providerErr.Err.Error()
+			}
+		}
 	}
 	c.JSON(status, gin.H{
-		"error":      gin.H{"code": code, "message": kycPublicErrorMessage(code)},
+		"error":      errorBody,
 		"request_id": middleware.RequestIDFromContext(c),
 	})
 }

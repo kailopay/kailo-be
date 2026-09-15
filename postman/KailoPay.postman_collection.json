@@ -1,0 +1,818 @@
+{
+  "info": {
+    "_postman_id": "7b1d1a4e-0d0b-4b1d-b6f1-0d8f8d4d6c01",
+    "name": "KailoPay API - sandbox/testnet",
+    "description": "Complete request collection for the current KailoPay backend. Import the companion KailoPay.postman_environment.json and select it before running requests. Run Register and Login first. Complete Persona KYC before creating an API key or order. All value movement is sandbox/testnet only.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:8080", "type": "string" },
+    { "key": "user_email", "value": "postman.user@example.com", "type": "string" },
+    { "key": "user_password", "value": "change-this-password", "type": "string" },
+    { "key": "new_password", "value": "change-this-new-password", "type": "string" },
+    { "key": "display_name", "value": "Postman Tester", "type": "string" },
+    { "key": "session_cookie", "value": "", "type": "string" },
+    { "key": "email_token", "value": "", "type": "string" },
+    { "key": "password_reset_token", "value": "", "type": "string" },
+    { "key": "google_code", "value": "", "type": "string" },
+    { "key": "google_state", "value": "", "type": "string" },
+    { "key": "api_key", "value": "", "type": "string" },
+    { "key": "api_key_id", "value": "", "type": "string" },
+    { "key": "order_id", "value": "", "type": "string" },
+    { "key": "checkout_id", "value": "", "type": "string" },
+    { "key": "payment_session_id", "value": "", "type": "string" },
+    { "key": "payment_id", "value": "pay_postman_001", "type": "string" },
+    { "key": "transaction_id", "value": "", "type": "string" },
+    { "key": "persona_inquiry_id", "value": "", "type": "string" },
+    { "key": "persona_event_id", "value": "evt_postman_approved_001", "type": "string" },
+    { "key": "persona_event_created_at", "value": "2026-09-15T00:00:00Z", "type": "string" },
+    { "key": "persona_webhook_secret", "value": "", "type": "string" },
+    { "key": "persona_signature", "value": "", "type": "string" },
+    { "key": "xendit_callback_token", "value": "", "type": "string" },
+    { "key": "webhook_url", "value": "https://webhook.example.com/kailopay", "type": "string" },
+    { "key": "webhook_endpoint_id", "value": "", "type": "string" },
+    { "key": "webhook_signing_secret", "value": "", "type": "string" },
+    { "key": "stellar_account", "value": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF", "type": "string" },
+    { "key": "federation_name", "value": "alice*kailopay", "type": "string" },
+    { "key": "avatar_file", "value": "", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "Health and Docs",
+      "description": "Public probes and the embedded OpenAPI documentation.",
+      "item": [
+        {
+          "name": "Liveness",
+          "request": { "method": "GET", "header": [], "url": "{{base_url}}/livez" }
+        },
+        {
+          "name": "Readiness",
+          "request": { "method": "GET", "header": [], "url": "{{base_url}}/readyz" }
+        },
+        {
+          "name": "Startup",
+          "request": { "method": "GET", "header": [], "url": "{{base_url}}/startupz" }
+        },
+        {
+          "name": "Health alias",
+          "request": { "method": "GET", "header": [], "url": "{{base_url}}/health" }
+        },
+        {
+          "name": "Healthz alias",
+          "request": { "method": "GET", "header": [], "url": "{{base_url}}/healthz" }
+        },
+        {
+          "name": "Ready alias",
+          "request": { "method": "GET", "header": [], "url": "{{base_url}}/ready" }
+        },
+        {
+          "name": "Swagger UI",
+          "request": { "method": "GET", "header": [], "url": "{{base_url}}/docs/" }
+        },
+        {
+          "name": "OpenAPI document",
+          "request": { "method": "GET", "header": [], "url": "{{base_url}}/docs/openapi.yaml" }
+        },
+        {
+          "name": "Docs redirect",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/docs",
+            "description": "Expected response is a permanent redirect to /docs/."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Auth and Profile",
+      "description": "Public account endpoints and session-authenticated profile operations. Login stores the kailopay_session cookie in the selected Postman environment.",
+      "item": [
+        {
+          "name": "Register",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{user_email}}\",\n  \"password\": \"{{user_password}}\",\n  \"display_name\": \"{{display_name}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{base_url}}/auth/register"
+          }
+        },
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('login succeeded', function () { pm.response.to.have.status(200); });",
+                  "const setCookie = pm.response.headers.get('Set-Cookie') || '';",
+                  "const match = setCookie.match(/(?:^|,\\s*)kailopay_session=([^;]+)/);",
+                  "if (match) pm.environment.set('session_cookie', match[1]);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{user_email}}\",\n  \"password\": \"{{user_password}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{base_url}}/auth/login"
+          }
+        },
+        {
+          "name": "Start Google login",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/auth/google/login",
+            "description": "Redirects to Google when Google OAuth is configured. Disable follow redirects to inspect the Location header."
+          },
+          "protocolProfileBehavior": { "followRedirects": false }
+        },
+        {
+          "name": "Complete Google login",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/auth/google/callback?code={{google_code}}&state={{google_state}}",
+            "description": "Use only with a real one-time Google OAuth code and state."
+          },
+          "protocolProfileBehavior": { "followRedirects": false }
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Cookie", "value": "kailopay_session={{session_cookie}}" }
+            ],
+            "url": "{{base_url}}/auth/logout"
+          }
+        },
+        {
+          "name": "Verify email",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"{{email_token}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{base_url}}/auth/email/verify"
+          }
+        },
+        {
+          "name": "Resend verification email",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{user_email}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{base_url}}/auth/email/resend"
+          }
+        },
+        {
+          "name": "Forgot password",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{user_email}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{base_url}}/auth/password/forgot"
+          }
+        },
+        {
+          "name": "Reset password",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"{{password_reset_token}}\",\n  \"new_password\": \"{{new_password}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{base_url}}/auth/password/reset"
+          }
+        },
+        {
+          "name": "Change password",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Cookie", "value": "kailopay_session={{session_cookie}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"current_password\": \"{{user_password}}\",\n  \"new_password\": \"{{new_password}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{base_url}}/auth/password/change"
+          }
+        },
+        {
+          "name": "Get current user",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Cookie", "value": "kailopay_session={{session_cookie}}" }
+            ],
+            "url": "{{base_url}}/auth/me"
+          }
+        },
+        {
+          "name": "Update profile",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Cookie", "value": "kailopay_session={{session_cookie}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"display_name\": \"{{display_name}}\",\n  \"developer_enabled\": true\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{base_url}}/auth/me"
+          }
+        },
+        {
+          "name": "Get avatar",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Cookie", "value": "kailopay_session={{session_cookie}}" },
+              { "key": "Accept", "value": "image/*" }
+            ],
+            "url": "{{base_url}}/auth/me/avatar"
+          }
+        },
+        {
+          "name": "Upload avatar",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Cookie", "value": "kailopay_session={{session_cookie}}" }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "avatar", "type": "file", "src": "{{avatar_file}}", "description": "Select a supported image file in Postman." }
+              ]
+            },
+            "url": "{{base_url}}/auth/me/avatar"
+          }
+        },
+        {
+          "name": "Delete avatar",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              { "key": "Cookie", "value": "kailopay_session={{session_cookie}}" }
+            ],
+            "url": "{{base_url}}/auth/me/avatar"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Persona KYC",
+      "description": "Session-authenticated KYC status and inquiry requests plus a signed synthetic callback helper. Complete the real Persona sandbox flow for provider evidence.",
+      "item": [
+        {
+          "name": "Get KYC status",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Cookie", "value": "kailopay_session={{session_cookie}}" },
+              { "key": "Cache-Control", "value": "no-store" }
+            ],
+            "url": "{{base_url}}/v1/kyc"
+          }
+        },
+        {
+          "name": "Start or resume Persona inquiry",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const body = pm.response.json();",
+                  "  if (body.inquiry && body.inquiry.inquiry_id) pm.environment.set('persona_inquiry_id', body.inquiry.inquiry_id);",
+                  "  pm.test('inquiry response contains an inquiry', function () { pm.expect(body.inquiry.inquiry_id).to.be.a('string'); });",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Cookie", "value": "kailopay_session={{session_cookie}}" },
+              { "key": "Cache-Control", "value": "no-store" }
+            ],
+            "url": "{{base_url}}/v1/kyc/inquiry"
+          }
+        },
+        {
+          "name": "Persona callback - synthetic approved event",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const secret = pm.environment.get('persona_webhook_secret') || '';",
+                  "const timestamp = String(Math.floor(Date.now() / 1000));",
+                  "const rawBody = pm.variables.replaceIn(pm.request.body.raw || '');",
+                  "const digest = CryptoJS.HmacSHA256(timestamp + '.' + rawBody, secret).toString(CryptoJS.enc.Hex);",
+                  "pm.request.headers.upsert({ key: 'Persona-Signature', value: 't=' + timestamp + ',v1=' + digest });"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('callback was accepted or safely replayed', function () { pm.expect(pm.response.code).to.be.oneOf([200]); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Persona-Signature", "value": "{{persona_signature}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"data\": {\n    \"id\": \"{{persona_event_id}}\",\n    \"type\": \"event\",\n    \"attributes\": {\n      \"name\": \"inquiry.approved\",\n      \"created-at\": \"{{persona_event_created_at}}\",\n      \"payload\": {\n        \"data\": {\n          \"id\": \"{{persona_inquiry_id}}\",\n          \"type\": \"inquiry\",\n          \"attributes\": {\n            \"status\": \"approved\"\n          }\n        }\n      }\n    }\n  }\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{base_url}}/callbacks/kyc/persona"
+          }
+        }
+      ]
+    },
+    {
+      "name": "API Keys",
+      "description": "Developer API-key management. KYC approval is required before Create API key succeeds.",
+      "item": [
+        {
+          "name": "Create sandbox API key",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const body = pm.response.json();",
+                  "  if (body.api_key && body.api_key.key) pm.environment.set('api_key', body.api_key.key);",
+                  "  if (body.api_key && body.api_key.id) pm.environment.set('api_key_id', body.api_key.id);",
+                  "  pm.test('one-time API key is returned', function () { pm.expect(body.api_key.key).to.match(/^pk_test_/); });",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Cookie", "value": "kailopay_session={{session_cookie}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Postman sandbox key\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{base_url}}/v1/api-keys"
+          }
+        },
+        {
+          "name": "List sandbox API keys",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Cookie", "value": "kailopay_session={{session_cookie}}" }
+            ],
+            "url": "{{base_url}}/v1/api-keys"
+          }
+        },
+        {
+          "name": "Revoke sandbox API key",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              { "key": "Cookie", "value": "kailopay_session={{session_cookie}}" }
+            ],
+            "url": "{{base_url}}/v1/api-keys/{{api_key_id}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Orders",
+      "description": "API-key-authenticated on-ramp, off-ramp, and owner-scoped order requests. Use the API key captured by Create sandbox API key.",
+      "item": [
+        {
+          "name": "Create on-ramp order - QRIS",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if ([200, 201].includes(pm.response.code)) {",
+                  "  const body = pm.response.json();",
+                  "  if (body.order && body.order.id) pm.environment.set('order_id', body.order.id);",
+                  "  if (body.order && body.order.checkout) {",
+                  "    pm.environment.set('checkout_id', body.order.checkout.id || '');",
+                  "    pm.environment.set('payment_session_id', body.order.checkout.id || '');",
+                  "  }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "{{$guid}}" }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [ { "key": "token", "value": "{{api_key}}", "type": "string" } ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fiat\": {\n    \"currency\": \"IDR\",\n    \"amount_minor\": \"100000\"\n  },\n  \"payment_method\": \"qris\",\n  \"stellar_destination\": {\n    \"account\": \"{{stellar_account}}\",\n    \"memo\": \"postman\"\n  }\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{base_url}}/v1/onramps"
+          }
+        },
+        {
+          "name": "Create off-ramp order - simulated bank transfer",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if ([200, 201].includes(pm.response.code)) {",
+                  "  const body = pm.response.json();",
+                  "  if (body.order && body.order.id) pm.environment.set('order_id', body.order.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "{{$guid}}" }
+            ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [ { "key": "token", "value": "{{api_key}}", "type": "string" } ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"asset\": {\n    \"network\": \"stellar_testnet\",\n    \"code\": \"XLM\",\n    \"amount\": \"1.0000000\"\n  },\n  \"withdrawal\": {\n    \"currency\": \"IDR\",\n    \"method\": \"sandbox_bank_transfer\",\n    \"destination_token\": \"postman-bank-destination\"\n  }\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{base_url}}/v1/offramps"
+          }
+        },
+        {
+          "name": "List orders",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [ { "key": "token", "value": "{{api_key}}", "type": "string" } ]
+            },
+            "url": "{{base_url}}/v1/orders?limit=20"
+          }
+        },
+        {
+          "name": "Get order",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [ { "key": "token", "value": "{{api_key}}", "type": "string" } ]
+            },
+            "url": "{{base_url}}/v1/orders/{{order_id}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "SEP-24 and Discovery",
+      "description": "Public anchor discovery plus authenticated SEP-24 deposit/withdraw requests. The collection uses the documented sandbox extensions amount_minor for deposit and synthetic destination_token for withdrawal.",
+      "item": [
+        {
+          "name": "Get stellar.toml",
+          "request": {
+            "method": "GET",
+            "header": [ { "key": "Accept", "value": "application/toml" } ],
+            "url": "{{base_url}}/.well-known/stellar.toml"
+          }
+        },
+        {
+          "name": "Federation lookup",
+          "request": {
+            "method": "GET",
+            "header": [ { "key": "Accept", "value": "application/json" } ],
+            "url": "{{base_url}}/federation?q={{federation_name}}"
+          }
+        },
+        {
+          "name": "SEP-24 info",
+          "request": {
+            "method": "GET",
+            "header": [ { "key": "Accept", "value": "application/json" } ],
+            "url": "{{base_url}}/sep24/info"
+          }
+        },
+        {
+          "name": "SEP-24 deposit interactive",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if ([200, 201].includes(pm.response.code)) {",
+                  "  const body = pm.response.json();",
+                  "  if (body.id) pm.environment.set('transaction_id', body.id);",
+                  "  pm.test('interactive transaction id is returned', function () { pm.expect(body.id).to.be.a('string'); });",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Idempotency-Key", "value": "{{$guid}}" } ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [ { "key": "token", "value": "{{api_key}}", "type": "string" } ]
+            },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "asset_code", "value": "XLM", "type": "text" },
+                { "key": "amount_minor", "value": "100000", "type": "text" },
+                { "key": "account", "value": "{{stellar_account}}", "type": "text" },
+                { "key": "memo", "value": "postman", "type": "text" },
+                { "key": "memo_type", "value": "text", "type": "text" },
+                { "key": "payment_method", "value": "qris", "type": "text" }
+              ]
+            },
+            "url": "{{base_url}}/sep24/transactions/deposit/interactive"
+          }
+        },
+        {
+          "name": "SEP-24 withdrawal interactive",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if ([200, 201].includes(pm.response.code)) {",
+                  "  const body = pm.response.json();",
+                  "  if (body.id) pm.environment.set('transaction_id', body.id);",
+                  "  pm.test('interactive transaction id is returned', function () { pm.expect(body.id).to.be.a('string'); });",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Idempotency-Key", "value": "{{$guid}}" } ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [ { "key": "token", "value": "{{api_key}}", "type": "string" } ]
+            },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "asset_code", "value": "XLM", "type": "text" },
+                { "key": "amount", "value": "1.0000000", "type": "text" },
+                { "key": "destination_token", "value": "postman-bank-destination", "type": "text" }
+              ]
+            },
+            "url": "{{base_url}}/sep24/transactions/withdraw/interactive"
+          }
+        },
+        {
+          "name": "SEP-24 transaction status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [ { "key": "token", "value": "{{api_key}}", "type": "string" } ]
+            },
+            "url": "{{base_url}}/sep24/transaction?id={{transaction_id}}"
+          }
+        },
+        {
+          "name": "SEP-24 interactive projection",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "bearer",
+              "bearer": [ { "key": "token", "value": "{{api_key}}", "type": "string" } ]
+            },
+            "url": "{{base_url}}/sep24/interactive/{{transaction_id}}"
+          }
+        },
+        {
+          "name": "Legacy SEP-24 deposit path",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Idempotency-Key", "value": "{{$guid}}" } ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [ { "key": "token", "value": "{{api_key}}", "type": "string" } ]
+            },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "asset_code", "value": "XLM", "type": "text" },
+                { "key": "amount_minor", "value": "100000", "type": "text" },
+                { "key": "account", "value": "{{stellar_account}}", "type": "text" },
+                { "key": "memo", "value": "postman-legacy", "type": "text" },
+                { "key": "memo_type", "value": "text", "type": "text" },
+                { "key": "payment_method", "value": "qris", "type": "text" }
+              ]
+            },
+            "url": "{{base_url}}/sep24/deposit",
+            "description": "Compatibility alias for the standard interactive deposit endpoint."
+          }
+        },
+        {
+          "name": "Legacy SEP-24 withdrawal path",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Idempotency-Key", "value": "{{$guid}}" } ],
+            "auth": {
+              "type": "bearer",
+              "bearer": [ { "key": "token", "value": "{{api_key}}", "type": "string" } ]
+            },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "asset_code", "value": "XLM", "type": "text" },
+                { "key": "amount", "value": "1.0000000", "type": "text" },
+                { "key": "destination_token", "value": "postman-bank-destination", "type": "text" }
+              ]
+            },
+            "url": "{{base_url}}/sep24/withdraw",
+            "description": "Compatibility alias for the standard interactive withdrawal endpoint."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Developer Webhooks",
+      "description": "Session-authenticated developer webhook endpoint registration. Delivery worker and retry behavior are separate release work.",
+      "item": [
+        {
+          "name": "Register webhook endpoint",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const body = pm.response.json();",
+                  "  if (body.endpoint && body.endpoint.id) pm.environment.set('webhook_endpoint_id', body.endpoint.id);",
+                  "  if (body.secret) pm.environment.set('webhook_signing_secret', body.secret);",
+                  "  pm.test('endpoint and one-time secret are returned', function () { pm.expect(body.endpoint.id).to.be.a('string'); pm.expect(body.secret).to.be.a('string'); });",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Cookie", "value": "kailopay_session={{session_cookie}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"url\": \"{{webhook_url}}\",\n  \"event_types\": [\n    \"order.created\",\n    \"order.payment_confirmed\",\n    \"order.completed\",\n    \"order.failed\"\n  ]\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{base_url}}/v1/webhook-endpoints"
+          }
+        },
+        {
+          "name": "List webhook endpoints",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Cookie", "value": "kailopay_session={{session_cookie}}" }
+            ],
+            "url": "{{base_url}}/v1/webhook-endpoints"
+          }
+        },
+        {
+          "name": "Disable webhook endpoint",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              { "key": "Cookie", "value": "kailopay_session={{session_cookie}}" }
+            ],
+            "url": "{{base_url}}/v1/webhook-endpoints/{{webhook_endpoint_id}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Provider Callbacks",
+      "description": "Callback request fixtures. Persona uses a Postman pre-request script to sign the exact raw body with persona_webhook_secret. Xendit requires the configured callback token and an existing checkout identifier.",
+      "item": [
+        {
+          "name": "Xendit payment session completed",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-callback-token", "value": "{{xendit_callback_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event\": \"payment_session.completed\",\n  \"data\": {\n    \"payment_session_id\": \"{{payment_session_id}}\"\n  }\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{base_url}}/callbacks/payments/xendit"
+          }
+        },
+        {
+          "name": "Xendit payment capture",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-callback-token", "value": "{{xendit_callback_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event\": \"payment.capture\",\n  \"data\": {\n    \"payment_id\": \"{{payment_id}}\",\n    \"payment_session_id\": \"{{payment_session_id}}\"\n  }\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{base_url}}/callbacks/payments/xendit"
+          }
+        }
+      ]
+    }
+  ]
+}

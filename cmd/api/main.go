@@ -161,7 +161,9 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("creating KYC service: %w", err)
 	}
-	kycHandler := httpapi.NewKYCHandler(kycService, appLogger)
+	kycHandler := httpapi.NewKYCHandlerWithConfig(kycService, appLogger, httpapi.KYCHandlerConfig{
+		ExposeProviderDiagnostics: strings.EqualFold(cfg.App.Environment, "local"),
+	})
 	apiKeyRepository := repository.NewAPIKeyRepository(db)
 	apiKeyService, err := usecase.NewAPIKeyUsecase(usecase.APIKeyDependencies{
 		Repository: apiKeyRepository,
@@ -221,14 +223,23 @@ func run(ctx context.Context) error {
 	}
 	offrampHandler := httpapi.NewOfframpHandler(offrampService, appLogger)
 	onrampHandler := httpapi.NewOnrampHandler(onrampService, appLogger)
-	publicBaseURL := strings.TrimRight(cfg.Auth.EmailLinkBaseURL, "/")
-	sep24Config := httpapi.Sep24Config{
-		DepositAccount:    cfg.Week1.Offramp.DepositAccount,
-		NetworkPassphrase: cfg.Week1.Stellar.NetworkPassphrase,
-		TransferServerURL: publicBaseURL + "/sep24",
-		FederationURL:     publicBaseURL + "/federation",
+	sep24Repository := repository.NewSEP24Repository(db)
+	sep24Service, err := usecase.NewSep24Usecase(usecase.Sep24Dependencies{
+		Onramp: onrampService, Offramp: offrampService, Orders: onrampService, Transactions: sep24Repository,
+	})
+	if err != nil {
+		return fmt.Errorf("creating SEP-24 service: %w", err)
 	}
-	sep24Handler := httpapi.NewSep24Handler(sep24Config)
+	publicBaseURL := strings.TrimRight(cfg.Anchor.BaseURL, "/")
+	sep24Config := httpapi.Sep24Config{
+		DepositAccount:        cfg.Week1.Offramp.DepositAccount,
+		NetworkPassphrase:     cfg.Week1.Stellar.NetworkPassphrase,
+		TransferServerURL:     publicBaseURL + "/sep24",
+		FederationURL:         publicBaseURL + "/federation",
+		DepositMinAmountMinor: cfg.Week1.Onramp.MinIDR,
+		DepositMaxAmountMinor: cfg.Week1.Onramp.MaxIDR,
+	}
+	sep24Handler := httpapi.NewSep24Handler(sep24Service, sep24Config, appLogger)
 	webhookRepository := repository.NewWebhookRepository(db)
 	webhookService, err := usecase.NewWebhookUsecase(webhookRepository, platform.NewID, time.Now)
 	if err != nil {
@@ -240,7 +251,7 @@ func run(ctx context.Context) error {
 	router, err := httpapi.NewRouter(appLogger, health, authHandler, sessionMiddleware,
 		httpapi.WithAPIKeys(apiKeyHandler), httpapi.WithKYC(kycHandler),
 		httpapi.WithOnramp(onrampHandler, orderPrincipalMiddleware),
-		httpapi.WithOfframp(offrampHandler), httpapi.WithSep24(sep24Handler),
+		httpapi.WithOfframp(offrampHandler), httpapi.WithSep24(sep24Handler, orderPrincipalMiddleware),
 		httpapi.WithWebhooks(webhookHandler), httpapi.WithXenditCallback(callbackHandler))
 	if err != nil {
 		return fmt.Errorf("creating http router: %w", err)

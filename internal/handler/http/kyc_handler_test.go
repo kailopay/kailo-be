@@ -241,4 +241,22 @@ func TestKYCHandlerMapsProviderUnavailableWithoutDetails(t *testing.T) {
 	}
 }
 
+func TestKYCHandlerExposesProviderDiagnosticInLocalMode(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	service := &fakeKYCService{inquiryErr: &usecase.KYCProviderUnavailableError{Err: errors.New("creating persona inquiry: persona request returned status 401")}}
+	handler := NewKYCHandlerWithConfig(service, nil, KYCHandlerConfig{ExposeProviderDiagnostics: true})
+	router := gin.New()
+	router.POST("/v1/kyc/inquiry", middleware.RequireSession(fakeSessionAuthenticator{user: usecase.AuthenticatedUser{
+		User: usecase.UserProfile{ID: "user-1"},
+	}}), handler.Inquiry)
+	request := httptest.NewRequest(http.MethodPost, "/v1/kyc/inquiry", nil)
+	request.AddCookie(&http.Cookie{Name: middleware.DefaultSessionCookieName, Value: "session"})
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+
+	if response.Code != http.StatusServiceUnavailable || !strings.Contains(response.Body.String(), "persona request returned status 401") {
+		t.Fatalf("status/body = %d/%q", response.Code, response.Body.String())
+	}
+}
+
 var _ usecase.KYCService = (*fakeKYCService)(nil)
