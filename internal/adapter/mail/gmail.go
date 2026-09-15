@@ -83,18 +83,30 @@ func NewSender(config SenderConfig, logger *slog.Logger) (usecase.EmailSender, e
 }
 
 func (s *GmailSender) SendEmailVerification(ctx context.Context, email, link string) error {
-	body := authEmailBody("Verify your KailoPay email by opening this link:", link,
-		"If you did not create this account, you can ignore this email.")
-	return s.send(ctx, email, "Verify your KailoPay email", body)
+	content := renderAuthEmail(authEmailCopy{
+		heading:    "Confirm your KailoPay email",
+		intro:      "Thanks for signing up. Confirm your email address to finish setting up your account.",
+		action:     "Confirm your email",
+		link:       link,
+		expiration: "This link expires in 24 hours.",
+		warning:    "If you did not create this account, you can ignore this email.",
+	})
+	return s.send(ctx, email, "Verify your KailoPay email", content)
 }
 
 func (s *GmailSender) SendPasswordReset(ctx context.Context, email, link string) error {
-	body := authEmailBody("Reset your KailoPay password by opening this link:", link,
-		"If you did not request a password reset, you can ignore this email.")
-	return s.send(ctx, email, "Reset your KailoPay password", body)
+	content := renderAuthEmail(authEmailCopy{
+		heading:    "Reset your KailoPay password",
+		intro:      "We received a request to choose a new password for your KailoPay account.",
+		action:     "Reset your password",
+		link:       link,
+		expiration: "This link expires in 1 hour.",
+		warning:    "If you did not request a password reset, you can ignore this email.",
+	})
+	return s.send(ctx, email, "Reset your KailoPay password", content)
 }
 
-func (s *GmailSender) send(ctx context.Context, recipient, subject, body string) error {
+func (s *GmailSender) send(ctx context.Context, recipient, subject string, content renderedEmail) error {
 	if ctx == nil {
 		return errors.New("email context is nil")
 	}
@@ -129,7 +141,12 @@ func (s *GmailSender) send(ctx context.Context, recipient, subject, body string)
 	if err != nil {
 		return fmt.Errorf("opening email body: %w", err)
 	}
-	if _, err := io.WriteString(writer, buildMessage(s.config, recipient, subject, body)); err != nil {
+	message, err := buildMessage(s.config, recipient, subject, content)
+	if err != nil {
+		_ = writer.Close()
+		return fmt.Errorf("building email body: %w", err)
+	}
+	if _, err := io.WriteString(writer, message); err != nil {
 		_ = writer.Close()
 		return fmt.Errorf("writing email body: %w", err)
 	}
@@ -170,33 +187,6 @@ func validMailbox(raw string) bool {
 	}
 	parsed, err := stdmail.ParseAddress(raw)
 	return err == nil && strings.EqualFold(parsed.Address, raw)
-}
-
-func buildMessage(config GmailConfig, recipient, subject, body string) string {
-	from := (&stdmail.Address{Name: config.FromName, Address: config.Username}).String()
-	to := (&stdmail.Address{Address: recipient}).String()
-	headers := []string{
-		"From: " + from,
-		"To: " + to,
-		"Subject: " + subject,
-		"MIME-Version: 1.0",
-		"Content-Type: text/plain; charset=UTF-8",
-		"Content-Transfer-Encoding: 8bit",
-	}
-	return strings.Join(headers, "\r\n") + "\r\n\r\n" + body
-}
-
-func authEmailBody(instruction, link, warning string) string {
-	return strings.Join([]string{
-		"Hello,",
-		"",
-		instruction,
-		link,
-		"",
-		warning,
-		"",
-		"KailoPay",
-	}, "\r\n") + "\r\n"
 }
 
 func gmailSMTPClientFactory(ctx context.Context, config GmailConfig) (smtpClient, error) {
