@@ -57,8 +57,9 @@ docker compose -f compose.deploy.yaml logs --tail=100 worker
 
 The API container does not receive either Stellar signing secret. The worker
 receives them from the unified `.env` and submits settlement work. PostgreSQL
-and MinIO have no host ports in this stack. Use an SSH tunnel for temporary
-MinIO console access instead of exposing its admin port.
+is available on `127.0.0.1:5432` for local administrative access, while MinIO
+has no host ports. Use an SSH tunnel for temporary MinIO console access instead
+of exposing its admin port.
 
 ## Operations
 
