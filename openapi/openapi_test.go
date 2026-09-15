@@ -33,9 +33,21 @@ func TestDocumentValidatesAuthContract(t *testing.T) {
 		"/v1/kyc/inquiry",
 		"/v1/api-keys",
 		"/v1/api-keys/{id}",
+		"/v1/webhook-endpoints",
+		"/v1/webhook-endpoints/{id}",
 		"/v1/onramps",
+		"/v1/offramps",
 		"/v1/orders",
 		"/v1/orders/{id}",
+		"/.well-known/stellar.toml",
+		"/federation",
+		"/sep24/info",
+		"/sep24/transactions/deposit/interactive",
+		"/sep24/transactions/withdraw/interactive",
+		"/sep24/transaction",
+		"/sep24/interactive/{id}",
+		"/sep24/deposit",
+		"/sep24/withdraw",
 		"/callbacks/payments/xendit",
 		"/callbacks/kyc/persona",
 	} {
@@ -58,6 +70,36 @@ func TestDocumentValidatesAuthContract(t *testing.T) {
 		operation := document.Paths.Find(path).Post
 		if operation == nil || operation.Responses.Value("403") == nil {
 			t.Fatalf("POST %s must document the KYC-required response", path)
+		}
+	}
+	for _, path := range []string{
+		"/sep24/transactions/deposit/interactive",
+		"/sep24/transactions/withdraw/interactive",
+	} {
+		operation := document.Paths.Find(path).Post
+		if operation == nil || operation.Responses.Value("403") == nil {
+			t.Fatalf("POST %s must document the KYC-required response", path)
+		}
+	}
+	webhookEndpoints := document.Paths.Find("/v1/webhook-endpoints")
+	if webhookEndpoints == nil || webhookEndpoints.Post == nil || webhookEndpoints.Get == nil {
+		t.Fatal("webhook endpoint registration and listing must be documented")
+	}
+	if webhookEndpoints.Post.RequestBody == nil || webhookEndpoints.Post.Responses.Value("201") == nil {
+		t.Fatal("POST /v1/webhook-endpoints must document its request and creation response")
+	}
+	if document.Paths.Find("/v1/webhook-endpoints/{id}").Delete == nil {
+		t.Fatal("DELETE /v1/webhook-endpoints/{id} must be documented")
+	}
+	for _, schema := range []string{
+		"CreateWebhookEndpointRequest",
+		"CreateWebhookEndpointResponse",
+		"WebhookEndpoint",
+		"WebhookEndpointListResponse",
+		"WebhookEventType",
+	} {
+		if document.Components.Schemas[schema] == nil {
+			t.Errorf("missing webhook schema %q", schema)
 		}
 	}
 	kycInquiry := document.Paths.Find("/v1/kyc/inquiry").Post

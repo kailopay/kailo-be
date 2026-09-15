@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>KailoPay API documentation</title>
+    <title>KailoPay sandbox anchor API</title>
     <link
       rel="stylesheet"
       href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.11.10/swagger-ui.css"
@@ -24,12 +24,25 @@
         background: #f6f8fb;
       }
 
+      .sandbox-banner {
+        padding: 12px 20px;
+        color: #5b3b00;
+        background: #fff3cd;
+        border-bottom: 1px solid #e6c86e;
+        font: 600 14px/1.4 system-ui, sans-serif;
+        text-align: center;
+      }
+
       .swagger-ui .topbar {
         background: #152238;
       }
     </style>
   </head>
   <body>
+    <div class="sandbox-banner">
+      Sandbox/testnet only. Complete approved Persona KYC before creating API
+      keys or orders.
+    </div>
     <div id="swagger-ui"></div>
     <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.11.10/swagger-ui-bundle.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.11.10/swagger-ui-standalone-preset.js"></script>
@@ -39,12 +52,15 @@
         dom_id: "#swagger-ui",
         deepLinking: true,
         displayRequestDuration: true,
+        docExpansion: "list",
         filter: true,
+        operationsSorter: "alpha",
         presets: [
           SwaggerUIBundle.presets.apis,
           SwaggerUIStandalonePreset,
         ],
         layout: "StandaloneLayout",
+        tagsSorter: "alpha",
         tryItOutEnabled: true,
       });
     </script>

@@ -106,15 +106,16 @@ one file per table; repository queries remain in `internal/repository`.
    go run ./cmd/worker
    ```
 
-Consumer flow: sign in with a verified email account (email/password or Google)
-and use the `kailopay_session` cookie with `POST /v1/onramps` or
-`POST /v1/offramps`; browser mutations must include an allowed frontend
-`Origin`. `GET /v1/orders` and `GET /v1/orders/{id}` return only that user's
-consumer orders. Developer flow remains API-key based: create a one-time
-`pk_test_` key after enabling Developer Mode, then use it as
-`Authorization: Bearer <key>`. Both flows require `Idempotency-Key` for order
-creation. On-ramp `xendit` returns a hosted checkout URL; `qris` and `bri_va`
-restrict the hosted channel. See `openapi/openapi.yaml` and
+Consumer flow: sign in with a verified email account (email/password or Google),
+complete and pass approved Persona KYC, then use the `kailopay_session` cookie
+with `POST /v1/onramps` or `POST /v1/offramps`; browser mutations must include
+an allowed frontend `Origin`. `GET /v1/orders` and `GET /v1/orders/{id}` return
+only that user's consumer orders. Developer flow remains API-key based: after
+approved Persona KYC and enabling Developer Mode, create a one-time `pk_test_`
+key, then use it as `Authorization: Bearer <key>`. Both flows require
+`Idempotency-Key` for order creation. On-ramp `xendit` returns a hosted
+checkout URL; `qris` and `bri_va` restrict the hosted channel. See
+`openapi/openapi.yaml` and
 `documentations/backend/CONSUMER-SESSION-ORDER-FLOW.md`.
 
 Stop the local services with `docker compose down`. Add `-v` only when you

@@ -10,7 +10,7 @@
 | Logging | Standard-library `log/slog` |
 | External environments | Optional Google sign-in, one payment gateway sandbox, and Stellar testnet |
 | Architecture | Modular monolith with asynchronous workers and transactional outbox |
-| Status | Week 2 backend slice implemented in Go; provider and testnet evidence remains staged |
+| Status | Week 2 backend slice implemented in Go; provider/testnet evidence and outbound delivery remain staged |
 
 ## Purpose
 
@@ -71,8 +71,8 @@ integration client for the public API, not a second backend runtime.
 - PostgreSQL persistence, migrations, order events, and external-reference correlation.
 - One payment gateway adapter for sandbox QRIS, bank transfer/virtual account, callbacks, and the available payout simulation.
 - Stellar testnet asset issuance/transfer, deposit verification, burn/retirement, and transaction correlation.
-- SEP-24 deposit and withdrawal skeleton, Persona-backed sandbox KYC status
-  gate, public `stellar.toml`, and federation configuration.
+- Authenticated SEP-24 deposit and withdrawal order mapping, Persona-backed
+  sandbox KYC status gate, public `stellar.toml`, and federation configuration.
 - Signed developer webhook delivery with bounded retries and attempt logs.
 - Separate TypeScript SDK for server-side Node.js integrations; it consumes the Go backend's public API and OpenAPI contract.
 - Structured logging, metrics, health/readiness checks, safe recovery procedures, and release evidence.
@@ -133,4 +133,4 @@ The backend implements email + password and optional Google authentication:
 - `POST /auth/email/verify` and `POST /auth/email/resend` complete or re-issue verification; `POST /auth/password/forgot`, `POST /auth/password/reset`, and protected `POST /auth/password/change` cover password recovery.
 - `POST /auth/logout` revokes and clears the local session; `GET /auth/me` returns the authenticated user and requires the `kailopay_session` cookie.
 
-Provider tokens never reach the browser. Local sessions are opaque, HTTP-only, SameSite=Lax cookies backed by PostgreSQL. Verification and reset links are single-use hashed tokens; the console provider logs links by default, while `EMAIL_PROVIDER=gmail` sends them through Gmail SMTP using `GMAIL_USERNAME` and a Google App Password. Configure `.env` using [.env.example](../../.env.example); the checked-in contract is [openapi/openapi.yaml](../../openapi/openapi.yaml). When the API is running, the same contract is rendered through Swagger UI at `http://localhost:8080/docs/`. Run `go run ./cmd/migrate` to apply the versioned schema.
+Provider tokens never reach the browser. Local sessions are opaque, HTTP-only, SameSite=Lax cookies backed by PostgreSQL. Verification and reset links are single-use hashed tokens; the console provider logs links by default, while `EMAIL_PROVIDER=gmail` sends them through Gmail SMTP using `GMAIL_USERNAME` and a Google App Password. Configure `.env` using [.env.example](../../.env.example); the checked-in contract is [openapi/openapi.yaml](../../openapi/openapi.yaml). It documents the Week 2 Persona KYC gate, API keys, on/off-ramps, SEP-24, anchor discovery, and developer webhook management. When the API is running, the same contract is rendered through Swagger UI at `http://localhost:8080/docs/`. Run `go run ./cmd/migrate` to apply the versioned schema.

@@ -142,6 +142,7 @@ func TestRouterServesOpenAPIDocumentation(t *testing.T) {
 		bodyContains string
 	}{
 		{name: "swagger ui", path: "/docs/", contentType: "text/html", bodyContains: `id="swagger-ui"`},
+		{name: "swagger sandbox notice", path: "/docs/", contentType: "text/html", bodyContains: "Complete approved Persona KYC"},
 		{name: "openapi document", path: "/docs/openapi.yaml", contentType: "text/yaml", bodyContains: "openapi: 3.0.3"},
 	}
 

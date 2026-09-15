@@ -2,10 +2,29 @@ openapi: 3.0.3
 info:
   title: KailoPay Backend API
   version: 0.1.0
-  description: Sandbox/testnet payment API with self-hosted email and Google authentication behind KailoPay-owned sessions.
+  description: |
+    Sandbox/testnet payment and Stellar anchor API. Users complete Persona
+    identity verification before they can create an API key or an on-ramp,
+    off-ramp, or SEP-24 transaction. The current release does not move real
+    fiat value.
 servers:
   - url: http://localhost:8080
     description: Local development
+tags:
+  - name: Identity and KYC
+    description: Local sessions and Persona identity-verification status.
+  - name: Developer
+    description: Sandbox API-key management.
+  - name: Developer webhooks
+    description: Register and disable sandbox order-event destinations.
+  - name: Orders
+    description: Authenticated on-ramp, off-ramp, and order operations.
+  - name: SEP-24
+    description: Authenticated sandbox deposit and withdrawal operations.
+  - name: Anchor discovery
+    description: Public Stellar testnet anchor metadata and federation lookup.
+  - name: Provider callbacks
+    description: Signed callbacks from Persona and Xendit.
 paths:
   /auth/register:
     post:
@@ -351,6 +370,8 @@ paths:
           description: Missing or invalid local session
   /v1/kyc:
     get:
+      tags: [Identity and KYC]
+      operationId: getKYCStatus
       summary: Get the authenticated user's identity-verification status
       description: Returns the latest webhook-backed Persona status. Only approved is eligible to create API keys or on/off-ramp orders.
       security:
@@ -372,6 +393,8 @@ paths:
                 $ref: '#/components/schemas/KYCError'
   /v1/kyc/inquiry:
     post:
+      tags: [Identity and KYC]
+      operationId: createKYCInquiry
       summary: Create or resume the authenticated user's Persona inquiry
       description: Creates a backend-owned Persona inquiry or resumes the current inquiry. The optional session token is short-lived and intended only for the embedded browser flow.
       security:
@@ -399,6 +422,8 @@ paths:
                 $ref: '#/components/schemas/KYCError'
   /v1/api-keys:
     post:
+      tags: [Developer]
+      operationId: createAPIKey
       summary: Create a sandbox API key
       description: Requires Developer Mode and an approved Persona identity verification. The full key is returned only in this response.
       security:
@@ -425,6 +450,8 @@ paths:
                   - $ref: '#/components/schemas/ErrorResponse'
                   - $ref: '#/components/schemas/KYCError'
     get:
+      tags: [Developer]
+      operationId: listAPIKeys
       summary: List sandbox API keys
       security:
         - kailoSession: []
@@ -443,6 +470,8 @@ paths:
                       $ref: '#/components/schemas/APIKeyMetadata'
   /v1/api-keys/{id}:
     delete:
+      tags: [Developer]
+      operationId: revokeAPIKey
       summary: Revoke a sandbox API key
       security:
         - kailoSession: []
@@ -458,8 +487,115 @@ paths:
           description: API key revoked
         '404':
           description: Key not found for this user
+  /v1/webhook-endpoints:
+    post:
+      tags: [Developer webhooks]
+      operationId: createWebhookEndpoint
+      summary: Register a sandbox webhook endpoint
+      description: |
+        Registers an HTTPS endpoint for sandbox order-lifecycle events. The
+        endpoint must use a public host without embedded credentials. The
+        signing secret is returned only once. Outbound delivery is staged for
+        the next worker slice in the current release.
+      security:
+        - kailoSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWebhookEndpointRequest'
+      responses:
+        '201':
+          description: Endpoint registered; the signing secret is shown once
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateWebhookEndpointResponse'
+        '400':
+          description: Invalid JSON, URL, or event type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Missing or invalid local session
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Endpoint could not be stored
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    get:
+      tags: [Developer webhooks]
+      operationId: listWebhookEndpoints
+      summary: List the authenticated user's webhook endpoints
+      description: Returns endpoint metadata without returning signing secrets.
+      security:
+        - kailoSession: []
+      responses:
+        '200':
+          description: Webhook endpoint metadata
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookEndpointListResponse'
+        '401':
+          description: Missing or invalid local session
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Endpoint list could not be read
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /v1/webhook-endpoints/{id}:
+    delete:
+      tags: [Developer webhooks]
+      operationId: disableWebhookEndpoint
+      summary: Disable a webhook endpoint
+      description: Disables the authenticated user's endpoint without deleting its delivery history.
+      security:
+        - kailoSession: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Endpoint disabled
+        '401':
+          description: Missing or invalid local session
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Endpoint not found for this user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Endpoint could not be disabled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /v1/onramps:
     post:
+      tags: [Orders]
+      operationId: createOnramp
       summary: Create an IDR to native-XLM sandbox on-ramp
       description: |
         Accepts either an API-key principal or a verified retail session
@@ -534,6 +670,8 @@ paths:
                 $ref: '#/components/schemas/OnrampError'
   /v1/offramps:
     post:
+      tags: [Orders]
+      operationId: createOfframp
       summary: Create an XLM to IDR sandbox off-ramp (simulated payout)
       description: |
         Prices the sell order against current market data, then returns
@@ -604,6 +742,8 @@ paths:
                 $ref: '#/components/schemas/OnrampError'
   /v1/orders:
     get:
+      tags: [Orders]
+      operationId: listOrders
       summary: List orders owned by the authenticated principal
       description: API keys list their client-owned orders; retail sessions list that verified user's consumer orders across valid sessions.
       security:
@@ -637,6 +777,8 @@ paths:
                     type: string
   /v1/orders/{id}:
     get:
+      tags: [Orders]
+      operationId: getOrder
       summary: Get one order owned by the authenticated principal
       description: Returns 404 when the order does not exist or belongs to a different API client, retail user, or owner scope.
       security:
@@ -664,8 +806,268 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/OnrampError'
+  /.well-known/stellar.toml:
+    get:
+      tags: [Anchor discovery]
+      operationId: getStellarToml
+      summary: Get the public Stellar testnet anchor descriptor
+      description: Advertises only the configured sandbox/testnet SEP-24 transfer server, federation endpoint, and native XLM asset.
+      responses:
+        '200':
+          description: Stellar TOML document
+          content:
+            application/x-stellar-toml:
+              schema:
+                type: string
+  /federation:
+    get:
+      tags: [Anchor discovery]
+      operationId: resolveFederation
+      summary: Resolve a sandbox federation name
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Synthetic federation name in the documented `name*kailopay` form.
+      responses:
+        '200':
+          description: Resolved testnet account and memo
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [stellar_address, memo, memo_type]
+                properties:
+                  stellar_address: {type: string}
+                  memo: {type: string}
+                  memo_type: {type: string, enum: [text]}
+        '404':
+          description: Unknown or malformed federation name
+  /sep24/info:
+    get:
+      tags: [SEP-24]
+      operationId: getSEP24Info
+      summary: Get supported SEP-24 sandbox assets and limits
+      description: Deposit limits use IDR minor units in this sandbox; withdrawal limits use exact XLM units.
+      responses:
+        '200':
+          description: Supported testnet XLM deposit and withdrawal configuration
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [deposit, withdraw, fee]
+                properties:
+                  deposit:
+                    $ref: '#/components/schemas/SEP24AssetInfoMap'
+                  withdraw:
+                    $ref: '#/components/schemas/SEP24AssetInfoMap'
+                  fee:
+                    type: object
+  /sep24/transactions/deposit/interactive:
+    post:
+      tags: [SEP-24]
+      summary: Start an authenticated SEP-24 deposit
+      description: Creates an owner-scoped KailoPay on-ramp order after the normal approved-Persona KYC gate and persists the SEP-24 transaction mapping. The sandbox uses amount_minor IDR units because the order quote is fiat-denominated.
+      security:
+        - kailoAPIKey: []
+        - kailoSession: []
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 240
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SEP24DepositRequest'
+      responses:
+        '200':
+          description: Interactive transaction created or safely replayed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SEP24StartResponse'
+        '400':
+          description: Invalid request or Stellar destination
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SEP24Error'
+        '401':
+          description: Missing or invalid API key/session credentials
+        '403':
+          description: Approved Persona verification is required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SEP24Error'
+        '409':
+          description: Idempotency or mapping conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SEP24Error'
+        '422':
+          description: Amount outside the configured range
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SEP24Error'
+        '503':
+          description: Quote, gateway, or persistence dependency unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SEP24Error'
+  /sep24/transactions/withdraw/interactive:
+    post:
+      tags: [SEP-24]
+      summary: Start an authenticated SEP-24 withdrawal
+      description: Creates an owner-scoped KailoPay off-ramp order after the normal approved-Persona KYC gate and persists the SEP-24 transaction mapping. The sandbox payout rail uses a synthetic destination token.
+      security:
+        - kailoAPIKey: []
+        - kailoSession: []
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 240
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SEP24WithdrawRequest'
+      responses:
+        '200':
+          description: Interactive transaction created or safely replayed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SEP24StartResponse'
+        '400':
+          description: Invalid withdrawal request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SEP24Error'
+        '401':
+          description: Missing or invalid API key/session credentials
+        '403':
+          description: Approved Persona verification is required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SEP24Error'
+        '409':
+          description: Idempotency or mapping conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SEP24Error'
+        '422':
+          description: Resulting payout outside the configured range
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SEP24Error'
+        '503':
+          description: Quote or persistence dependency unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SEP24Error'
+  /sep24/transaction:
+    get:
+      tags: [SEP-24]
+      operationId: getSEP24Transaction
+      summary: Get the current status of an owned SEP-24 transaction
+      description: Loads the durable transaction-to-order mapping and returns the current order state. Client-supplied status values are ignored.
+      security:
+        - kailoAPIKey: []
+        - kailoSession: []
+      parameters:
+        - name: id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Current status for the authenticated owner
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SEP24TransactionResponse'
+        '400':
+          description: Missing or invalid transaction ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SEP24Error'
+        '401':
+          description: Missing or invalid API key/session credentials
+        '404':
+          description: Transaction is missing or belongs to another owner
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SEP24Error'
+        '503':
+          description: Transaction or order storage unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SEP24Error'
+  /sep24/interactive/{id}:
+    get:
+      tags: [SEP-24]
+      operationId: getSEP24InteractiveTransaction
+      summary: Get the authenticated SEP-24 interactive projection
+      description: Returns the same owner-scoped transaction state with sandbox and Stellar testnet labels. A wallet-facing HTML UI is not included in this backend slice.
+      security:
+        - kailoAPIKey: []
+        - kailoSession: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Authenticated sandbox transaction projection
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SEP24InteractiveResponse'
+        '401':
+          description: Missing or invalid API key/session credentials
+        '404':
+          description: Transaction is missing or belongs to another owner
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SEP24Error'
+  /sep24/deposit:
+    $ref: '#/paths/~1sep24~1transactions~1deposit~1interactive'
+  /sep24/withdraw:
+    $ref: '#/paths/~1sep24~1transactions~1withdraw~1interactive'
   /callbacks/kyc/persona:
     post:
+      tags: [Provider callbacks]
+      operationId: receivePersonaCallback
       summary: Receive signed Persona identity-verification events
       description: Verifies the Persona-Signature header over the exact raw JSON body, deduplicates provider events, and updates the local KYC status without storing the raw payload.
       security:
@@ -694,6 +1096,8 @@ paths:
           description: Callback could not be durably processed and may be retried
   /callbacks/payments/xendit:
     post:
+      tags: [Provider callbacks]
+      operationId: receiveXenditCallback
       summary: Receive an authenticated Xendit payment webhook
       description: |
         Accepts Xendit `payment_session.completed`,
@@ -1105,6 +1509,173 @@ components:
         environment:
           type: string
           enum: [local, test, sandbox, production]
+    WebhookEventType:
+      type: string
+      enum:
+        - order.created
+        - order.payment_pending
+        - order.payment_confirmed
+        - order.asset_received
+        - order.processing
+        - order.completed
+        - order.failed
+        - order.expired
+    CreateWebhookEndpointRequest:
+      type: object
+      additionalProperties: false
+      required: [url]
+      properties:
+        url:
+          type: string
+          format: uri
+          pattern: '^https://'
+          maxLength: 2048
+          description: HTTPS endpoint with a public host and no embedded credentials.
+        event_types:
+          type: array
+          description: Order events to subscribe to. An omitted or empty list subscribes to every supported event.
+          items:
+            $ref: '#/components/schemas/WebhookEventType'
+    WebhookEndpoint:
+      type: object
+      required: [id, url, status, event_types, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        url:
+          type: string
+          format: uri
+        status:
+          type: string
+          enum: [active, disabled]
+        event_types:
+          type: array
+          items:
+            $ref: '#/components/schemas/WebhookEventType'
+        created_at:
+          type: string
+          format: date-time
+        disabled_at:
+          type: string
+          format: date-time
+          nullable: true
+    CreateWebhookEndpointResponse:
+      type: object
+      required: [endpoint, secret]
+      properties:
+        endpoint:
+          type: object
+          required: [id]
+          properties:
+            id:
+              type: string
+              format: uuid
+        secret:
+          type: string
+          description: One-time plaintext signing secret. Store it securely; it is never returned again.
+    WebhookEndpointListResponse:
+      type: object
+      required: [endpoints]
+      properties:
+        endpoints:
+          type: array
+          items:
+            $ref: '#/components/schemas/WebhookEndpoint'
+    SEP24AssetInfoMap:
+      type: object
+      required: [XLM]
+      properties:
+        XLM:
+          type: object
+          required: [enabled, min_amount, max_amount, amount_unit, fiat_currency]
+          properties:
+            enabled: {type: boolean}
+            min_amount: {type: number}
+            max_amount: {type: number}
+            amount_unit: {type: string, enum: [XLM, idr_minor]}
+            fiat_currency: {type: string, enum: [IDR]}
+    SEP24DepositRequest:
+      type: object
+      additionalProperties: false
+      required: [asset_code, amount_minor, account]
+      properties:
+        asset_code: {type: string, enum: [XLM]}
+        amount_minor:
+          type: string
+          pattern: '^[1-9][0-9]*$'
+          description: Positive IDR minor units; sandbox-specific input for the fiat-denominated quote flow.
+        account:
+          type: string
+          minLength: 56
+          maxLength: 56
+          description: Stellar testnet destination account.
+        memo: {type: string, maxLength: 28}
+        memo_type: {type: string, enum: [text]}
+        payment_method: {type: string, enum: [xendit, qris, bri_va]}
+    SEP24WithdrawRequest:
+      type: object
+      additionalProperties: false
+      required: [asset_code, amount, destination_token]
+      properties:
+        asset_code: {type: string, enum: [XLM]}
+        amount:
+          type: string
+          pattern: '^[0-9]+(\.[0-9]{1,7})?$'
+          description: Positive exact XLM amount with up to 7 fractional digits.
+        destination_token:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Synthetic sandbox destination reference; never real bank details.
+    SEP24StartResponse:
+      type: object
+      required: [type, url, id, kyc_required, environment, network]
+      properties:
+        type: {type: string, enum: [interactive_customer_info_needed]}
+        url: {type: string, format: uri}
+        id: {type: string}
+        kyc_required: {type: boolean, enum: [false]}
+        environment: {type: string, enum: [sandbox]}
+        network: {type: string, enum: [stellar_testnet]}
+    SEP24Transaction:
+      type: object
+      required: [id, kind, status, started_at, updated_at]
+      properties:
+        id: {type: string}
+        kind: {type: string, enum: [deposit, withdraw]}
+        status:
+          type: string
+          enum: [pending_user_transfer_start, pending_anchor, pending_external, completed, expired, error]
+        started_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        stellar_transaction_id: {type: string}
+        withdraw_anchor_account: {type: string}
+        withdraw_memo: {type: string}
+        withdraw_memo_type: {type: string, enum: [text]}
+        amount_in: {type: string}
+        more_info_url: {type: string, format: uri}
+    SEP24TransactionResponse:
+      type: object
+      required: [transaction]
+      properties:
+        transaction:
+          $ref: '#/components/schemas/SEP24Transaction'
+    SEP24InteractiveResponse:
+      type: object
+      required: [environment, network, kyc_required, transaction]
+      properties:
+        environment: {type: string, enum: [sandbox]}
+        network: {type: string, enum: [stellar_testnet]}
+        kyc_required: {type: boolean, enum: [false]}
+        transaction:
+          $ref: '#/components/schemas/SEP24Transaction'
+    SEP24Error:
+      type: object
+      required: [error, request_id]
+      properties:
+        error: {type: string}
+        request_id: {type: string}
     ErrorResponse:
       type: object
       required: [error]
