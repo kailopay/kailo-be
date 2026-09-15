@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -365,6 +366,20 @@ func TestKYCWebhookReturnsUnknownInquiryForProviderRetry(t *testing.T) {
 	err := service.ProcessPersonaWebhook(context.Background(), []byte(`{"data":{}}`), "valid", now)
 	if !errors.Is(err, ErrKYCInquiryNotFound) {
 		t.Fatalf("ProcessPersonaWebhook() error = %v, want %v", err, ErrKYCInquiryNotFound)
+	}
+}
+
+func TestKYCWebhookPreservesSafeValidationReason(t *testing.T) {
+	now := time.Date(2026, 9, 13, 0, 0, 0, 0, time.UTC)
+	persona := &fakePersonaGateway{webhookErr: errors.New("persona webhook signature does not match configured secret")}
+	service := newTestKYCUsecase(t, &fakeKYCRepository{}, persona, now)
+
+	err := service.ProcessPersonaWebhook(context.Background(), []byte(`{"data":{}}`), "invalid", now)
+	if !errors.Is(err, ErrKYCInvalidWebhook) {
+		t.Fatalf("ProcessPersonaWebhook() error = %v, want %v", err, ErrKYCInvalidWebhook)
+	}
+	if !strings.Contains(err.Error(), "signature does not match configured secret") {
+		t.Fatalf("ProcessPersonaWebhook() error = %v, want the safe validation reason", err)
 	}
 }
 

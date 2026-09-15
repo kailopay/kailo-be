@@ -176,6 +176,8 @@ required before order creation. `sep24_transactions` stores the stable
 transaction-to-order mapping; polling resolves the order through the caller's
 authenticated owner and never trusts a client-supplied status. An unknown
 checkout outcome is reported as `pending_external` until reconciliation.
+Deposit responses also include the sandbox-specific `payment_link_url` when a
+hosted checkout was created. Withdrawal responses do not include this field.
 `/sep24/deposit` and `/sep24/withdraw` are retained as local compatibility
 aliases.
 

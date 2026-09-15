@@ -105,6 +105,9 @@ func TestSEP24DepositCreatesMappedInteractiveResponseFromMultipartForm(t *testin
 	principal := usecase.Principal{ClientID: "client-1", OwnerUserID: "user-1"}
 	service := &sep24HandlerServiceFake{depositView: usecase.Sep24TransactionView{
 		ID: "deposit-order-1", Kind: usecase.Sep24KindDeposit, Status: "pending_user_transfer_start",
+		Order: usecase.OrderView{Checkout: &usecase.Checkout{
+			PaymentLinkURL: "https://checkout-staging.xendit.co/sessions/ps-1",
+		}},
 	}}
 	handler := NewSep24Handler(service, Sep24Config{TransferServerURL: "https://anchor.example/sep24"}, nil)
 	router := gin.New()
@@ -141,16 +144,18 @@ func TestSEP24DepositCreatesMappedInteractiveResponseFromMultipartForm(t *testin
 		t.Fatalf("deposit command = %+v", service.depositCommand)
 	}
 	var payload struct {
-		Type        string `json:"type"`
-		ID          string `json:"id"`
-		URL         string `json:"url"`
-		KYCRequired bool   `json:"kyc_required"`
+		Type           string `json:"type"`
+		ID             string `json:"id"`
+		URL            string `json:"url"`
+		PaymentLinkURL string `json:"payment_link_url"`
+		KYCRequired    bool   `json:"kyc_required"`
 	}
 	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("decoding response: %v", err)
 	}
 	if payload.Type != "interactive_customer_info_needed" || payload.ID != "deposit-order-1" ||
-		payload.URL != "https://anchor.example/sep24/interactive/deposit-order-1" || payload.KYCRequired {
+		payload.URL != "https://anchor.example/sep24/interactive/deposit-order-1" ||
+		payload.PaymentLinkURL != "https://checkout-staging.xendit.co/sessions/ps-1" || payload.KYCRequired {
 		t.Fatalf("payload = %+v", payload)
 	}
 }
@@ -160,6 +165,9 @@ func TestSEP24TransactionUsesPersistedStatusInsteadOfClientSuppliedStatus(t *tes
 	principal := usecase.Principal{ClientID: "client-1", OwnerUserID: "user-1"}
 	service := &sep24HandlerServiceFake{transactionView: usecase.Sep24TransactionView{
 		ID: "deposit-order-1", Kind: usecase.Sep24KindDeposit, Status: "pending_user_transfer_start",
+		Order: usecase.OrderView{Checkout: &usecase.Checkout{
+			PaymentLinkURL: "https://checkout-staging.xendit.co/sessions/ps-1",
+		}},
 	}}
 	handler := NewSep24Handler(service, Sep24Config{TransferServerURL: "https://anchor.example/sep24"}, nil)
 	router := gin.New()
@@ -179,13 +187,15 @@ func TestSEP24TransactionUsesPersistedStatusInsteadOfClientSuppliedStatus(t *tes
 	}
 	var payload struct {
 		Transaction struct {
-			Status string `json:"status"`
+			Status         string `json:"status"`
+			PaymentLinkURL string `json:"payment_link_url"`
 		} `json:"transaction"`
 	}
 	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("decoding response: %v", err)
 	}
-	if payload.Transaction.Status != "pending_user_transfer_start" {
-		t.Fatalf("status = %q, want persisted status", payload.Transaction.Status)
+	if payload.Transaction.Status != "pending_user_transfer_start" ||
+		payload.Transaction.PaymentLinkURL != "https://checkout-staging.xendit.co/sessions/ps-1" {
+		t.Fatalf("transaction = %+v", payload.Transaction)
 	}
 }

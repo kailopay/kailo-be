@@ -128,22 +128,22 @@ func (c *Client) ResumeInquiry(ctx context.Context, providerInquiryID string) (s
 
 func (c *Client) VerifyWebhook(rawBody []byte, signature string, now time.Time) (usecase.PersonaEvent, error) {
 	if len(rawBody) == 0 {
-		return usecase.PersonaEvent{}, errInvalidPersonaResponse
+		return usecase.PersonaEvent{}, personaWebhookValidationError("body is empty")
 	}
 	timestamp, signatures, ok := parseSignature(signature)
 	if !ok {
-		return usecase.PersonaEvent{}, errInvalidPersonaResponse
+		return usecase.PersonaEvent{}, personaWebhookValidationError("signature header is malformed")
 	}
 	parsedTimestamp, err := strconv.ParseInt(timestamp, 10, 64)
 	if err != nil {
-		return usecase.PersonaEvent{}, errInvalidPersonaResponse
+		return usecase.PersonaEvent{}, personaWebhookValidationError("signature timestamp is invalid")
 	}
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
 	signatureTime := time.Unix(parsedTimestamp, 0)
 	if signatureTime.Before(now.Add(-c.signatureTolerance)) || signatureTime.After(now.Add(c.signatureTolerance)) {
-		return usecase.PersonaEvent{}, errInvalidPersonaResponse
+		return usecase.PersonaEvent{}, personaWebhookValidationError("signature timestamp is outside tolerance")
 	}
 
 	mac := hmac.New(sha256.New, []byte(c.webhookSecret))
@@ -158,7 +158,7 @@ func (c *Client) VerifyWebhook(rawBody []byte, signature string, now time.Time) 
 		}
 	}
 	if !valid {
-		return usecase.PersonaEvent{}, errInvalidPersonaResponse
+		return usecase.PersonaEvent{}, personaWebhookValidationError("signature does not match configured secret")
 	}
 
 	var payload struct {
@@ -181,21 +181,25 @@ func (c *Client) VerifyWebhook(rawBody []byte, signature string, now time.Time) 
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(rawBody, &payload); err != nil {
-		return usecase.PersonaEvent{}, errInvalidPersonaResponse
+		return usecase.PersonaEvent{}, personaWebhookValidationError("body is not valid json")
 	}
 	if payload.Data.Type != "event" || strings.TrimSpace(payload.Data.ID) == "" ||
 		strings.TrimSpace(payload.Data.Attributes.Name) == "" || payload.Data.Attributes.Payload.Data.Type != "inquiry" ||
 		strings.TrimSpace(payload.Data.Attributes.Payload.Data.ID) == "" {
-		return usecase.PersonaEvent{}, errInvalidPersonaResponse
+		return usecase.PersonaEvent{}, personaWebhookValidationError("payload is missing required event fields")
 	}
 	createdAt, err := time.Parse(time.RFC3339Nano, payload.Data.Attributes.CreatedAt)
 	if err != nil {
-		return usecase.PersonaEvent{}, errInvalidPersonaResponse
+		return usecase.PersonaEvent{}, personaWebhookValidationError("event created-at is invalid")
 	}
 	return usecase.PersonaEvent{
 		ID: payload.Data.ID, Type: payload.Data.Attributes.Name, InquiryID: payload.Data.Attributes.Payload.Data.ID,
 		Status: payload.Data.Attributes.Payload.Data.Attributes.Status, CreatedAt: createdAt.UTC(),
 	}, nil
+}
+
+func personaWebhookValidationError(reason string) error {
+	return errors.New("persona webhook " + reason)
 }
 
 func (c *Client) doJSON(ctx context.Context, method, path, idempotencyKey string, body []byte) ([]byte, error) {

@@ -1088,12 +1088,28 @@ paths:
       responses:
         '200':
           description: Callback accepted, replayed, or safely retained
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PersonaCallbackAccepted'
         '400':
           description: Callback body or event identity conflicts with the stored event
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PersonaCallbackError'
         '401':
           description: Missing, stale, or invalid Persona signature
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PersonaCallbackError'
         '503':
           description: Callback could not be durably processed and may be retried
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PersonaCallbackError'
   /callbacks/payments/xendit:
     post:
       tags: [Provider callbacks]
@@ -1275,6 +1291,35 @@ components:
             attributes:
               type: object
               additionalProperties: true
+    PersonaCallbackAccepted:
+      type: object
+      required: [status, request_id]
+      properties:
+        status:
+          type: string
+          enum: [accepted]
+        request_id:
+          type: string
+    PersonaCallbackError:
+      type: object
+      required: [error, request_id]
+      properties:
+        error:
+          type: object
+          required: [code, message, retryable]
+          properties:
+            code:
+              type: string
+              enum: [INVALID_CALLBACK_BODY, INVALID_CALLBACK_SIGNATURE, CALLBACK_EVENT_CONFLICT, KYC_INQUIRY_NOT_FOUND, CALLBACK_PROCESSING_FAILED]
+            message:
+              type: string
+            retryable:
+              type: boolean
+            details:
+              type: string
+              description: Safe local-development diagnostic. Omitted outside local mode.
+        request_id:
+          type: string
     CreateAPIKeyRequest:
       type: object
       additionalProperties: false

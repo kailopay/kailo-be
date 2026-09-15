@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -177,6 +178,28 @@ func TestKYCWebhookHandlerRejectsInvalidSignatureAndMalformedPayload(t *testing.
 				t.Fatalf("response leaked provider details: %q", response.Body.String())
 			}
 		})
+	}
+}
+
+func TestKYCWebhookExposesLocalDiagnosticDetails(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	service := &fakeKYCService{webhookErr: fmt.Errorf("%w: persona webhook verification failed: persona webhook signature does not match configured secret", usecase.ErrKYCInvalidWebhook)}
+	handler := NewKYCHandlerWithConfig(service, nil, KYCHandlerConfig{ExposeProviderDiagnostics: true})
+	request := httptest.NewRequest(http.MethodPost, "/callbacks/kyc/persona", strings.NewReader(`{"private":"do-not-echo"}`))
+	request.Header.Set("X-Request-ID", "req-callback-debug")
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	body := response.Body.String()
+	if response.Code != http.StatusUnauthorized ||
+		!strings.Contains(body, `"code":"INVALID_CALLBACK_SIGNATURE"`) ||
+		!strings.Contains(body, "signature does not match configured secret") ||
+		!strings.Contains(body, `"request_id":"req-callback-debug"`) {
+		t.Fatalf("status/body = %d/%q", response.Code, body)
+	}
+	if strings.Contains(body, "do-not-echo") {
+		t.Fatalf("callback response echoed raw body: %q", body)
 	}
 }
 

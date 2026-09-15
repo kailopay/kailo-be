@@ -238,17 +238,17 @@ func isRetryableKYCProviderError(err error) bool {
 
 func (s *KYCUsecase) ProcessPersonaWebhook(ctx context.Context, rawBody []byte, signature string, receivedAt time.Time) error {
 	if len(rawBody) == 0 || strings.TrimSpace(signature) == "" {
-		return ErrKYCInvalidWebhook
+		return fmt.Errorf("%w: persona webhook body or signature header is missing", ErrKYCInvalidWebhook)
 	}
 	if receivedAt.IsZero() {
 		receivedAt = s.now()
 	}
 	event, err := s.dependencies.Persona.VerifyWebhook(rawBody, signature, receivedAt.UTC())
 	if err != nil {
-		return fmt.Errorf("%w: persona webhook verification failed", ErrKYCInvalidWebhook)
+		return fmt.Errorf("%w: persona webhook verification failed: %v", ErrKYCInvalidWebhook, err)
 	}
 	if strings.TrimSpace(event.ID) == "" || strings.TrimSpace(event.InquiryID) == "" || event.CreatedAt.IsZero() {
-		return ErrKYCInvalidWebhook
+		return fmt.Errorf("%w: persona webhook event is incomplete", ErrKYCInvalidWebhook)
 	}
 	mappedStatus, ok := mapPersonaStatusForEvent(event)
 	if !ok {

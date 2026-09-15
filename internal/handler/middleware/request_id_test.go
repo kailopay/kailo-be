@@ -1,6 +1,12 @@
 package middleware
 
-import "testing"
+import (
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	"github.com/gin-gonic/gin"
+)
 
 func TestNormalizeRequestID(t *testing.T) {
 	tests := []struct {
@@ -20,5 +26,28 @@ func TestNormalizeRequestID(t *testing.T) {
 				t.Fatalf("normalizeRequestID(%q) = %q, want %q", tt.input, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestRequestIDAddsResolvedIDToRequestHeaders(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(RequestID())
+	router.GET("/", func(c *gin.Context) {
+		requestID := c.Request.Header.Get("X-Request-ID")
+		if requestID == "" {
+			t.Fatal("request header is missing the resolved request ID")
+		}
+		if responseID := c.Writer.Header().Get("X-Request-ID"); responseID != requestID {
+			t.Fatalf("response request ID = %q, request ID = %q", responseID, requestID)
+		}
+		c.Status(http.StatusNoContent)
+	})
+
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/", nil))
+
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusNoContent)
 	}
 }

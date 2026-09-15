@@ -146,6 +146,9 @@ Minimum behavior:
 - Transaction polling loads the current order state and ignores any
   client-supplied status. The interactive response is a JSON sandbox projection
   until a dedicated wallet-facing UI is added.
+- Deposit initiation and transaction projections include the sandbox extension
+  `payment_link_url` when the hosted payment checkout is available. Withdrawal
+  projections do not include this field.
 - A provider checkout timeout leaves the mapped transaction in
   `pending_external` until reconciliation; it is never presented as a fresh
   user-transfer state.

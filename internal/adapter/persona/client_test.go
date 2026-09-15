@@ -176,6 +176,20 @@ func TestVerifyWebhookAcceptsRotatingSignaturesAndRejectsInvalidHeaders(t *testi
 	}
 }
 
+func TestVerifyWebhookReportsSafeSignatureFailureReason(t *testing.T) {
+	now := time.Date(2026, 9, 13, 0, 0, 0, 0, time.UTC)
+	rawBody := []byte(`{"data":{"id":"evt_1","type":"event","attributes":{"name":"inquiry.approved","created-at":"2026-09-13T00:00:00Z","payload":{"data":{"type":"inquiry","id":"inq_1","attributes":{"status":"approved"}}}}}}`)
+	client := newTestClient(t, "https://api.withpersona.com")
+
+	_, err := client.VerifyWebhook(rawBody, "t="+strconv.FormatInt(now.Unix(), 10)+",v1="+strings.Repeat("0", 64), now)
+	if err == nil || !strings.Contains(err.Error(), "persona webhook signature does not match configured secret") {
+		t.Fatalf("VerifyWebhook() error = %v, want a safe signature mismatch reason", err)
+	}
+	if strings.Contains(err.Error(), testPersonaSecret) || strings.Contains(err.Error(), string(rawBody)) {
+		t.Fatalf("VerifyWebhook() leaked sensitive data: %v", err)
+	}
+}
+
 func TestVerifyWebhookRejectsEmptyBodyAndMalformedPayload(t *testing.T) {
 	now := time.Date(2026, 9, 13, 0, 0, 0, 0, time.UTC)
 	client := newTestClient(t, "https://api.withpersona.com")

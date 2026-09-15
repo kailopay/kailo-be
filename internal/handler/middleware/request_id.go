@@ -3,6 +3,7 @@ package middleware
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -21,6 +22,10 @@ func RequestID() gin.HandlerFunc {
 			id = newRequestID()
 		}
 		c.Set(requestIDKey, id)
+		if c.Request.Header == nil {
+			c.Request.Header = make(http.Header)
+		}
+		c.Request.Header.Set("X-Request-ID", id)
 		c.Header("X-Request-ID", id)
 		c.Next()
 	}

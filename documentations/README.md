@@ -11,6 +11,7 @@ This folder is the planning and delivery baseline derived from the KailoPay Inst
 | [Product Backlog](BACKLOG.md) | Provides prioritized epics and stories with dependencies, story points, requirement traceability, and acceptance criteria. | Initial backlog |
 | [Documentation Plan](DOCUMENTATION-PLAN.md) | Defines all product, API, engineering, QA, operations, evidence, and future production documents required. | Draft for review |
 | [Frontend Guide](frontend/FRONTEND-GUIDE.md) | Handoff for frontend developers/agents: implemented API surface, contracts, UI rules, and current limitations. | Living document |
+| [Frontend end-to-end testing](frontend/END-TO-END-TESTING.md) | Step-by-step local sandbox test sequence for authentication, Persona KYC, API keys, orders, callbacks, Stellar testnet, and SEP-24. | Living document |
 
 ## Source-of-truth hierarchy
 

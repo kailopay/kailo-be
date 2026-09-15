@@ -209,14 +209,18 @@ func (h *Sep24Handler) Interactive(c *gin.Context) {
 }
 
 func (h *Sep24Handler) writeInteractiveResponse(c *gin.Context, view usecase.Sep24TransactionView) {
-	c.JSON(http.StatusOK, gin.H{
+	response := gin.H{
 		"type":         usecase.Sep24InteractiveResponseType,
 		"url":          h.interactiveURL(view.ID),
 		"id":           view.ID,
 		"kyc_required": false,
 		"environment":  "sandbox",
 		"network":      usecase.StellarTestnetNetwork,
-	})
+	}
+	if paymentLinkURL := sep24PaymentLinkURL(view); paymentLinkURL != "" {
+		response["payment_link_url"] = paymentLinkURL
+	}
+	c.JSON(http.StatusOK, response)
 }
 
 func (h *Sep24Handler) interactiveURL(transactionID string) string {
@@ -232,6 +236,9 @@ func (h *Sep24Handler) publicTransaction(view usecase.Sep24TransactionView) gin.
 		"started_at": view.Order.CreatedAt,
 		"updated_at": view.Order.UpdatedAt,
 	}
+	if paymentLinkURL := sep24PaymentLinkURL(view); paymentLinkURL != "" {
+		transaction["payment_link_url"] = paymentLinkURL
+	}
 	if view.Order.StellarTransactionHash != "" {
 		transaction["stellar_transaction_id"] = view.Order.StellarTransactionHash
 	}
@@ -246,6 +253,13 @@ func (h *Sep24Handler) publicTransaction(view usecase.Sep24TransactionView) gin.
 		transaction["more_info_url"] = h.interactiveURL(view.ID)
 	}
 	return transaction
+}
+
+func sep24PaymentLinkURL(view usecase.Sep24TransactionView) string {
+	if view.Kind != usecase.Sep24KindDeposit || view.Order.Checkout == nil {
+		return ""
+	}
+	return strings.TrimSpace(view.Order.Checkout.PaymentLinkURL)
 }
 
 func parseIDRMinor(value string) (int64, error) {

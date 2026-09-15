@@ -5,6 +5,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/febry3/kailopay-be/internal/handler/middleware"
@@ -13,6 +14,14 @@ import (
 )
 
 const maxKYCWebhookBytes int64 = 1 << 20
+
+const (
+	kycCallbackInvalidBodyCode      = "INVALID_CALLBACK_BODY"
+	kycCallbackInvalidSignatureCode = "INVALID_CALLBACK_SIGNATURE"
+	kycCallbackConflictCode         = "CALLBACK_EVENT_CONFLICT"
+	kycCallbackInquiryMissingCode   = "KYC_INQUIRY_NOT_FOUND"
+	kycCallbackProcessingCode       = "CALLBACK_PROCESSING_FAILED"
+)
 
 type KYCHandler struct {
 	service                   usecase.KYCService
@@ -67,27 +76,58 @@ func (h *KYCHandler) Inquiry(c *gin.Context) {
 
 func (h *KYCHandler) ServeHTTP(w http.ResponseWriter, request *http.Request) {
 	body, err := io.ReadAll(io.LimitReader(request.Body, maxKYCWebhookBytes+1))
-	if err != nil || int64(len(body)) > maxKYCWebhookBytes {
-		writeCallbackJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid callback"})
+	if err != nil {
+		h.writeCallbackError(w, request, http.StatusBadRequest, kycCallbackInvalidBodyCode, "Callback body could not be read.", false, err)
+		return
+	}
+	if int64(len(body)) > maxKYCWebhookBytes {
+		h.writeCallbackError(w, request, http.StatusBadRequest, kycCallbackInvalidBodyCode, "Callback body is too large.", false, errors.New("callback body exceeds maximum size"))
 		return
 	}
 	err = h.service.ProcessPersonaWebhook(request.Context(), body, request.Header.Get("Persona-Signature"), time.Now().UTC())
 	switch {
 	case err == nil:
-		writeCallbackJSON(w, http.StatusOK, map[string]string{"status": "accepted"})
+		h.writeCallbackJSON(w, request, http.StatusOK, map[string]string{"status": "accepted"})
 	case errors.Is(err, usecase.ErrKYCInvalidWebhook):
-		writeCallbackJSON(w, http.StatusUnauthorized, map[string]string{"error": "authentication failed"})
+		h.writeCallbackError(w, request, http.StatusUnauthorized, kycCallbackInvalidSignatureCode, "Callback signature verification failed.", false, err)
 	case errors.Is(err, usecase.ErrKYCProviderEventConflict):
-		writeCallbackJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid callback"})
+		h.writeCallbackError(w, request, http.StatusBadRequest, kycCallbackConflictCode, "The callback event conflicts with an existing event.", false, err)
 	case errors.Is(err, usecase.ErrKYCInquiryNotFound):
 		// A callback can race the short window between provider inquiry
 		// creation and local attachment. Keep it retryable so approval cannot
 		// be lost before the local correlation record exists.
-		writeCallbackJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "temporarily unavailable"})
+		h.writeCallbackError(w, request, http.StatusServiceUnavailable, kycCallbackInquiryMissingCode, "The referenced KYC inquiry is not available yet.", true, err)
 	default:
 		h.logger.ErrorContext(request.Context(), "processing Persona KYC callback failed", slog.Any("error", err))
-		writeCallbackJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "temporarily unavailable"})
+		h.writeCallbackError(w, request, http.StatusServiceUnavailable, kycCallbackProcessingCode, "Callback processing failed temporarily.", true, err)
 	}
+}
+
+func (h *KYCHandler) writeCallbackJSON(w http.ResponseWriter, request *http.Request, status int, body map[string]string) {
+	response := make(map[string]any, len(body)+1)
+	for key, value := range body {
+		response[key] = value
+	}
+	if requestID := strings.TrimSpace(request.Header.Get("X-Request-ID")); requestID != "" {
+		response["request_id"] = requestID
+	}
+	writeCallbackJSON(w, status, response)
+}
+
+func (h *KYCHandler) writeCallbackError(w http.ResponseWriter, request *http.Request, status int, code, message string, retryable bool, err error) {
+	errorBody := map[string]any{
+		"code":      code,
+		"message":   message,
+		"retryable": retryable,
+	}
+	if h.exposeProviderDiagnostics && err != nil {
+		errorBody["details"] = err.Error()
+	}
+	response := map[string]any{"error": errorBody}
+	if requestID := strings.TrimSpace(request.Header.Get("X-Request-ID")); requestID != "" {
+		response["request_id"] = requestID
+	}
+	writeCallbackJSON(w, status, response)
 }
 
 func (h *KYCHandler) writeError(c *gin.Context, operation string, err error) {

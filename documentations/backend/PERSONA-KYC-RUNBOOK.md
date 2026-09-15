@@ -67,11 +67,31 @@ bodies in the repository.
 Check the callback response and safe logs:
 
 - Valid event: `200 {"status":"accepted"}`.
-- Unknown inquiry: `503 {"error":"temporarily unavailable"}` so Persona retries;
-  this covers the race before a newly-created inquiry is attached locally.
-- Invalid signature: `401`; no KYC state changes.
-- Conflicting duplicate event: `400`; no second state change.
-- Temporary database/provider processing failure: `503`; Persona may retry.
+- Unknown inquiry: `503` with `error.code=KYC_INQUIRY_NOT_FOUND` so Persona
+  retries; this covers the race before a newly-created inquiry is attached
+  locally.
+- Invalid signature: `401` with `error.code=INVALID_CALLBACK_SIGNATURE`; no KYC
+  state changes. In local mode, `error.details` explains whether the header,
+  timestamp, signature, or payload failed. Production omits `details`.
+- Conflicting duplicate event: `400` with
+  `error.code=CALLBACK_EVENT_CONFLICT`; no second state change.
+- Temporary database/provider processing failure: `503` with
+  `error.code=CALLBACK_PROCESSING_FAILED`; Persona may retry.
+
+The local diagnostic response is safe to paste into a bug report because it
+does not include the webhook secret, signature value, or raw Persona body:
+
+```json
+{
+  "error": {
+    "code": "INVALID_CALLBACK_SIGNATURE",
+    "message": "Callback signature verification failed.",
+    "retryable": false,
+    "details": "invalid kyc webhook: persona webhook signature does not match configured secret"
+  },
+  "request_id": "req_..."
+}
+```
 
 ## 4. Failure and replay handling
 
