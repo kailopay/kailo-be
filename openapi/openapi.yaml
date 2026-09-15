@@ -29,7 +29,11 @@ paths:
   /auth/register:
     post:
       summary: Create an email account
-      description: Creates an unverified credentials account and issues a single-use verification token. The verification link is delivered by the configured sender (logged to the server console in sandbox).
+      description: |
+        Creates an unverified credentials account and issues a single-use
+        verification token. When Gmail is enabled, the configured sender sends
+        a KailoPay-branded email with an inline logo and HTML and plain-text
+        versions. The default console sender logs the link instead.
       requestBody:
         required: true
         content:
@@ -145,7 +149,7 @@ paths:
   /auth/email/verify:
     post:
       summary: Verify an email address
-      description: Consumes the single-use verification token from the register or resend flow.
+      description: Consumes the single-use verification token from the register or resend flow. Verification tokens remain valid for 24 hours and can be used only once.
       requestBody:
         required: true
         content:
@@ -168,7 +172,12 @@ paths:
   /auth/email/resend:
     post:
       summary: Resend the verification email
-      description: Always returns 202 regardless of whether the account exists or is already verified.
+      description: |
+        For an existing unverified account, reissues a single-use verification
+        token and sends the KailoPay-branded verification email when Gmail is
+        enabled. The default console sender logs the link instead. Always
+        returns 202 regardless of whether the account exists or is already
+        verified.
       requestBody:
         required: true
         content:
@@ -187,7 +196,11 @@ paths:
   /auth/password/forgot:
     post:
       summary: Request a password-reset email
-      description: Issues a single-use reset token valid for one hour. A valid request always returns 202 regardless of whether the account exists.
+      description: |
+        For an existing account, issues a single-use reset token valid for one
+        hour and sends the KailoPay-branded password-reset email when Gmail is
+        enabled. The default console sender logs the link instead. A valid
+        request always returns 202 regardless of whether the account exists.
       requestBody:
         required: true
         content:
@@ -206,7 +219,7 @@ paths:
   /auth/password/reset:
     post:
       summary: Reset the password with a token
-      description: Consumes the reset token, stores a new Argon2id hash, and revokes every session for the account.
+      description: Consumes the single-use reset token, which remains valid for one hour, stores a new Argon2id hash, and revokes every session for the account.
       requestBody:
         required: true
         content:

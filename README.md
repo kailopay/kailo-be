@@ -128,8 +128,9 @@ production changes must use reviewed, versioned migrations.
 Authentication is self-hosted (ADR-002): `POST /auth/register` and
 `POST /auth/login` accept email and password (Argon2id), and
 `GET /auth/google/login` starts optional Google sign-in with PKCE. Email
-verification and password reset use single-use hashed tokens; in sandbox the
-links are logged to the server console by default. To send them through Gmail,
+verification and password reset use single-use hashed tokens; the Gmail sender
+uses KailoPay-branded HTML emails with plain-text fallbacks and an inline logo.
+The default console sender logs the links instead. To send them through Gmail,
 set `EMAIL_PROVIDER=gmail`, `GMAIL_USERNAME`, and `GMAIL_APP_PASSWORD` in `.env`.
 Profile endpoints are `GET/PATCH /auth/me` and `GET/PUT/DELETE /auth/me/avatar`.
 Leave `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` empty to disable Google

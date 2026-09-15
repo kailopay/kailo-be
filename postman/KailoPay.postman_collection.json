@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "7b1d1a4e-0d0b-4b1d-b6f1-0d8f8d4d6c01",
     "name": "KailoPay API - sandbox/testnet",
-    "description": "Complete request collection for the current KailoPay backend. Import the companion KailoPay.postman_environment.json and select it before running requests. Run Register and Login first. Complete Persona KYC before creating an API key or order. All value movement is sandbox/testnet only.",
+    "description": "Complete request collection for the current KailoPay backend. Import the companion KailoPay.postman_environment.json and select it before running requests. Run Register and Login first. Complete Persona KYC before creating an API key or order. Authentication emails use the KailoPay-branded HTML template with a plain-text fallback when Gmail is enabled. The console sender logs one-time links instead. All value movement is sandbox/testnet only.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -91,6 +91,7 @@
         {
           "name": "Register",
           "request": {
+            "description": "Creates the account and triggers the KailoPay-branded verification email when Gmail is enabled. The default console sender logs the one-time link. Copy the token from that link into email_token before running Verify email.",
             "method": "POST",
             "header": [
               { "key": "Content-Type", "value": "application/json" }
@@ -165,6 +166,7 @@
         {
           "name": "Verify email",
           "request": {
+            "description": "Send the token from the verification email. The token is single-use and valid for 24 hours.",
             "method": "POST",
             "header": [
               { "key": "Content-Type", "value": "application/json" }
@@ -180,6 +182,7 @@
         {
           "name": "Resend verification email",
           "request": {
+            "description": "Requests a new KailoPay-branded verification email when Gmail is enabled. The default console sender logs the new one-time link. The endpoint returns 202 without revealing whether the account exists or is already verified.",
             "method": "POST",
             "header": [
               { "key": "Content-Type", "value": "application/json" }
@@ -195,6 +198,7 @@
         {
           "name": "Forgot password",
           "request": {
+            "description": "Requests a KailoPay-branded password-reset email when Gmail is enabled. The default console sender logs the one-time link. The reset token is valid for 1 hour, and the endpoint returns 202 without revealing whether the account exists.",
             "method": "POST",
             "header": [
               { "key": "Content-Type", "value": "application/json" }
@@ -210,6 +214,7 @@
         {
           "name": "Reset password",
           "request": {
+            "description": "Use the one-time token from the password-reset email in password_reset_token. The token is valid for 1 hour. A successful reset revokes every session for the account.",
             "method": "POST",
             "header": [
               { "key": "Content-Type", "value": "application/json" }
