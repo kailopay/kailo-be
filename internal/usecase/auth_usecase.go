@@ -42,7 +42,7 @@ type AuthRepository interface {
 	ResetLoginFailures(ctx context.Context, userID string, now time.Time) error
 	UpdatePasswordHash(ctx context.Context, userID, passwordHash string, now time.Time) error
 	SetEmailVerified(ctx context.Context, userID string, now time.Time) (UserProfile, error)
-	CreateChallenge(ctx context.Context, challenge ChallengeRecord) error
+	CreateChallengeWithEmailJob(ctx context.Context, challenge ChallengeRecord, email EmailDeliveryRecord) error
 	ConsumeChallenge(ctx context.Context, tokenHash []byte, purpose string, now time.Time) (string, error)
 }
 
@@ -52,16 +52,43 @@ type AvatarStore interface {
 	Delete(ctx context.Context, objectKey string) error
 }
 
-// EmailSender delivers authentication emails. The sandbox implementation
-// logs the links; SMTP or a provider API can replace it behind this port.
+// EmailSender delivers authentication emails. The console implementation logs
+// links; SMTP or a provider API can replace it behind this port.
 type EmailSender interface {
 	SendEmailVerification(ctx context.Context, email, link string) error
 	SendPasswordReset(ctx context.Context, email, link string) error
 }
 
+type EmailDeliveryRecord struct {
+	ID          string
+	Topic       string
+	AggregateID string
+	Payload     []byte
+	AvailableAt time.Time
+}
+
+type EmailOutboxJob struct {
+	ID       string
+	Topic    string
+	Payload  []byte
+	Attempts int
+}
+
+type EmailOutboxRepository interface {
+	LeaseEmail(ctx context.Context, workerID string, now time.Time, duration time.Duration) (EmailOutboxJob, error)
+	CompleteEmail(ctx context.Context, id string, now time.Time) error
+	RetryEmail(ctx context.Context, id string, availableAt time.Time, safeError string) error
+	FailEmail(ctx context.Context, id string, now time.Time, safeError string) error
+}
+
 const (
 	ProviderGoogle      = "google"
 	ProviderCredentials = "email"
+)
+
+const (
+	EmailVerificationTopic = "auth.email_verification"
+	PasswordResetTopic     = "auth.password_reset"
 )
 
 const (
@@ -133,6 +160,7 @@ type RegisterRecord struct {
 	DisplayName  string
 	PasswordHash string
 	Challenge    ChallengeRecord
+	EmailJob     EmailDeliveryRecord
 }
 
 // ChallengeRecord is a single-use hashed token with a purpose and expiry.
@@ -197,7 +225,6 @@ type AuthDependencies struct {
 	Provider   Provider
 	Repository AuthRepository
 	Avatars    AvatarStore
-	Mailer     EmailSender
 }
 
 type Provider interface {
@@ -245,7 +272,6 @@ type AuthUsecase struct {
 	provider   Provider
 	repository AuthRepository
 	avatars    AvatarStore
-	mailer     EmailSender
 	clock      Clock
 	config     AuthConfig
 	// dummyHash keeps unknown-email logins as slow as known-email logins.
@@ -253,7 +279,7 @@ type AuthUsecase struct {
 }
 
 func NewAuthUsecase(deps AuthDependencies, clock Clock, config AuthConfig) (*AuthUsecase, error) {
-	if deps.Repository == nil || deps.Avatars == nil || deps.Mailer == nil {
+	if deps.Repository == nil || deps.Avatars == nil {
 		return nil, errors.New("auth usecase dependencies are required")
 	}
 	if clock == nil {
@@ -282,7 +308,6 @@ func NewAuthUsecase(deps AuthDependencies, clock Clock, config AuthConfig) (*Aut
 		provider:   deps.Provider,
 		repository: deps.Repository,
 		avatars:    deps.Avatars,
-		mailer:     deps.Mailer,
 		clock:      clock,
 		config:     config,
 		dummyHash:  dummyHash,
@@ -356,9 +381,8 @@ func (s *AuthUsecase) CompleteGoogleLogin(ctx context.Context, code, state strin
 	return s.createSession(ctx, identity, now)
 }
 
-// Register creates an unverified credentials account and issues a
-// verification challenge. The verification link is delivered through the
-// configured EmailSender.
+// Register creates an unverified credentials account, issues a verification
+// challenge, and queues its delivery in the same database transaction.
 func (s *AuthUsecase) Register(ctx context.Context, input RegisterInput) (UserProfile, error) {
 	email, err := normalizeEmail(input.Email)
 	if err != nil {
@@ -384,6 +408,16 @@ func (s *AuthUsecase) Register(ctx context.Context, input RegisterInput) (UserPr
 		return UserProfile{}, fmt.Errorf("generating verification token: %w", err)
 	}
 	userID := newUUID()
+	if userID == "" {
+		return UserProfile{}, errors.New("generating user id")
+	}
+	link := s.verificationLink(token)
+	emailJob, err := s.newEmailDelivery(
+		EmailVerificationTopic, userID, email, link, now,
+	)
+	if err != nil {
+		return UserProfile{}, fmt.Errorf("protecting verification email: %w", err)
+	}
 	record := RegisterRecord{
 		UserID:       userID,
 		Email:        email,
@@ -395,12 +429,10 @@ func (s *AuthUsecase) Register(ctx context.Context, input RegisterInput) (UserPr
 			Purpose:   ChallengeEmailVerification,
 			ExpiresAt: now.Add(emailVerificationLifetime),
 		},
+		EmailJob: emailJob,
 	}
 	if err := s.repository.CreateUserWithCredential(ctx, record); err != nil {
 		return UserProfile{}, err
-	}
-	if err := s.mailer.SendEmailVerification(ctx, email, s.verificationLink(token)); err != nil {
-		return UserProfile{}, fmt.Errorf("delivering verification email: %w", err)
 	}
 	return UserProfile{ID: userID, DisplayName: displayName, Email: email}, nil
 }
@@ -500,16 +532,19 @@ func (s *AuthUsecase) ResendVerification(ctx context.Context, email string) erro
 		return fmt.Errorf("generating verification token: %w", err)
 	}
 	now := s.clock.Now().UTC()
-	if err := s.repository.CreateChallenge(ctx, ChallengeRecord{
+	emailJob, err := s.newEmailDelivery(
+		EmailVerificationTopic, state.UserID, normalized, s.verificationLink(token), now,
+	)
+	if err != nil {
+		return fmt.Errorf("protecting verification email: %w", err)
+	}
+	if err := s.repository.CreateChallengeWithEmailJob(ctx, ChallengeRecord{
 		UserID:    state.UserID,
 		TokenHash: hashValue(s.config.SessionHMACKey, token),
 		Purpose:   ChallengeEmailVerification,
 		ExpiresAt: now.Add(emailVerificationLifetime),
-	}); err != nil {
+	}, emailJob); err != nil {
 		return fmt.Errorf("creating verification challenge: %w", err)
-	}
-	if err := s.mailer.SendEmailVerification(ctx, normalized, s.verificationLink(token)); err != nil {
-		return fmt.Errorf("delivering verification email: %w", err)
 	}
 	return nil
 }
@@ -534,16 +569,19 @@ func (s *AuthUsecase) RequestPasswordReset(ctx context.Context, email string) er
 		return fmt.Errorf("generating reset token: %w", err)
 	}
 	now := s.clock.Now().UTC()
-	if err := s.repository.CreateChallenge(ctx, ChallengeRecord{
+	emailJob, err := s.newEmailDelivery(
+		PasswordResetTopic, profile.ID, normalized, s.resetLink(token), now,
+	)
+	if err != nil {
+		return fmt.Errorf("protecting reset email: %w", err)
+	}
+	if err := s.repository.CreateChallengeWithEmailJob(ctx, ChallengeRecord{
 		UserID:    profile.ID,
 		TokenHash: hashValue(s.config.SessionHMACKey, token),
 		Purpose:   ChallengePasswordReset,
 		ExpiresAt: now.Add(passwordResetLifetime),
-	}); err != nil {
+	}, emailJob); err != nil {
 		return fmt.Errorf("creating reset challenge: %w", err)
-	}
-	if err := s.mailer.SendPasswordReset(ctx, normalized, s.resetLink(token)); err != nil {
-		return fmt.Errorf("delivering reset email: %w", err)
 	}
 	return nil
 }

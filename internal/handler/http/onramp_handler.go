@@ -131,6 +131,8 @@ func (h *OnrampHandler) writeError(c *gin.Context, operation string, err error) 
 
 func errorMapping(err error) (string, int) {
 	switch {
+	case errors.Is(err, usecase.ErrInvalidQuoteRequest):
+		return "INVALID_REQUEST", http.StatusBadRequest
 	case errors.Is(err, usecase.ErrInvalidCommand):
 		return "INVALID_REQUEST", http.StatusBadRequest
 	case errors.Is(err, usecase.ErrInvalidWithdrawal):

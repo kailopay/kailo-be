@@ -13,6 +13,7 @@ import (
 type routerOptions struct {
 	apiKeys               *APIKeyHandler
 	kyc                   *KYCHandler
+	quote                 *QuoteHandler
 	onramp                *OnrampHandler
 	offramp               *OfframpHandler
 	sep24                 *Sep24Handler
@@ -78,6 +79,17 @@ func WithOnramp(handler *OnrampHandler, requireOrderPrincipal gin.HandlerFunc) R
 			return errors.New("onramp handler and order principal middleware are required")
 		}
 		options.onramp = handler
+		options.requireOrderPrincipal = requireOrderPrincipal
+		return nil
+	}
+}
+
+func WithQuote(handler *QuoteHandler, requireOrderPrincipal gin.HandlerFunc) RouterOption {
+	return func(options *routerOptions) error {
+		if handler == nil || requireOrderPrincipal == nil {
+			return errors.New("quote handler and order principal middleware are required")
+		}
+		options.quote = handler
 		options.requireOrderPrincipal = requireOrderPrincipal
 		return nil
 	}
@@ -181,6 +193,11 @@ func NewRouter(logger *slog.Logger, health *HealthHandler, authHandler *AuthHand
 		}
 		onrampRoutes.GET("/orders", configured.onramp.List)
 		onrampRoutes.GET("/orders/:id", configured.onramp.Get)
+	}
+	if configured.quote != nil {
+		quoteRoutes := router.Group("/v1")
+		quoteRoutes.Use(configured.requireOrderPrincipal)
+		quoteRoutes.POST("/quotes", configured.quote.Create)
 	}
 	if configured.xenditCallback != nil {
 		router.POST("/callbacks/payments/xendit", gin.WrapH(configured.xenditCallback))

@@ -15,6 +15,16 @@ func newAuthIntegrationStore(t *testing.T) *AuthRepository {
 	return newIntegrationStore(t).auth
 }
 
+func testEmailJob(userID string, now time.Time) usecase.EmailDeliveryRecord {
+	return usecase.EmailDeliveryRecord{
+		ID:          userID,
+		Topic:       usecase.EmailVerificationTopic,
+		AggregateID: userID,
+		Payload:     []byte(`{"ciphertext":"dGVzdA"}`),
+		AvailableAt: now,
+	}
+}
+
 func TestCreateUserWithCredentialCreatesCompleteAccount(t *testing.T) {
 	store := newAuthIntegrationStore(t)
 	ctx := context.Background()
@@ -31,6 +41,7 @@ func TestCreateUserWithCredentialCreatesCompleteAccount(t *testing.T) {
 			Purpose:   usecase.ChallengeEmailVerification,
 			ExpiresAt: now.Add(24 * time.Hour),
 		},
+		EmailJob: testEmailJob("00000000-0000-4000-8000-0000000000b1", now),
 	})
 	if err != nil {
 		t.Fatalf("CreateUserWithCredential() error = %v", err)
@@ -58,6 +69,7 @@ func TestCreateUserWithCredentialCreatesCompleteAccount(t *testing.T) {
 			Purpose:   usecase.ChallengeEmailVerification,
 			ExpiresAt: now.Add(24 * time.Hour),
 		},
+		EmailJob: testEmailJob("00000000-0000-4000-8000-0000000000b2", now),
 	})
 	if duplicate != usecase.ErrEmailTaken {
 		t.Fatalf("duplicate email error = %v, want %v", duplicate, usecase.ErrEmailTaken)
@@ -80,6 +92,7 @@ func TestChallengeConsumptionIsSingleUseAndPurposeBound(t *testing.T) {
 			Purpose:   usecase.ChallengeEmailVerification,
 			ExpiresAt: now.Add(time.Hour),
 		},
+		EmailJob: testEmailJob("00000000-0000-4000-8000-0000000000c1", now),
 	}); err != nil {
 		t.Fatalf("CreateUserWithCredential() error = %v", err)
 	}
@@ -116,6 +129,7 @@ func TestLoginFailureLockoutLifecycle(t *testing.T) {
 			Purpose:   usecase.ChallengeEmailVerification,
 			ExpiresAt: now.Add(time.Hour),
 		},
+		EmailJob: testEmailJob(userID, now),
 	}); err != nil {
 		t.Fatalf("CreateUserWithCredential() error = %v", err)
 	}
@@ -190,6 +204,7 @@ func TestGoogleIdentityLinksToVerifiedEmailAccount(t *testing.T) {
 			Purpose:   usecase.ChallengeEmailVerification,
 			ExpiresAt: now.Add(time.Hour),
 		},
+		EmailJob: testEmailJob(userID, now),
 	}); err != nil {
 		t.Fatalf("CreateUserWithCredential() error = %v", err)
 	}
@@ -238,6 +253,7 @@ func TestRevokeSessionsForUserAndVerification(t *testing.T) {
 			Purpose:   usecase.ChallengeEmailVerification,
 			ExpiresAt: now.Add(time.Hour),
 		},
+		EmailJob: testEmailJob(userID, now),
 	}); err != nil {
 		t.Fatalf("CreateUserWithCredential() error = %v", err)
 	}

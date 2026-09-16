@@ -16,7 +16,6 @@ import (
 
 	"github.com/febry3/kailopay-be/internal/adapter/coinmarketcap"
 	"github.com/febry3/kailopay-be/internal/adapter/google"
-	mail "github.com/febry3/kailopay-be/internal/adapter/mail"
 	"github.com/febry3/kailopay-be/internal/adapter/objectstorage"
 	personaadapter "github.com/febry3/kailopay-be/internal/adapter/persona"
 	stellaradapter "github.com/febry3/kailopay-be/internal/adapter/stellar"
@@ -106,24 +105,11 @@ func run(ctx context.Context) error {
 		}
 		authProvider = googleClient
 	}
-	authMailer, err := mail.NewSender(mail.SenderConfig{
-		Provider: cfg.Email.Provider,
-		Gmail: mail.GmailConfig{
-			Username:    cfg.Email.Gmail.Username,
-			AppPassword: cfg.Email.Gmail.AppPassword,
-			FromName:    cfg.Email.Gmail.FromName,
-			Timeout:     cfg.Email.Gmail.Timeout,
-		},
-	}, appLogger)
-	if err != nil {
-		return fmt.Errorf("creating email sender: %w", err)
-	}
 	authRepository := repository.NewAuthRepository(db, cfg.Auth.SessionIdleLifetime)
 	authService, err := usecase.NewAuthUsecase(usecase.AuthDependencies{
 		Provider:   authProvider,
 		Repository: authRepository,
 		Avatars:    avatarStore,
-		Mailer:     authMailer,
 	}, nil, usecase.AuthConfig{
 		TransactionEncryptionKey: encryptionKey,
 		SessionHMACKey:           sessionHMACKey,
@@ -183,6 +169,8 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("creating CoinMarketCap client: %w", err)
 	}
+	quotePolicy := usecase.QuotePolicy{TTL: cfg.Week1.Onramp.QuoteTTL, MaxAge: cfg.Week1.Onramp.QuoteMaxAge,
+		SpreadBPS: cfg.Week1.Onramp.QuoteSpreadBPS}
 	paymentClient, err := xendit.New(xendit.Config{BaseURL: cfg.Week1.Xendit.BaseURL, SecretKey: cfg.Week1.Xendit.SecretKey,
 		CallbackToken: cfg.Week1.Xendit.CallbackToken, APIVersion: cfg.Week1.Xendit.APIVersion,
 		QRISChannel: cfg.Week1.Xendit.QRISChannel, VAChannel: cfg.Week1.Xendit.VAChannel,
@@ -198,8 +186,7 @@ func run(ctx context.Context) error {
 		entity.Stroops(cfg.Week1.Stellar.OperatingBufferStroops))
 	onrampService, err := usecase.NewOnrampUsecase(usecase.OnrampDependencies{Repository: onrampRepository, Prices: priceClient,
 		Treasury: treasuryReader, Gateway: paymentClient, Destinations: treasuryReader, KYC: kycService}, usecase.ServiceConfig{
-		QuotePolicy: usecase.QuotePolicy{TTL: cfg.Week1.Onramp.QuoteTTL, MaxAge: cfg.Week1.Onramp.QuoteMaxAge,
-			SpreadBPS: cfg.Week1.Onramp.QuoteSpreadBPS}, MinIDR: entity.IDR(cfg.Week1.Onramp.MinIDR),
+		QuotePolicy: quotePolicy, MinIDR: entity.IDR(cfg.Week1.Onramp.MinIDR),
 		MaxIDR: entity.IDR(cfg.Week1.Onramp.MaxIDR), TreasuryAccount: cfg.Week1.Stellar.TreasuryAccount,
 		NewID: platform.NewID, Now: time.Now,
 	})
@@ -213,16 +200,22 @@ func run(ctx context.Context) error {
 	offrampRepository := repository.NewOfframpRepository(db, cfg.Week1.Offramp.DepositAccount, usecase.StellarTestnetNetwork)
 	offrampService, err := usecase.NewOfframpUsecase(usecase.OfframpDependencies{
 		Repository: offrampRepository, Prices: priceClient, Destinations: treasuryReader, KYC: kycService}, usecase.OfframpServiceConfig{
-		QuotePolicy: usecase.QuotePolicy{TTL: cfg.Week1.Onramp.QuoteTTL, MaxAge: cfg.Week1.Onramp.QuoteMaxAge,
-			SpreadBPS: cfg.Week1.Onramp.QuoteSpreadBPS}, MinIDR: entity.IDR(cfg.Week1.Onramp.MinIDR),
+		QuotePolicy: quotePolicy, MinIDR: entity.IDR(cfg.Week1.Onramp.MinIDR),
 		MaxIDR: entity.IDR(cfg.Week1.Onramp.MaxIDR), DepositAccount: cfg.Week1.Offramp.DepositAccount,
 		DepositExpiry: cfg.Week1.Offramp.DepositExpiry, NewID: platform.NewID, Now: time.Now,
 	})
 	if err != nil {
 		return fmt.Errorf("creating offramp service: %w", err)
 	}
+	quoteService, err := usecase.NewQuotePreviewUsecase(priceClient, usecase.QuotePreviewServiceConfig{
+		QuotePolicy: quotePolicy, MinIDR: entity.IDR(cfg.Week1.Onramp.MinIDR), MaxIDR: entity.IDR(cfg.Week1.Onramp.MaxIDR), Now: time.Now,
+	})
+	if err != nil {
+		return fmt.Errorf("creating quote preview service: %w", err)
+	}
 	offrampHandler := httpapi.NewOfframpHandler(offrampService, appLogger)
 	onrampHandler := httpapi.NewOnrampHandler(onrampService, appLogger)
+	quoteHandler := httpapi.NewQuoteHandler(quoteService, appLogger)
 	sep24Repository := repository.NewSEP24Repository(db)
 	sep24Service, err := usecase.NewSep24Usecase(usecase.Sep24Dependencies{
 		Onramp: onrampService, Offramp: offrampService, Orders: onrampService, Transactions: sep24Repository,
@@ -251,7 +244,8 @@ func run(ctx context.Context) error {
 	router, err := httpapi.NewRouter(appLogger, health, authHandler, sessionMiddleware,
 		httpapi.WithAPIKeys(apiKeyHandler), httpapi.WithKYC(kycHandler),
 		httpapi.WithOnramp(onrampHandler, orderPrincipalMiddleware),
-		httpapi.WithOfframp(offrampHandler), httpapi.WithSep24(sep24Handler, orderPrincipalMiddleware),
+		httpapi.WithOfframp(offrampHandler), httpapi.WithQuote(quoteHandler, orderPrincipalMiddleware),
+		httpapi.WithSep24(sep24Handler, orderPrincipalMiddleware),
 		httpapi.WithWebhooks(webhookHandler), httpapi.WithXenditCallback(callbackHandler))
 	if err != nil {
 		return fmt.Errorf("creating http router: %w", err)

@@ -1,6 +1,7 @@
 package usecase
 
 import (
+	"bytes"
 	"context"
 	"crypto/aes"
 	"crypto/cipher"
@@ -58,6 +59,7 @@ type fakeAuthRepository struct {
 	credentials   map[string]CredentialState
 	usersByEmail  map[string]UserProfile
 	challenges    []ChallengeRecord
+	emailJobs     []EmailDeliveryRecord
 	consumeErr    error
 	consumedToken []byte
 	consumedUser  string
@@ -187,8 +189,9 @@ func (s *fakeAuthRepository) SetEmailVerified(_ context.Context, userID string, 
 	return s.profile, s.storeErr
 }
 
-func (s *fakeAuthRepository) CreateChallenge(_ context.Context, challenge ChallengeRecord) error {
+func (s *fakeAuthRepository) CreateChallengeWithEmailJob(_ context.Context, challenge ChallengeRecord, email EmailDeliveryRecord) error {
 	s.challenges = append(s.challenges, challenge)
+	s.emailJobs = append(s.emailJobs, email)
 	return s.storeErr
 }
 
@@ -261,7 +264,6 @@ func testAuthUsecase(t *testing.T) (*AuthUsecase, *fakeProvider, *fakeAuthReposi
 		Provider:   provider,
 		Repository: repository,
 		Avatars:    avatars,
-		Mailer:     mailer,
 	}, clock, AuthConfig{
 		TransactionEncryptionKey: key,
 		SessionHMACKey:           key,
@@ -363,7 +365,7 @@ func TestAuthUsecaseRejectsInvalidTransactionAndProviderIdentity(t *testing.T) {
 }
 
 func TestAuthUsecaseRegisterCreatesCredentialAndVerificationChallenge(t *testing.T) {
-	service, _, repository, _, mailer, _ := testAuthUsecase(t)
+	service, _, repository, _, _, _ := testAuthUsecase(t)
 
 	profile, err := service.Register(context.Background(), RegisterInput{Email: " New@Example.com ", Password: "super-secret-1", DisplayName: "New User"})
 	if err != nil {
@@ -382,8 +384,15 @@ func TestAuthUsecaseRegisterCreatesCredentialAndVerificationChallenge(t *testing
 	if record.Challenge.UserID != record.UserID {
 		t.Fatalf("challenge user = %q, want %q", record.Challenge.UserID, record.UserID)
 	}
-	if mailer.verificationEmail != "new@example.com" || !strings.Contains(mailer.verificationLink, "/auth/verify-email?token=") {
-		t.Fatalf("verification delivery = %q / %q", mailer.verificationEmail, mailer.verificationLink)
+	if record.EmailJob.Topic != EmailVerificationTopic || record.EmailJob.AggregateID != record.UserID || len(record.EmailJob.Payload) == 0 {
+		t.Fatalf("verification job = %+v", record.EmailJob)
+	}
+	payload, err := decryptEmailDeliveryPayload(service.config.TransactionEncryptionKey, record.EmailJob.Payload)
+	if err != nil || payload.Recipient != "new@example.com" || !strings.Contains(payload.Link, "/auth/verify-email?token=") {
+		t.Fatalf("verification payload = %+v, err=%v", payload, err)
+	}
+	if bytes.Contains(record.EmailJob.Payload, []byte("/auth/verify-email?token=")) {
+		t.Fatal("verification link was stored in plaintext")
 	}
 	if match, _, err := verifyPassword(record.PasswordHash, "super-secret-1"); err != nil || !match {
 		t.Fatalf("stored hash does not verify: match=%v err=%v", match, err)
@@ -487,7 +496,7 @@ func TestAuthUsecaseVerifyEmailConsumesChallengeAndMarksVerified(t *testing.T) {
 }
 
 func TestAuthUsecasePasswordResetFlow(t *testing.T) {
-	service, _, repository, _, mailer, _ := testAuthUsecase(t)
+	service, _, repository, _, _, _ := testAuthUsecase(t)
 	repository.usersByEmail = map[string]UserProfile{"user@example.com": {ID: "user-id"}}
 
 	if err := service.RequestPasswordReset(context.Background(), "user@example.com"); err != nil {
@@ -496,15 +505,19 @@ func TestAuthUsecasePasswordResetFlow(t *testing.T) {
 	if len(repository.challenges) != 1 || repository.challenges[0].Purpose != ChallengePasswordReset {
 		t.Fatalf("challenges = %+v", repository.challenges)
 	}
-	if mailer.resetEmail != "user@example.com" || !strings.Contains(mailer.resetLink, "/auth/reset-password?token=") {
-		t.Fatalf("reset delivery = %q / %q", mailer.resetEmail, mailer.resetLink)
+	if len(repository.emailJobs) != 1 || repository.emailJobs[0].Topic != PasswordResetTopic {
+		t.Fatalf("reset jobs = %+v", repository.emailJobs)
+	}
+	payload, err := decryptEmailDeliveryPayload(service.config.TransactionEncryptionKey, repository.emailJobs[0].Payload)
+	if err != nil || payload.Recipient != "user@example.com" || !strings.Contains(payload.Link, "/auth/reset-password?token=") {
+		t.Fatalf("reset payload = %+v, err=%v", payload, err)
 	}
 
 	// Unknown emails succeed silently and never send mail.
 	if err := service.RequestPasswordReset(context.Background(), "unknown@example.com"); err != nil {
 		t.Fatalf("RequestPasswordReset(unknown) error = %v", err)
 	}
-	if len(repository.challenges) != 1 || mailer.resetEmail != "user@example.com" {
+	if len(repository.challenges) != 1 || len(repository.emailJobs) != 1 {
 		t.Fatal("unknown email created a challenge or sent mail")
 	}
 

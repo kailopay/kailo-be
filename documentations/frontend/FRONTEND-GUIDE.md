@@ -187,19 +187,49 @@ Key facts for the UI:
 
 ## 5. The on-ramp order API
 
-One scoping fact decides most of your architecture. Order endpoints
-authenticate with a `pk_test_` API key (`Authorization: Bearer pk_test_...`),
-and orders are owned by the API client that created them. Retail-session order
-creation does not exist yet. So today the frontend can exercise the full order
-flow in two honest ways:
+Order endpoints accept either a `pk_test_` API key or a verified retail session.
+Use the session cookie for the consumer web app. Use an API key only from a
+trusted server or the Developer playground.
 
-- a **developer playground** where the user pastes their own `pk_test_` key at
-  runtime (never bundle or embed a key in shipped code; FR-069), or
-- your own small server-side BFF that holds a test key (server-side only).
+The Developer playground lets the user paste a `pk_test_` key at runtime. Never
+bundle or embed the key in shipped code (FR-069). A server-side BFF can also
+hold a test key.
 
-A retail-session buy flow (no key handling in the browser at all) is planned
-backend work; track `documentations/backend/BACKEND-BACKLOG.md` before
-assuming it exists.
+### `POST /v1/quotes`
+
+Use this authenticated endpoint to show an indicative price before the user
+submits an order. It does not reserve liquidity, create a checkout, or create
+an order. The later order-create response fetches the authoritative quote again
+if the market has moved.
+
+For a buy preview, send the IDR amount:
+
+```json
+{
+  "direction": "buy",
+  "fiat": { "currency": "IDR", "amount_minor": "100000" },
+  "asset": { "network": "stellar_testnet", "code": "XLM" }
+}
+```
+
+For a sell preview, send the XLM amount:
+
+```json
+{
+  "direction": "sell",
+  "fiat": { "currency": "IDR" },
+  "asset": {
+    "network": "stellar_testnet",
+    "code": "XLM",
+    "amount": "25.0000000"
+  }
+}
+```
+
+The response is `{ "quote": { ... } }`. Read the calculated amounts from
+`quote.fiat.amount_minor` and `quote.asset.amount`. Display
+`quote.adjusted_rate` as the customer rate. Keep the amount and rate fields as
+strings.
 
 ### `POST /v1/onramps` (requires `Idempotency-Key` header)
 
@@ -328,14 +358,10 @@ gently, e.g. every 3-5 seconds while `payment_pending`, and back off after.
 
 Do not build against any of these:
 
-- Retail-session order creation/reading (orders are API-key-scoped only).
 - ~~Off-ramp / sell flow~~ now implemented: `POST /v1/offramps` creates sell orders with deposit instructions and a simulated payout (`payout` object on the order, always `simulated:true`). A dedicated guide section will follow.
 - Outgoing developer webhooks (event subscription UI has no backend yet).
 - A wallet-facing SEP-24 UI. The backend SEP-24 interactive endpoints,
   `stellar.toml`, and federation are available for authenticated sandbox use.
-- Quote preview endpoint (`GET` quote). Quotes are only produced inline by
-  `POST /v1/onramps`; if you need "see rate before commit", that is a backend
-  gap to request, not an existing endpoint.
 - Rate limiting (429), cancel/refund, order filtering/search.
 - CORS (see §2; use a proxy).
 
@@ -627,7 +653,7 @@ GET /v1/orders?limit=20&cursor=<order-id>
 
 | Endpoints | Style | Example |
 |---|---|---|
-| `POST /v1/onramps`, `GET /v1/orders*` | `{"error":{"code","message"},"request_id"}` | `{"error":{"code":"QUOTE_UNAVAILABLE","message":"A fresh quote is currently unavailable; retry shortly."},"request_id":"c2f0..."}` |
+| `POST /v1/quotes`, `POST /v1/onramps`, `GET /v1/orders*` | `{"error":{"code","message"},"request_id"}` | `{"error":{"code":"QUOTE_UNAVAILABLE","message":"A fresh quote is currently unavailable; retry shortly."},"request_id":"c2f0..."}` |
 | `/auth/*`, `/v1/api-keys*` | `{"error":"<message>"}` | `{"error":"authentication failed"}` (401/503), `{"error":"Developer Mode is required"}` (403), `{"error":"Bad Request"}` (400, plain HTTP status text) |
 
 Handle both styles in your API client: branch on whether `error` is a string

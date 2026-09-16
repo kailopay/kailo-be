@@ -385,9 +385,11 @@ The consumer release supports sandbox and Stellar testnet only:
 - The frontend may show Mainnet as unavailable in a network selector, but the
   backend does not create or settle mainnet orders in this release.
 
-The quote is created when the order is created. This specification does not add
-a pre-submit quote endpoint. The frontend shows the locked rate from the order
-response and the quote expiry from `quote.expires_at`.
+The frontend can request an indicative quote before the user submits an order
+with `POST /v1/quotes`. The preview does not reserve liquidity or create an
+order, so the on-ramp or off-ramp create response remains authoritative and may
+contain a refreshed rate when the market moves. The frontend shows the locked
+rate from the order response and the quote expiry from `quote.expires_at`.
 
 ## 12. Implement the backend in these slices
 

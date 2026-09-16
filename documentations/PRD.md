@@ -292,6 +292,7 @@ The exact paths may follow the implementation's versioning convention, but `v0.1
 
 | Operation | Suggested method and path | Authentication |
 |---|---|---|
+| Preview buy/sell quote | `POST /v1/quotes` | Test API key or retail session |
 | Create on-ramp order | `POST /v1/onramps` | Test API key or retail session |
 | Create off-ramp order | `POST /v1/offramps` | Test API key or retail session |
 | Get order | `GET /v1/orders/{order_id}` | Test API key or retail session |

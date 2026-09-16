@@ -102,6 +102,14 @@ Build off-ramp and anchor capabilities on the Week 1 native-XLM settlement found
 - A user must reach approved Persona sandbox status before creating an API key
   or an order; duplicate, invalid, and out-of-order KYC callbacks are safe.
 
+### Weeks 1 and 2 checkpoint
+
+As of 2026-09-16, the Week 1 and Week 2 implementation scope is closed as a
+sandbox/testnet checkpoint with documented limitations. Formal acceptance is
+still open for provider and Stellar evidence, unknown-outcome reconciliation,
+the off-ramp response mapping, webhook delivery controls, remaining tests, and
+public HTTPS deployment. See [Weeks 1 and 2 backend checkpoint](WEEK1-2-CHECKPOINT.md).
+
 ## 5. Week 3: Public integration, webhooks, deployment, formal tests
 
 ### Outcome

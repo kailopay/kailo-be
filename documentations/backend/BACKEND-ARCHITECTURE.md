@@ -36,7 +36,7 @@ The TypeScript SDK is an external client package, not a backend module or deploy
 | Process | Responsibility | Scaling unit |
 |---|---|---|
 | `api` | REST API, SEP-24 endpoints, gateway and Persona callbacks, federation, liveness/readiness/startup probes | Stateless HTTP replicas; one is sufficient for sandbox |
-| `worker` | Outbox consumption, payment processing, Stellar submission/reconciliation, developer webhook delivery | One process initially; jobs use database leases |
+| `worker` | Outbox consumption, authentication email delivery, payment processing, Stellar submission/reconciliation, developer webhook delivery | One process initially; jobs use database leases |
 | `automigrate` | Local/test schema bootstrap using GORM `AutoMigrate` | One-shot local/test command |
 | `migrate` | Future reviewed/versioned PostgreSQL migrations for shared environments | One-shot deployment job |
 
@@ -129,6 +129,12 @@ shapes or invariants diverge.
 3. Worker persists external reference and outcome.
 4. Application usecase applies the legal state transition and writes the next outbox event.
 5. Reconciliation jobs resolve timeout/unknown outcomes before any retry that could move value twice.
+
+Authentication email delivery follows the same outbox boundary: the API stores
+the challenge and an encrypted email payload in one PostgreSQL transaction,
+then returns. The worker leases the email job and invokes the configured
+console or Gmail sender, so SMTP latency cannot block registration or password
+recovery requests.
 
 ## 7. Consistency model
 

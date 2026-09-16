@@ -83,6 +83,7 @@ func TestRouterRegistersWeek1Routes(t *testing.T) {
 		WithAPIKeys(NewAPIKeyHandler(&fakeAPIKeyService{}, logger)),
 		WithOnramp(NewOnrampHandler(&fakeOnrampService{}, logger), middleware.RequireOrderPrincipal(fixedAPIAuthenticator{}, nil, middleware.DefaultSessionCookieName, nil)),
 		WithOfframp(NewOfframpHandler(&fakeOfframpHandlerService{}, logger)),
+		WithQuote(NewQuoteHandler(&fakeQuoteService{}, logger), middleware.RequireOrderPrincipal(fixedAPIAuthenticator{}, nil, middleware.DefaultSessionCookieName, nil)),
 		WithXenditCallback(NewXenditCallbackHandler(&callbackServiceFake{}, logger)),
 	)
 	if err != nil {
@@ -94,7 +95,7 @@ func TestRouterRegistersWeek1Routes(t *testing.T) {
 	}
 	for _, route := range []string{
 		"POST /v1/api-keys", "GET /v1/api-keys", "DELETE /v1/api-keys/:id", "POST /v1/offramps",
-		"POST /v1/onramps", "GET /v1/orders", "GET /v1/orders/:id",
+		"POST /v1/onramps", "POST /v1/quotes", "GET /v1/orders", "GET /v1/orders/:id",
 		"POST /callbacks/payments/xendit",
 	} {
 		if !routes[route] {

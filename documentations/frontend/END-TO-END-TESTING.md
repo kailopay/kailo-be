@@ -529,6 +529,7 @@ PATCH {{base_url}}/auth/me
 Content-Type: application/json
 
 POST {{base_url}}/v1/api-keys
+POST {{base_url}}/v1/quotes
 POST {{base_url}}/v1/onramps
 POST {{base_url}}/v1/offramps
 ~~~

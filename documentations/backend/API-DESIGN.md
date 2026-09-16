@@ -20,7 +20,7 @@ KailoPay has one user identity model with separate authentication mechanisms by 
 
 Authentication is self-hosted (ADR-002). The frontend owns the email forms and calls `POST /auth/register`, `POST /auth/login`, and the token endpoints directly; Google sign-in stays a redirect flow against Google's OIDC endpoints with PKCE. Successful logins create a local session represented by an opaque, secure, HTTP-only cookie; provider tokens never reach the browser. Passwords are stored as Argon2id hashes with per-credential lockout after ten failures. A Google identity whose verified email matches an existing account is linked to that account. Email verification tokens last 24 hours and password-reset tokens one hour; both are single-use and stored only as HMAC hashes. Email and password reset endpoints never disclose whether an account exists.
 
-The implemented endpoints are `POST /auth/register`, `POST /auth/login`, `GET /auth/google/login`, `GET /auth/google/callback`, `POST /auth/logout`, `POST /auth/email/verify`, `POST /auth/email/resend`, `POST /auth/password/forgot`, `POST /auth/password/reset`, protected `POST /auth/password/change`, protected `GET/PATCH /auth/me`, and protected `GET/PUT/DELETE /auth/me/avatar`. In sandbox, verification and reset links are logged to the server console instead of being emailed. Profile image bytes remain in a private MinIO bucket while PostgreSQL stores only the object key. The Google callback consumes a ten-minute one-time transaction; the local session uses an eight-hour absolute lifetime and thirty-minute idle timeout. The executable OpenAPI contract is [`openapi/openapi.yaml`](../../openapi/openapi.yaml).
+The implemented endpoints are `POST /auth/register`, `POST /auth/login`, `GET /auth/google/login`, `GET /auth/google/callback`, `POST /auth/logout`, `POST /auth/email/verify`, `POST /auth/email/resend`, `POST /auth/password/forgot`, `POST /auth/password/reset`, protected `POST /auth/password/change`, protected `GET/PATCH /auth/me`, and protected `GET/PUT/DELETE /auth/me/avatar`. Registration, verification resend, and password-reset requests persist encrypted email jobs in PostgreSQL and return without waiting for SMTP; the existing worker delivers them through the configured console or Gmail provider. Profile image bytes remain in a private MinIO bucket while PostgreSQL stores only the object key. The Google callback consumes a ten-minute one-time transaction; the local session uses an eight-hour absolute lifetime and thirty-minute idle timeout. The executable OpenAPI contract is [`openapi/openapi.yaml`](../../openapi/openapi.yaml).
 
 ### Developer API key
 
@@ -121,6 +121,7 @@ The reserved `.test` address and synthetic values are illustrative; released exa
 
 | Method | Path | Auth | Idempotency | Purpose |
 |---|---|---|---|---|
+| `POST` | `/v1/quotes` | Test key or verified retail session | N/A | Preview the current IDR/XLM buy or sell quote without creating an order |
 | `POST` | `/v1/onramps` | Test key or verified retail session | Required | Create IDR-to-native-XLM order and Xendit checkout |
 | `POST` | `/v1/offramps` | Test key or verified retail session | Required | Create XLM-to-IDR order with sandbox deposit instructions |
 | `GET` | `/v1/orders/{order_id}` | Test key or verified retail session | N/A | Retrieve an order owned by the authenticated principal |

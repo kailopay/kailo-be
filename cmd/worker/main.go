@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	mail "github.com/febry3/kailopay-be/internal/adapter/mail"
 	stellaradapter "github.com/febry3/kailopay-be/internal/adapter/stellar"
 	"github.com/febry3/kailopay-be/internal/platform"
 	"github.com/febry3/kailopay-be/internal/repository"
@@ -53,6 +55,33 @@ func run(ctx context.Context) error {
 			logger.Error("closing worker database failed", slog.Any("error", err))
 		}
 	}()
+	emailEncryptionKey, err := base64.StdEncoding.DecodeString(cfg.Auth.TransactionEncryptionKey)
+	if err != nil {
+		return fmt.Errorf("decoding email encryption key: %w", err)
+	}
+	emailSender, err := mail.NewSender(mail.SenderConfig{
+		Provider: cfg.Email.Provider,
+		Gmail: mail.GmailConfig{
+			Username:    cfg.Email.Gmail.Username,
+			AppPassword: cfg.Email.Gmail.AppPassword,
+			FromName:    cfg.Email.Gmail.FromName,
+			Timeout:     cfg.Email.Gmail.Timeout,
+		},
+	}, logger)
+	if err != nil {
+		return fmt.Errorf("creating email sender: %w", err)
+	}
+	emailStore := repository.NewEmailRepository(db, cfg.Week1.Worker.MaxAttempts)
+	emailService, err := usecase.NewEmailDeliveryUsecase(emailStore, emailSender, usecase.EmailDeliveryConfig{
+		EncryptionKey: emailEncryptionKey,
+		LeaseDuration: cfg.Week1.Worker.LeaseDuration,
+		RetryDelay:    cfg.Week1.Worker.RetryDelay,
+		MaxAttempts:   cfg.Week1.Worker.MaxAttempts,
+		Now:           time.Now,
+	})
+	if err != nil {
+		return fmt.Errorf("creating email delivery service: %w", err)
+	}
 	treasurySecret, err := platform.LoadWorkerTreasurySecret()
 	if err != nil {
 		return fmt.Errorf("loading treasury secret: %w", err)
@@ -106,6 +135,7 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("generating worker id: %w", err)
 	}
 	runSettlement := func() (bool, error) { return settlementService.RunOnce(ctx, workerID) }
+	runEmail := func() (bool, error) { return emailService.RunOnce(ctx, workerID) }
 	runRetirement := func() (bool, error) {
 		job, err := settlementStore.LeaseOutbox(ctx, "stellar.retire_offramp", workerID, time.Now().UTC(),
 			cfg.Week1.Worker.LeaseDuration, intentPayloadDecoder)
@@ -173,6 +203,15 @@ func run(ctx context.Context) error {
 			lastScan = scanAt
 		}
 		workDone := false
+		if processed, emailErr := runEmail(); emailErr != nil && ctx.Err() == nil {
+			logger.ErrorContext(ctx, "email job failed", slog.Any("error", emailErr))
+		} else if processed {
+			logger.InfoContext(ctx, "email job processed")
+			workDone = true
+		}
+		if workDone {
+			continue
+		}
 		for _, topic := range outboxTopics {
 			processed, jobErr := drain[topic]()
 			if jobErr != nil && ctx.Err() == nil {

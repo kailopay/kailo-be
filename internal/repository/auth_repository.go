@@ -420,6 +420,9 @@ func (r *AuthRepository) CreateUserWithCredential(ctx context.Context, record au
 		if err := tx.Create(&challenge).Error; err != nil {
 			return fmt.Errorf("creating verification challenge: %w", err)
 		}
+		if err := createEmailOutboxMessage(tx, record.EmailJob, now); err != nil {
+			return err
+		}
 		return nil
 	})
 	if err != nil {
@@ -564,20 +567,46 @@ func (r *AuthRepository) SetEmailVerified(ctx context.Context, userID string, no
 	return r.FindProfile(ctx, userID)
 }
 
-func (r *AuthRepository) CreateChallenge(ctx context.Context, challenge auth.ChallengeRecord) error {
-	row := entity.AuthChallenge{
-		ID:        newUUID(),
-		UserID:    challenge.UserID,
-		TokenHash: append([]byte(nil), challenge.TokenHash...),
-		Purpose:   challenge.Purpose,
-		ExpiresAt: challenge.ExpiresAt.UTC(),
-		CreatedAt: time.Now().UTC(),
+func (r *AuthRepository) CreateChallengeWithEmailJob(ctx context.Context, challenge auth.ChallengeRecord, email auth.EmailDeliveryRecord) error {
+	err := r.tx.do(ctx, func(tx *gorm.DB) error {
+		now := time.Now().UTC()
+		row := entity.AuthChallenge{
+			ID:        newUUID(),
+			UserID:    challenge.UserID,
+			TokenHash: append([]byte(nil), challenge.TokenHash...),
+			Purpose:   challenge.Purpose,
+			ExpiresAt: challenge.ExpiresAt.UTC(),
+			CreatedAt: now,
+		}
+		if row.ID == "" {
+			return errors.New("generating challenge id")
+		}
+		if err := tx.Create(&row).Error; err != nil {
+			return fmt.Errorf("creating auth challenge: %w", err)
+		}
+		return createEmailOutboxMessage(tx, email, now)
+	})
+	return err
+}
+
+func createEmailOutboxMessage(tx *gorm.DB, record auth.EmailDeliveryRecord, now time.Time) error {
+	if record.ID == "" || record.Topic == "" || record.AggregateID == "" || len(record.Payload) == 0 {
+		return errors.New("email delivery record is incomplete")
 	}
-	if row.ID == "" {
-		return errors.New("generating challenge id")
+	if record.AvailableAt.IsZero() {
+		record.AvailableAt = now
 	}
-	if err := r.db.WithContext(ctx).Create(&row).Error; err != nil {
-		return fmt.Errorf("creating auth challenge: %w", err)
+	if err := tx.Create(&entity.OutboxMessage{
+		ID:            record.ID,
+		Topic:         record.Topic,
+		AggregateType: "user",
+		AggregateID:   record.AggregateID,
+		Payload:       append([]byte(nil), record.Payload...),
+		CreatedAt:     now,
+		AvailableAt:   record.AvailableAt.UTC(),
+		Attempts:      0,
+	}).Error; err != nil {
+		return fmt.Errorf("creating email outbox message: %w", err)
 	}
 	return nil
 }

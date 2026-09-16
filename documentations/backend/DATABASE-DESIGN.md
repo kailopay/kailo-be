@@ -397,7 +397,7 @@ Conflicting request hashes return `409 IDEMPOTENCY_KEY_REUSED`.
 
 ### `outbox_messages`
 
-Columns include ID, topic/type, aggregate type/ID, payload JSON, created time, available time, lease owner/until, attempts, processed time, and last safe error.
+Columns include ID, topic/type, aggregate type/ID, payload JSON, created time, available time, lease owner/until, attempts, processed time, and last safe error. Authentication email jobs use `auth.email_verification` and `auth.password_reset` topics; their JSON payload contains an encrypted, base64-encoded recipient and link. The worker claims pending rows with a lease, increments `attempts`, and records completion, bounded retry, or terminal failure, keeping SMTP work out of API requests and allowing a restarted worker to resume pending jobs.
 
 Week 1 leases with `FOR UPDATE SKIP LOCKED` and indexes unprocessed messages with a partial index on `(available_at) WHERE processed_at IS NULL`, which is equivalent to the composite `(processed_at, available_at)` plan because the predicate fixes `processed_at IS NULL`.
 

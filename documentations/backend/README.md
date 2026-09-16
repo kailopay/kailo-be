@@ -10,7 +10,7 @@
 | Logging | Standard-library `log/slog` |
 | External environments | Optional Google sign-in, one payment gateway sandbox, and Stellar testnet |
 | Architecture | Modular monolith with asynchronous workers and transactional outbox |
-| Status | Week 2 backend slice implemented in Go; provider/testnet evidence and outbound delivery remain staged |
+| Status | Weeks 1 and 2 implementation checkpoint complete with documented limitations; formal evidence, reconciliation, webhook delivery, and release gates remain open |
 
 ## Purpose
 
@@ -41,17 +41,18 @@ integration client for the public API, not a second backend runtime.
 4. [Database Design](DATABASE-DESIGN.md)
 5. [API Design](API-DESIGN.md)
 6. [Frontend Capabilities and Backend Integration](FRONTEND-CAPABILITIES.md)
-7. [Consumer Session Order Flow](CONSUMER-SESSION-ORDER-FLOW.md)
-8. [Payment Gateway Integration](PAYMENT-GATEWAY-INTEGRATION.md)
-9. [Stellar Anchor Integration](STELLAR-ANCHOR-INTEGRATION.md)
-10. [Persona KYC Runbook](PERSONA-KYC-RUNBOOK.md)
-11. [Webhook Design](WEBHOOK-DESIGN.md)
-12. [TypeScript SDK Design](TYPESCRIPT-SDK-DESIGN.md)
-13. [Security](SECURITY.md)
-14. [Observability and Runbook](OBSERVABILITY-AND-RUNBOOK.md)
-15. [Testing Strategy](TESTING-STRATEGY.md)
-16. [Implementation Phases](IMPLEMENTATION-PHASES.md)
-17. [Backend Backlog](BACKEND-BACKLOG.md)
+7. [Weeks 1 and 2 backend checkpoint](WEEK1-2-CHECKPOINT.md)
+8. [Consumer Session Order Flow](CONSUMER-SESSION-ORDER-FLOW.md)
+9. [Payment Gateway Integration](PAYMENT-GATEWAY-INTEGRATION.md)
+10. [Stellar Anchor Integration](STELLAR-ANCHOR-INTEGRATION.md)
+11. [Persona KYC Runbook](PERSONA-KYC-RUNBOOK.md)
+12. [Webhook Design](WEBHOOK-DESIGN.md)
+13. [TypeScript SDK Design](TYPESCRIPT-SDK-DESIGN.md)
+14. [Security](SECURITY.md)
+15. [Observability and Runbook](OBSERVABILITY-AND-RUNBOOK.md)
+16. [Testing Strategy](TESTING-STRATEGY.md)
+17. [Implementation Phases](IMPLEMENTATION-PHASES.md)
+18. [Backend Backlog](BACKEND-BACKLOG.md)
 
 ## Parent documents
 
@@ -114,9 +115,9 @@ Material design changes require an ADR and synchronized updates to affected docu
 
 ## Decisions required before implementation
 
-- Select Xendit or Midtrans after confirming exact sandbox capabilities.
-- Confirm test asset code, precision, issuer/distributor accounts, and retirement method.
-- Agree acceptable off-ramp evidence when the selected gateway cannot execute a true sandbox payout.
+- ~~Select Xendit or Midtrans after confirming exact sandbox capabilities.~~ Resolved by ADR-001: use Xendit Payment Sessions.
+- ~~Confirm test asset code, precision, issuer/distributor accounts, and retirement method.~~ Resolved by ADR-001 and ADR-003: use native XLM on Stellar testnet and burn-address retirement.
+- ~~Agree acceptable off-ramp evidence when the selected gateway cannot execute a true sandbox payout.~~ Resolved by ADR-003: record a simulated payout with an explicit disclosure.
 - Select deployment topology, public hostnames, and managed-secret mechanism.
 - ~~Select a KYC provider and gate policy~~ Resolved by ADR-004: Persona sandbox
   status gate; only `approved` unlocks API-key and order creation.
@@ -134,4 +135,4 @@ The backend implements email + password and optional Google authentication:
 - `POST /auth/email/verify` and `POST /auth/email/resend` complete or re-issue verification; `POST /auth/password/forgot`, `POST /auth/password/reset`, and protected `POST /auth/password/change` cover password recovery.
 - `POST /auth/logout` revokes and clears the local session; `GET /auth/me` returns the authenticated user and requires the `kailopay_session` cookie.
 
-Provider tokens never reach the browser. Local sessions are opaque, HTTP-only, SameSite=Lax cookies backed by PostgreSQL. Verification and reset links are single-use hashed tokens; the console provider logs links by default, while `EMAIL_PROVIDER=gmail` sends them through Gmail SMTP using `GMAIL_USERNAME` and a Google App Password. Configure `.env` using [.env.example](../../.env.example); the checked-in contract is [openapi/openapi.yaml](../../openapi/openapi.yaml). It documents the Week 2 Persona KYC gate, API keys, on/off-ramps, SEP-24, anchor discovery, and developer webhook management. When the API is running, the same contract is rendered through Swagger UI at `http://localhost:8080/docs/`. Run `go run ./cmd/migrate` to apply the versioned schema.
+Provider tokens never reach the browser. Local sessions are opaque, HTTP-only, SameSite=Lax cookies backed by PostgreSQL. Verification and reset links are single-use hashed tokens; the API encrypts their email jobs into the transactional outbox and the worker delivers them asynchronously. The console provider logs links by default, while `EMAIL_PROVIDER=gmail` sends them through Gmail SMTP using `GMAIL_USERNAME` and a Google App Password. Configure `.env` using [.env.example](../../.env.example); the checked-in contract is [openapi/openapi.yaml](../../openapi/openapi.yaml). It documents the Week 2 Persona KYC gate, API keys, on/off-ramps, SEP-24, anchor discovery, and developer webhook management. When the API is running, the same contract is rendered through Swagger UI at `http://localhost:8080/docs/`. Run `go run ./cmd/migrate` to apply the versioned schema.

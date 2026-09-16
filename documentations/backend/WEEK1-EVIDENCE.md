@@ -4,6 +4,16 @@ This checklist maps the backend implementation to the Week 1 SOW. Code and
 automated test results are kept separate from evidence that requires a real
 sandbox or testnet account.
 
+## Checkpoint status
+
+Weeks 1 and 2 are closed as an implementation checkpoint dated 2026-09-16.
+The unchecked items in this file remain open evidence gates. They are not
+implementation claims, and they must be completed before formal release
+acceptance.
+
+See [Weeks 1 and 2 backend checkpoint](WEEK1-2-CHECKPOINT.md) for the complete
+status, Week 2 result, and frontend handoff.
+
 ## Repository and contract
 
 - [x] Public GitHub repository URL: `https://github.com/kailopay/kailo-be` (verified reachable on 2026-09-09).
@@ -15,6 +25,7 @@ sandbox or testnet account.
 
 ## API and payment gateway
 
+- [x] Quote preview endpoint: `POST /v1/quotes`
 - [x] On-ramp order creation endpoint: `POST /v1/onramps`
 - [x] Off-ramp order creation endpoint: `POST /v1/offramps`
 - [x] Order query endpoints: `GET /v1/orders` and `GET /v1/orders/{id}`
