@@ -211,6 +211,7 @@ func publicKYCInquiry(view usecase.KYCInquiryView) gin.H {
 		"status":          view.Status,
 		"provider_status": view.ProviderStatus,
 		"inquiry_id":      view.InquiryID,
+		"url":             view.URL,
 		"environment_id":  view.EnvironmentID,
 		"expires_at":      view.ExpiresAt,
 	}

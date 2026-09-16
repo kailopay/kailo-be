@@ -92,6 +92,7 @@ type AnchorConfig struct {
 
 type PersonaConfig struct {
 	BaseURL            string
+	HostedFlowURL      string
 	APIKey             string
 	TemplateID         string
 	EnvironmentID      string
@@ -180,6 +181,7 @@ func Load() (Config, error) {
 		},
 		Persona: PersonaConfig{
 			BaseURL:            strings.TrimRight(strings.TrimSpace(v.GetString("persona.base_url")), "/"),
+			HostedFlowURL:      strings.TrimRight(strings.TrimSpace(v.GetString("persona.hosted_flow_url")), "/"),
 			APIKey:             strings.TrimSpace(v.GetString("persona.api_key")),
 			TemplateID:         strings.TrimSpace(v.GetString("persona.inquiry_template_id")),
 			EnvironmentID:      strings.TrimSpace(v.GetString("persona.environment_id")),
@@ -390,6 +392,10 @@ func (c PersonaConfig) Validate(environment string) error {
 	if scheme != "https" && !localHTTP {
 		return errors.New("persona base URL must use HTTPS outside local")
 	}
+	hostedFlowURL, err := url.Parse(strings.TrimSpace(c.HostedFlowURL))
+	if err != nil || hostedFlowURL == nil || hostedFlowURL.Scheme != "https" || hostedFlowURL.Host == "" || hostedFlowURL.User != nil || hostedFlowURL.RawQuery != "" || hostedFlowURL.Fragment != "" {
+		return errors.New("persona hosted flow URL must be an HTTPS URL without query or fragment")
+	}
 	if strings.TrimSpace(c.APIKey) == "" || strings.TrimSpace(c.TemplateID) == "" ||
 		strings.TrimSpace(c.EnvironmentID) == "" {
 		return errors.New("persona credentials and environment are required")
@@ -598,6 +604,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("auth.email_link_base_url", "http://localhost:3001")
 	v.SetDefault("anchor.base_url", "http://localhost:8080")
 	v.SetDefault("persona.base_url", "https://api.withpersona.com")
+	v.SetDefault("persona.hosted_flow_url", "https://inquiry.withpersona.com/verify")
 	v.SetDefault("persona.timeout", 10*time.Second)
 	v.SetDefault("persona.signature_tolerance", 5*time.Minute)
 	v.SetDefault("persona.max_response_bytes", int64(1<<20))
@@ -674,6 +681,7 @@ func environmentBindings() map[string]string {
 		"google.client_secret":             "GOOGLE_CLIENT_SECRET",
 		"google.redirect_url":              "GOOGLE_REDIRECT_URL",
 		"persona.base_url":                 "PERSONA_BASE_URL",
+		"persona.hosted_flow_url":          "PERSONA_HOSTED_FLOW_URL",
 		"persona.api_key":                  "PERSONA_API_KEY",
 		"persona.inquiry_template_id":      "PERSONA_INQUIRY_TEMPLATE_ID",
 		"persona.environment_id":           "PERSONA_ENVIRONMENT_ID",

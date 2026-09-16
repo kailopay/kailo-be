@@ -39,6 +39,7 @@ func validObjectStorageConfig() ObjectStorageConfig {
 func validPersonaConfig() PersonaConfig {
 	return PersonaConfig{
 		BaseURL:            "https://api.withpersona.com",
+		HostedFlowURL:      "https://inquiry.withpersona.com/verify",
 		APIKey:             "persona-api-key",
 		TemplateID:         "itmpl_test",
 		EnvironmentID:      "env_test",
@@ -71,6 +72,7 @@ func setValidAuthEnv(t *testing.T) {
 func setValidPersonaEnv(t *testing.T) {
 	t.Helper()
 	t.Setenv("PERSONA_BASE_URL", "https://api.withpersona.com")
+	t.Setenv("PERSONA_HOSTED_FLOW_URL", "https://inquiry.withpersona.com/verify")
 	t.Setenv("PERSONA_API_KEY", "persona-api-key")
 	t.Setenv("PERSONA_INQUIRY_TEMPLATE_ID", "itmpl_test")
 	t.Setenv("PERSONA_ENVIRONMENT_ID", "env_test")

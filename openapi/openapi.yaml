@@ -1302,7 +1302,7 @@ components:
           $ref: '#/components/schemas/KYCInquiry'
     KYCInquiry:
       type: object
-      required: [status, provider_status, inquiry_id, environment_id]
+      required: [status, provider_status, inquiry_id, url, environment_id]
       properties:
         status:
           type: string

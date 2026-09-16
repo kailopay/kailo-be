@@ -154,7 +154,7 @@ func run(ctx context.Context) error {
 		Persona:    personaClient,
 		Clock:      systemClock{},
 		NewID:      platform.NewID,
-	}, usecase.KYCServiceConfig{EnvironmentID: cfg.Persona.EnvironmentID})
+	}, usecase.KYCServiceConfig{EnvironmentID: cfg.Persona.EnvironmentID, HostedFlowURL: cfg.Persona.HostedFlowURL})
 	if err != nil {
 		return fmt.Errorf("creating KYC service: %w", err)
 	}

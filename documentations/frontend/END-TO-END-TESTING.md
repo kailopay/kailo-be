@@ -474,7 +474,7 @@ Create or resume the inquiry:
 POST {{base_url}}/v1/kyc/inquiry
 ~~~
 
-Expect 201 with an inquiry ID and environment ID:
+Expect 201 with a direct Persona hosted-flow URL, inquiry ID, and environment ID:
 
 ~~~json
 {
@@ -482,6 +482,7 @@ Expect 201 with an inquiry ID and environment ID:
     "status": "created",
     "provider_status": "created",
     "inquiry_id": "inq_...",
+    "url": "https://inquiry.withpersona.com/verify?inquiry-id=inq_...",
     "environment_id": "env_...",
     "expires_at": null
   }
@@ -498,8 +499,9 @@ http://localhost:3001/verify-identity
 ~~~
 
 Click Start verification and complete the Persona sandbox flow with test
-data. The frontend passes the inquiry ID, environment ID, and optional session
-token to the Persona client.
+data. The frontend may open the returned `url` directly. If it uses the
+embedded Persona client instead, pass the inquiry ID, environment ID, and
+optional session token to the Persona client.
 
 After Persona finishes, wait for the signed callback. Then call:
 

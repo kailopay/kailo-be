@@ -20,6 +20,7 @@ the values:
 
 ```text
 PERSONA_BASE_URL=https://api.withpersona.com
+PERSONA_HOSTED_FLOW_URL=https://inquiry.withpersona.com/verify
 PERSONA_API_KEY=<sandbox-api-key>
 PERSONA_INQUIRY_TEMPLATE_ID=<inquiry-template-id>
 PERSONA_ENVIRONMENT_ID=<sandbox-environment-id>
@@ -44,8 +45,9 @@ Start PostgreSQL and the API with the configured `.env`, then:
    verification.
 2. Open the frontend identity-verification route:
    `/verify-identity?return_to=/developer`.
-3. Start the inquiry. The backend calls Persona and returns an inquiry ID,
-   environment ID, and, when resuming, a short-lived session token.
+3. Start the inquiry. The backend calls Persona and returns a direct hosted
+   verification URL, the inquiry ID, environment ID, and, when resuming, a
+   short-lived session token.
 4. Complete the Persona sandbox test flow in the embedded widget.
 5. Wait for the signed Persona callback to reach
    `/callbacks/kyc/persona`.

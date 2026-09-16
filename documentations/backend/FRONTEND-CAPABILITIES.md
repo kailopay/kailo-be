@@ -160,7 +160,7 @@ The frontend can provide a KYC status screen and an embedded Persona inquiry flo
 3. Use the short-lived inquiry session token returned by the backend in the Persona browser flow.
 4. Refresh `GET /v1/kyc` until the status changes.
 
-The backend response gives the Persona `environment_id` and `inquiry_id`. Pass those provider identifiers, plus `session_token` when the response includes it, to the Persona browser SDK configured for that environment. The frontend should not call Persona's REST API or persist the token. Completion in the browser is not proof of approval; wait for `GET /v1/kyc` to report `approved`, which is set from the signed Persona callback.
+The backend response gives a direct Persona hosted-flow `url`, plus the Persona `environment_id` and `inquiry_id`. The frontend may open `url` directly, or pass those provider identifiers plus `session_token` when the response includes it to the Persona browser SDK configured for that environment. The frontend should not call Persona's REST API or persist the token. Completion in the browser is not proof of approval; wait for `GET /v1/kyc` to report `approved`, which is set from the signed Persona callback.
 
 Only an approved KYC status can create an API key or an on-ramp or off-ramp order. The backend does not return provider secrets or identity-document fields to the browser.
 
@@ -181,7 +181,7 @@ Only an approved KYC status can create an API key or an on-ramp or off-ramp orde
 }
 ```
 
-`POST /v1/kyc/inquiry` does not need a request body. It returns `{ "inquiry": { ... } }`. The `inquiry` object may contain a short-lived `session_token` when the backend resumes an existing inquiry. Use that token only to start the Persona embedded flow. Do not store it as an application credential.
+`POST /v1/kyc/inquiry` does not need a request body. It returns `{ "inquiry": { ... } }` including a direct hosted Persona `url`. The `inquiry` object may contain a short-lived `session_token` when the backend resumes an existing inquiry. Use that token only to start the Persona embedded flow. Do not store it as an application credential.
 
 Use the public `status` field for UI decisions. Typical states are `not_started`, `creating`, `created`, `pending`, `completed`, `pending_review`, `approved`, `declined`, `failed`, and `expired`.
 

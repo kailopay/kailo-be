@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -92,6 +93,7 @@ type KYCInquiryView struct {
 	Status         KYCStatus
 	ProviderStatus string
 	InquiryID      string
+	URL            string
 	EnvironmentID  string
 	SessionToken   string
 	ExpiresAt      *time.Time
@@ -131,6 +133,7 @@ type KYCDependencies struct {
 
 type KYCServiceConfig struct {
 	EnvironmentID string
+	HostedFlowURL string
 }
 
 type KYCUsecase struct {
@@ -140,7 +143,7 @@ type KYCUsecase struct {
 
 func NewKYCUsecase(dependencies KYCDependencies, config KYCServiceConfig) (*KYCUsecase, error) {
 	if dependencies.Repository == nil || dependencies.Persona == nil || dependencies.Clock == nil || dependencies.NewID == nil ||
-		strings.TrimSpace(config.EnvironmentID) == "" {
+		strings.TrimSpace(config.EnvironmentID) == "" || strings.TrimSpace(config.HostedFlowURL) == "" {
 		return nil, errors.New("valid kyc dependencies and configuration are required")
 	}
 	return &KYCUsecase{dependencies: dependencies, config: config}, nil
@@ -298,8 +301,25 @@ func (s *KYCUsecase) statusView(record KYCInquiryRecord, now time.Time) KYCStatu
 func (s *KYCUsecase) inquiryView(record KYCInquiryRecord, sessionToken string) KYCInquiryView {
 	return KYCInquiryView{
 		Status: record.Status, ProviderStatus: record.ProviderStatus, InquiryID: record.ProviderInquiryID,
+		URL:           buildHostedFlowURL(s.config.HostedFlowURL, record.ProviderInquiryID),
 		EnvironmentID: s.config.EnvironmentID, SessionToken: sessionToken, ExpiresAt: record.ExpiresAt,
 	}
+}
+
+func buildHostedFlowURL(baseURL, inquiryID string) string {
+	baseURL = strings.TrimSpace(baseURL)
+	inquiryID = strings.TrimSpace(inquiryID)
+	if baseURL == "" || inquiryID == "" {
+		return ""
+	}
+	parsed, err := url.Parse(baseURL)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return ""
+	}
+	query := parsed.Query()
+	query.Set("inquiry-id", inquiryID)
+	parsed.RawQuery = query.Encode()
+	return parsed.String()
 }
 
 func mapPersonaStatusForEvent(event PersonaEvent) (KYCStatus, bool) {

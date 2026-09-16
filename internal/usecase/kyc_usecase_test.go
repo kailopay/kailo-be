@@ -141,7 +141,7 @@ func newTestKYCUsecase(t *testing.T, repository KYCRepository, persona PersonaGa
 		NewID: func() (string, error) {
 			return "kyc-internal-1", nil
 		},
-	}, KYCServiceConfig{EnvironmentID: "env_test"})
+	}, KYCServiceConfig{EnvironmentID: "env_test", HostedFlowURL: "https://inquiry.withpersona.com/verify"})
 	if err != nil {
 		t.Fatalf("NewKYCUsecase() error = %v", err)
 	}
@@ -223,7 +223,7 @@ func TestKYCStartCreatesInquiryWithoutResumingNewInquiry(t *testing.T) {
 	if persona.createdCalls != 1 || persona.createdReference != "user-1" {
 		t.Fatalf("CreateInquiry() calls/reference = %d/%q", persona.createdCalls, persona.createdReference)
 	}
-	if persona.createdKey == "" || view.InquiryID != "inq-1" || view.SessionToken != "" {
+	if persona.createdKey == "" || view.InquiryID != "inq-1" || view.URL != "https://inquiry.withpersona.com/verify?inquiry-id=inq-1" || view.SessionToken != "" {
 		t.Fatalf("StartInquiry() view = %+v, idempotency key = %q", view, persona.createdKey)
 	}
 	if !repository.reserveCreated || !repository.attached || view.Status != KYCStatusCreated {
@@ -250,7 +250,7 @@ func TestKYCStartReusesPendingInquiryAndResumesIt(t *testing.T) {
 	if repository.reserveCalls != 1 || persona.createdCalls != 0 || persona.resumeCalls != 1 || persona.resumeID != "inq-pending" {
 		t.Fatalf("reserve/create/resume = %d/%d/%d/%q", repository.reserveCalls, persona.createdCalls, persona.resumeCalls, persona.resumeID)
 	}
-	if view.SessionToken != "session-token" || view.Status != KYCStatusPending {
+	if view.SessionToken != "session-token" || view.Status != KYCStatusPending || view.URL != "https://inquiry.withpersona.com/verify?inquiry-id=inq-pending" {
 		t.Fatalf("StartInquiry() view = %+v", view)
 	}
 }

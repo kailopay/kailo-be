@@ -105,7 +105,7 @@ func TestKYCHandlerReturnsInquiryWithOptionalSessionToken(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			service := &fakeKYCService{inquiry: usecase.KYCInquiryView{
 				Status: usecase.KYCStatusPending, ProviderStatus: "pending", InquiryID: "inq_123",
-				EnvironmentID: "env_123", SessionToken: test.token,
+				URL: "https://inquiry.withpersona.com/verify?inquiry-id=inq_123", EnvironmentID: "env_123", SessionToken: test.token,
 			}}
 			handler := NewKYCHandler(service, nil)
 			router := gin.New()
@@ -122,7 +122,7 @@ func TestKYCHandlerReturnsInquiryWithOptionalSessionToken(t *testing.T) {
 				t.Fatalf("status = %d, user = %q, body = %q", response.Code, service.inquiryUserID, response.Body.String())
 			}
 			body := response.Body.String()
-			if !strings.Contains(body, `"environment_id":"env_123"`) || !strings.Contains(body, `"inquiry_id":"inq_123"`) {
+			if !strings.Contains(body, `"environment_id":"env_123"`) || !strings.Contains(body, `"inquiry_id":"inq_123"`) || !strings.Contains(body, `"url":"https://inquiry.withpersona.com/verify?inquiry-id=inq_123"`) {
 				t.Fatalf("missing inquiry fields: %q", body)
 			}
 			if strings.Contains(body, "persona-api-key") || strings.Contains(body, "webhook-secret") {
