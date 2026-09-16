@@ -99,6 +99,8 @@ Avoid high-cardinality IDs as metric labels; keep IDs in logs/traces.
 
 - Runs the configured readiness checks with a bounded timeout.
 - Returns `503` when the database check fails or times out.
+- Does not fail the whole API for a private-avatar object-storage outage;
+  avatar operations report their own dependency failure.
 - Keeps dependency error details in structured logs, not in the public body.
 
 `GET /startupz`:

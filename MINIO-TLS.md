@@ -4,6 +4,11 @@ The deployment Compose file keeps MinIO on the private Docker network and
 requires TLS because the backend rejects plaintext object storage outside
 `APP_ENV=local`.
 
+For a TLS deployment, set both `MINIO_USE_SSL=true` and
+`MINIO_SCHEME=https` in `.env`. Local HTTP development uses
+`MINIO_USE_SSL=false` and `MINIO_SCHEME=http`; these values must stay aligned
+so the API client and the MinIO healthcheck use the same protocol.
+
 Run these commands on the deployment server from the repository root. The
 certificate uses `minio` as its DNS name because the API connects to the
 Compose service at `minio:9000`.

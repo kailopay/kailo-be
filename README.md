@@ -67,7 +67,7 @@ one file per table; repository queries remain in `internal/repository`.
 2. Start the local PostgreSQL and MinIO services:
 
    ```powershell
-   docker compose up -d postgres minio
+   docker compose up -d postgres minio minio-init
    ```
 
    PostgreSQL is available at `localhost:5432`. MinIO exposes its S3 API at

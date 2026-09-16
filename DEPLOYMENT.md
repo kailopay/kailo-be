@@ -40,8 +40,9 @@ docker compose -f compose.deploy.yaml build
 docker compose -f compose.deploy.yaml up -d
 ```
 
-Compose starts PostgreSQL, waits for its healthcheck, runs the versioned
-migrations once, then starts the API and worker. The API is bound to
+Compose starts PostgreSQL and MinIO, provisions the configured private avatar
+bucket idempotently, waits for the versioned migrations once, then starts the
+API and worker. The API is bound to
 `127.0.0.1:${API_PORT}` by default. Put a reverse proxy with public HTTPS in
 front of it and proxy to that loopback address.
 

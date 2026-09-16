@@ -192,7 +192,7 @@ Minimum sandbox topology:
 - Public static/documentation host.
 - Public `stellar.toml` location and federation endpoint.
 
-Readiness must fail when required configuration or database connectivity is unavailable. A payment provider or Stellar outage should make the affected operation unavailable without necessarily failing the entire process health check.
+Readiness must fail when required configuration or database connectivity is unavailable. Object-storage bucket connectivity is operation-specific for private avatars: it is checked during startup, but a bucket outage must not terminate the API or make unrelated payment/authentication operations unavailable. A payment provider or Stellar outage should make the affected operation unavailable without necessarily failing the entire process health check.
 
 ## 11. Configuration boundaries
 

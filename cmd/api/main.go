@@ -32,6 +32,21 @@ type systemClock struct{}
 
 func (systemClock) Now() time.Time { return time.Now().UTC() }
 
+type avatarBucketStore interface {
+	EnsureBucket(ctx context.Context, allowCreate bool) error
+}
+
+func ensureAvatarBucket(ctx context.Context, store avatarBucketStore, environment string) error {
+	bucketCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	allowBucketCreate := strings.EqualFold(environment, "local") || strings.EqualFold(environment, "test")
+	if err := store.EnsureBucket(bucketCtx, allowBucketCreate); err != nil {
+		return fmt.Errorf("initializing avatar storage: %w", err)
+	}
+	return nil
+}
+
 func main() {
 	if err := run(context.Background()); err != nil {
 		slog.Error("api stopped", slog.Any("error", err))
@@ -75,18 +90,14 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("creating avatar storage: %w", err)
 	}
-	bucketCtx, cancelBucketCheck := context.WithTimeout(ctx, 10*time.Second)
-	allowBucketCreate := strings.EqualFold(cfg.App.Environment, "local") || strings.EqualFold(cfg.App.Environment, "test")
-	if err := avatarStore.EnsureBucket(bucketCtx, allowBucketCreate); err != nil {
-		cancelBucketCheck()
-		return fmt.Errorf("initializing avatar storage: %w", err)
+	if err := ensureAvatarBucket(ctx, avatarStore, cfg.App.Environment); err != nil {
+		appLogger.Warn("avatar storage unavailable; avatar operations may fail", slog.Any("error", err))
 	}
-	cancelBucketCheck()
 	health := httpapi.NewHealthHandler(func(checkCtx context.Context) error {
 		if err := sqlDB.PingContext(checkCtx); err != nil {
 			return err
 		}
-		return avatarStore.EnsureBucket(checkCtx, false)
+		return nil
 	}, cfg.Health.CheckTimeout, appLogger)
 	encryptionKey, err := base64.StdEncoding.DecodeString(cfg.Auth.TransactionEncryptionKey)
 	if err != nil {
