@@ -197,7 +197,7 @@ hold a test key.
 
 ### `POST /v1/quotes`
 
-Use this authenticated endpoint to show an indicative price before the user
+Use this public endpoint to show an indicative price before the user
 submits an order. It does not reserve liquidity, create a checkout, or create
 an order. The later order-create response fetches the authoritative quote again
 if the market has moved.

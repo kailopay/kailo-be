@@ -34,10 +34,9 @@ func TestQuoteHandlerReturnsPreviewForBuy(t *testing.T) {
 	}}}
 	handler := NewQuoteHandler(service, nil)
 	router := gin.New()
-	router.POST("/v1/quotes", middleware.RequireOrderPrincipal(fixedAPIAuthenticator{}, nil, middleware.DefaultSessionCookieName, nil), handler.Create)
+	router.POST("/v1/quotes", handler.Create)
 	request := httptest.NewRequest(http.MethodPost, "/v1/quotes", strings.NewReader(`{"direction":"buy","fiat":{"currency":"IDR","amount_minor":"100000"},"asset":{"network":"stellar_testnet","code":"XLM"}}`))
 	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("Authorization", "Bearer pk_test_public_secret")
 	response := httptest.NewRecorder()
 	router.ServeHTTP(response, request)
 
@@ -54,7 +53,7 @@ func TestQuoteHandlerMapsQuoteErrors(t *testing.T) {
 	service := &fakeQuoteService{err: usecase.ErrStalePrice}
 	handler := NewQuoteHandler(service, nil)
 	router := gin.New()
-	router.POST("/v1/quotes", middleware.RequestID(), middleware.RequireOrderPrincipal(fixedAPIAuthenticator{}, nil, middleware.DefaultSessionCookieName, nil), handler.Create)
+	router.POST("/v1/quotes", middleware.RequestID(), handler.Create)
 	request := httptest.NewRequest(http.MethodPost, "/v1/quotes", strings.NewReader(`{"direction":"buy","fiat":{"currency":"IDR","amount_minor":"100000"},"asset":{"network":"stellar_testnet","code":"XLM"}}`))
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Authorization", "Bearer pk_test_public_secret")

@@ -30,11 +30,6 @@ func NewQuoteHandler(service QuoteService, logger *slog.Logger) *QuoteHandler {
 }
 
 func (h *QuoteHandler) Create(c *gin.Context) {
-	principal, ok := middleware.OrderPrincipal(c.Request.Context())
-	if !ok {
-		writeAuthError(c, http.StatusUnauthorized)
-		return
-	}
 	if !strings.HasPrefix(strings.ToLower(c.GetHeader("Content-Type")), "application/json") {
 		writeRequestError(c, http.StatusUnsupportedMediaType)
 		return
@@ -66,7 +61,7 @@ func (h *QuoteHandler) Create(c *gin.Context) {
 		}
 	}
 	preview, err := h.service.Preview(c.Request.Context(), usecase.QuotePreviewCommand{
-		Principal: principal, Direction: usecase.QuoteDirection(request.Direction), FiatCurrency: request.Fiat.Currency,
+		Direction: usecase.QuoteDirection(request.Direction), FiatCurrency: request.Fiat.Currency,
 		FiatAmountMinor: entity.IDR(fiatAmount), AssetNetwork: request.Asset.Network, AssetCode: request.Asset.Code,
 		AssetAmount: request.Asset.Amount,
 	})

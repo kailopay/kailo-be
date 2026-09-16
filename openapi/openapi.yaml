@@ -614,11 +614,9 @@ paths:
         Returns an indicative quote without creating an order, reserving
         treasury liquidity, or creating a payment checkout. The order create
         endpoint fetches a fresh rate and is authoritative if the market moves
-        between preview and submission. Accepts either an API-key principal or
-        a verified retail session principal.
-      security:
-        - kailoAPIKey: []
-        - kailoSession: []
+        between preview and submission. This preview endpoint is public; order
+        creation remains authenticated.
+      security: []
       requestBody:
         required: true
         content:
@@ -638,8 +636,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/OnrampError'
-        '401':
-          description: Missing or invalid API key/session credentials
         '415':
           description: Content type is not application/json
         '422':

@@ -121,7 +121,7 @@ The reserved `.test` address and synthetic values are illustrative; released exa
 
 | Method | Path | Auth | Idempotency | Purpose |
 |---|---|---|---|---|
-| `POST` | `/v1/quotes` | Test key or verified retail session | N/A | Preview the current IDR/XLM buy or sell quote without creating an order |
+| `POST` | `/v1/quotes` | Public | N/A | Preview the current IDR/XLM buy or sell quote without creating an order |
 | `POST` | `/v1/onramps` | Test key or verified retail session | Required | Create IDR-to-native-XLM order and Xendit checkout |
 | `POST` | `/v1/offramps` | Test key or verified retail session | Required | Create XLM-to-IDR order with sandbox deposit instructions |
 | `GET` | `/v1/orders/{order_id}` | Test key or verified retail session | N/A | Retrieve an order owned by the authenticated principal |

@@ -37,12 +37,12 @@ func TestQuotePreviewUsecasePreviewsBothDirections(t *testing.T) {
 		wantDirect QuoteDirection
 	}{
 		{
-			name: "buy IDR for XLM", command: QuotePreviewCommand{Principal: apiOrderPrincipal("client-1", "owner-1"), Direction: QuoteDirectionBuy,
+			name: "buy IDR for XLM", command: QuotePreviewCommand{Direction: QuoteDirectionBuy,
 				FiatCurrency: IDRCurrency, FiatAmountMinor: 100_000, AssetNetwork: StellarTestnetNetwork, AssetCode: NativeXLMAssetCode},
 			wantFiat: 100_000, wantAsset: 396_039_603, wantRate: "2525", wantDirect: QuoteDirectionBuy,
 		},
 		{
-			name: "sell XLM for IDR", command: QuotePreviewCommand{Principal: apiOrderPrincipal("client-1", "owner-1"), Direction: QuoteDirectionSell,
+			name: "sell XLM for IDR", command: QuotePreviewCommand{Direction: QuoteDirectionSell,
 				FiatCurrency: IDRCurrency, AssetNetwork: StellarTestnetNetwork, AssetCode: NativeXLMAssetCode, AssetAmount: "40.0000000"},
 			wantFiat: 101_000, wantAsset: 400_000_000, wantRate: "2525", wantDirect: QuoteDirectionSell,
 		},
@@ -67,7 +67,7 @@ func TestQuotePreviewUsecaseRejectsInvalidRequestsAndUnavailablePrices(t *testin
 	now := time.Date(2026, 9, 16, 0, 0, 0, 0, time.UTC)
 	config := QuotePreviewServiceConfig{QuotePolicy: QuotePolicy{TTL: 5 * time.Minute, MaxAge: 2 * time.Minute}, MinIDR: 10_000, MaxIDR: 10_000_000,
 		Now: func() time.Time { return now }}
-	base := QuotePreviewCommand{Principal: apiOrderPrincipal("client-1", "owner-1"), Direction: QuoteDirectionBuy, FiatCurrency: IDRCurrency,
+	base := QuotePreviewCommand{Direction: QuoteDirectionBuy, FiatCurrency: IDRCurrency,
 		FiatAmountMinor: 100_000, AssetNetwork: StellarTestnetNetwork, AssetCode: NativeXLMAssetCode}
 	providerErr := errors.New("provider unavailable")
 

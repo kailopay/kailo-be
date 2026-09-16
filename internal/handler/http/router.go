@@ -195,9 +195,7 @@ func NewRouter(logger *slog.Logger, health *HealthHandler, authHandler *AuthHand
 		onrampRoutes.GET("/orders/:id", configured.onramp.Get)
 	}
 	if configured.quote != nil {
-		quoteRoutes := router.Group("/v1")
-		quoteRoutes.Use(configured.requireOrderPrincipal)
-		quoteRoutes.POST("/quotes", configured.quote.Create)
+		router.POST("/v1/quotes", configured.quote.Create)
 	}
 	if configured.xenditCallback != nil {
 		router.POST("/callbacks/payments/xendit", gin.WrapH(configured.xenditCallback))

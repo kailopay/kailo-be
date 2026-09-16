@@ -190,10 +190,9 @@ Use the public `status` field for UI decisions. Typical states are `not_started`
 The frontend can build a buy screen for the IDR to XLM sandbox flow.
 
 Before submission, the frontend can request an indicative price with
-`POST /v1/quotes`. This endpoint accepts the same authenticated API-key or
-retail-session principal as order creation and does not reserve liquidity or
-create a checkout. The order create response is authoritative if the market
-moves after the preview.
+public `POST /v1/quotes`. This endpoint does not require a session or API key,
+and does not reserve liquidity or create a checkout. The order create response
+is authoritative if the market moves after the preview.
 
 For a buy preview, send:
 

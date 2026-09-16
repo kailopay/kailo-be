@@ -22,7 +22,6 @@ var ErrInvalidQuoteRequest = errors.New("invalid quote request")
 // QuotePreviewCommand contains the amount on the side the customer wants to
 // exchange. The other amount is calculated by the quote policy.
 type QuotePreviewCommand struct {
-	Principal       OrderPrincipal
 	Direction       QuoteDirection
 	FiatCurrency    string
 	FiatAmountMinor entity.IDR
@@ -57,9 +56,6 @@ func NewQuotePreviewUsecase(prices PriceReader, config QuotePreviewServiceConfig
 }
 
 func (s *QuotePreviewUsecase) Preview(ctx context.Context, command QuotePreviewCommand) (QuotePreview, error) {
-	if err := command.Principal.Validate(); err != nil {
-		return QuotePreview{}, ErrInvalidQuoteRequest
-	}
 	command.FiatCurrency = strings.TrimSpace(command.FiatCurrency)
 	command.AssetNetwork = strings.TrimSpace(command.AssetNetwork)
 	command.AssetCode = strings.TrimSpace(command.AssetCode)
