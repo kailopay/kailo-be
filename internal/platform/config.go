@@ -79,6 +79,7 @@ type AuthConfig struct {
 	SessionIdleLifetime      time.Duration
 	TransactionLifetime      time.Duration
 	CookieName               string
+	CookieDomain             string
 	CookieSecure             bool
 	AvatarMaxBytes           int64
 }
@@ -173,6 +174,7 @@ func Load() (Config, error) {
 			SessionIdleLifetime:      v.GetDuration("auth.session_idle_lifetime"),
 			TransactionLifetime:      v.GetDuration("auth.transaction_lifetime"),
 			CookieName:               strings.TrimSpace(v.GetString("auth.cookie_name")),
+			CookieDomain:             strings.TrimSpace(v.GetString("auth.cookie_domain")),
 			CookieSecure:             v.GetBool("auth.cookie_secure"),
 			AvatarMaxBytes:           v.GetInt64("auth.avatar_max_bytes"),
 		},
@@ -514,11 +516,32 @@ func (c AuthConfig) Validate(environment string) error {
 	if strings.TrimSpace(c.CookieName) == "" {
 		return errors.New("auth cookie name is required")
 	}
+	if err := validateCookieDomain(c.CookieDomain); err != nil {
+		return err
+	}
+	if c.CookieDomain != "" && strings.HasPrefix(strings.ToLower(c.CookieName), "__host-") {
+		return errors.New("auth __Host- cookie cannot define a domain")
+	}
 	if c.AvatarMaxBytes <= 0 {
 		return errors.New("auth avatar maximum bytes must be positive")
 	}
 	if !strings.EqualFold(environment, "local") && !c.CookieSecure {
 		return errors.New("auth cookie must be secure outside local")
+	}
+	return nil
+}
+
+func validateCookieDomain(raw string) error {
+	domain := strings.TrimSpace(raw)
+	if domain == "" {
+		return nil
+	}
+	parsed, err := url.Parse("https://" + domain)
+	if err != nil || parsed.Host != domain || parsed.User != nil || parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return fmt.Errorf("auth cookie domain %q is invalid", raw)
+	}
+	if strings.TrimPrefix(domain, ".") == "" {
+		return fmt.Errorf("auth cookie domain %q is invalid", raw)
 	}
 	return nil
 }
@@ -674,6 +697,7 @@ func environmentBindings() map[string]string {
 		"auth.session_idle_lifetime":       "AUTH_SESSION_IDLE_LIFETIME",
 		"auth.transaction_lifetime":        "AUTH_TRANSACTION_LIFETIME",
 		"auth.cookie_name":                 "AUTH_COOKIE_NAME",
+		"auth.cookie_domain":               "AUTH_COOKIE_DOMAIN",
 		"auth.cookie_secure":               "AUTH_COOKIE_SECURE",
 		"auth.avatar_max_bytes":            "PROFILE_AVATAR_MAX_BYTES",
 		"anchor.base_url":                  "ANCHOR_BASE_URL",

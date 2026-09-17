@@ -55,6 +55,7 @@ func setValidAuthEnv(t *testing.T) {
 	key := base64.StdEncoding.EncodeToString(make([]byte, 32))
 	t.Setenv("AUTH_SUCCESS_REDIRECT_URL", "https://app.example.com/")
 	t.Setenv("AUTH_EMAIL_LINK_BASE_URL", "https://app.example.com/")
+	t.Setenv("AUTH_COOKIE_DOMAIN", ".example.com")
 	t.Setenv("AUTH_TRANSACTION_ENCRYPTION_KEY", key)
 	t.Setenv("AUTH_SESSION_HMAC_KEY", key)
 	t.Setenv("ANCHOR_BASE_URL", "https://api.example.com")
@@ -116,6 +117,9 @@ func TestLoadUsesEnvironmentOverrides(t *testing.T) {
 	}
 	if cfg.Logging.Level != "debug" {
 		t.Fatalf("log level = %q, want %q", cfg.Logging.Level, "debug")
+	}
+	if cfg.Auth.CookieDomain != ".example.com" {
+		t.Fatalf("cookie domain = %q, want %q", cfg.Auth.CookieDomain, ".example.com")
 	}
 }
 
@@ -351,6 +355,8 @@ func TestAuthConfigValidateRejectsInvalidSettings(t *testing.T) {
 		{name: "invalid hmac key", mutate: func(cfg *AuthConfig) { cfg.SessionHMACKey = "a" }},
 		{name: "non-positive lifetime", mutate: func(cfg *AuthConfig) { cfg.SessionIdleLifetime = 0 }},
 		{name: "insecure production cookie", mutate: func(cfg *AuthConfig) { cfg.CookieSecure = false }},
+		{name: "domain on __Host cookie", mutate: func(cfg *AuthConfig) { cfg.CookieDomain = ".example.com" }},
+		{name: "invalid cookie domain", mutate: func(cfg *AuthConfig) { cfg.CookieDomain = "https://example.com/path" }},
 	}
 
 	for _, tt := range tests {

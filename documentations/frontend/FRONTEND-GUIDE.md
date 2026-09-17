@@ -106,7 +106,10 @@ to your frontend's post-login route (e.g. `http://localhost:3001/`). Google
 sign-in redirects there after the backend sets the session cookie, so mount
 your logged-in route at exactly that path. `AUTH_EMAIL_LINK_BASE_URL` (same
 file) builds the verification and reset links; point it at the same frontend
-origin.
+origin. If the callback and frontend use different subdomains in deployment,
+set `AUTH_COOKIE_DOMAIN` to their shared parent domain (for example,
+`.kailopay.com`) so the browser sends the session to both hosts. Leave it
+empty for local development on the same hostname with different ports.
 
 ## 3. Authentication model (self-hosted email + Google)
 
