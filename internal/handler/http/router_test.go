@@ -84,6 +84,7 @@ func TestRouterRegistersWeek1Routes(t *testing.T) {
 		WithOnramp(NewOnrampHandler(&fakeOnrampService{}, logger), middleware.RequireOrderPrincipal(fixedAPIAuthenticator{}, nil, middleware.DefaultSessionCookieName, nil)),
 		WithOfframp(NewOfframpHandler(&fakeOfframpHandlerService{}, logger)),
 		WithQuote(NewQuoteHandler(&fakeQuoteService{}, logger), middleware.RequireOrderPrincipal(fixedAPIAuthenticator{}, nil, middleware.DefaultSessionCookieName, nil)),
+		WithSep38(NewSep38Handler(&sep38HandlerServiceFake{}, logger)),
 		WithXenditCallback(NewXenditCallbackHandler(&callbackServiceFake{}, logger)),
 	)
 	if err != nil {
@@ -96,11 +97,20 @@ func TestRouterRegistersWeek1Routes(t *testing.T) {
 	for _, route := range []string{
 		"POST /v1/api-keys", "GET /v1/api-keys", "DELETE /v1/api-keys/:id", "POST /v1/offramps",
 		"POST /v1/onramps", "POST /v1/quotes", "GET /v1/orders", "GET /v1/orders/:id",
+		"GET /sep38/info", "GET /sep38/prices", "GET /sep38/price",
 		"POST /callbacks/payments/xendit",
 	} {
 		if !routes[route] {
 			t.Errorf("missing route %s", route)
 		}
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/quotes", strings.NewReader(`{"direction":"buy","fiat":{"currency":"IDR","amount_minor":"100000"},"asset":{"network":"stellar_testnet","code":"XLM"}}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("public quote route status = %d, want %d; body = %q", response.Code, http.StatusOK, response.Body.String())
 	}
 }
 
@@ -214,6 +224,7 @@ func TestRouterRegistersAuthenticatedSEP24Routes(t *testing.T) {
 	for _, route := range []string{
 		"POST /sep24/transactions/deposit/interactive",
 		"POST /sep24/transactions/withdraw/interactive",
+		"GET /sep24/transactions",
 		"GET /sep24/transaction",
 		"GET /sep24/interactive/:id",
 		"POST /sep24/deposit",

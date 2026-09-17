@@ -118,3 +118,37 @@ func (r *SEP24Repository) Find(ctx context.Context, principal usecase.OrderPrinc
 		Kind:          mapping.Kind,
 	}, nil
 }
+
+func (r *SEP24Repository) List(ctx context.Context, principal usecase.OrderPrincipal, limit int) ([]usecase.Sep24TransactionRecord, error) {
+	if err := principal.Validate(); err != nil {
+		return []usecase.Sep24TransactionRecord{}, usecase.ErrSEP24TransactionNotFound
+	}
+	if limit < 1 || limit > 100 {
+		limit = 20
+	}
+	query := r.db.WithContext(ctx).Model(&entity.SEP24Transaction{}).
+		Joins("JOIN orders ON orders.id = sep24_transactions.order_id").
+		Order("sep24_transactions.created_at DESC").
+		Order("sep24_transactions.id DESC").
+		Limit(limit)
+	if principal.IsAPIClient() {
+		query = query.Where("orders.client_id = ? AND orders.retail_session_id IS NULL", principal.ClientID)
+	} else {
+		query = query.Where("orders.client_id IS NULL AND orders.retail_session_id IS NOT NULL AND orders.created_by_user_id = ?", principal.OwnerUserID)
+	}
+
+	var mappings []entity.SEP24Transaction
+	if err := query.Find(&mappings).Error; err != nil {
+		return []usecase.Sep24TransactionRecord{}, fmt.Errorf("listing sep-24 mappings: %w", err)
+	}
+	records := make([]usecase.Sep24TransactionRecord, 0, len(mappings))
+	for _, mapping := range mappings {
+		records = append(records, usecase.Sep24TransactionRecord{
+			Principal:     principal,
+			TransactionID: mapping.TransactionID,
+			OrderID:       mapping.OrderID,
+			Kind:          mapping.Kind,
+		})
+	}
+	return records, nil
+}

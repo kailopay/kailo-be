@@ -44,10 +44,14 @@ func TestDocumentValidatesAuthContract(t *testing.T) {
 		"/sep24/info",
 		"/sep24/transactions/deposit/interactive",
 		"/sep24/transactions/withdraw/interactive",
+		"/sep24/transactions",
 		"/sep24/transaction",
 		"/sep24/interactive/{id}",
 		"/sep24/deposit",
 		"/sep24/withdraw",
+		"/sep38/info",
+		"/sep38/prices",
+		"/sep38/price",
 		"/callbacks/payments/xendit",
 		"/callbacks/kyc/persona",
 	} {
@@ -79,6 +83,17 @@ func TestDocumentValidatesAuthContract(t *testing.T) {
 		operation := document.Paths.Find(path).Post
 		if operation == nil || operation.Responses.Value("403") == nil {
 			t.Fatalf("POST %s must document the KYC-required response", path)
+		}
+	}
+	for _, schema := range []string{
+		"SEP24TransactionListResponse",
+		"SEP38InfoResponse",
+		"SEP38PricesResponse",
+		"SEP38PriceResponse",
+		"SEP38Error",
+	} {
+		if document.Components.Schemas[schema] == nil {
+			t.Errorf("missing anchor schema %q", schema)
 		}
 	}
 	webhookEndpoints := document.Paths.Find("/v1/webhook-endpoints")

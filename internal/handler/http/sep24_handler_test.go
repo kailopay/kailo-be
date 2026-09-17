@@ -24,6 +24,7 @@ type sep24HandlerServiceFake struct {
 	depositView          usecase.Sep24TransactionView
 	withdrawView         usecase.Sep24TransactionView
 	transactionView      usecase.Sep24TransactionView
+	transactionViews     []usecase.Sep24TransactionView
 	depositErr           error
 	withdrawErr          error
 	transactionErr       error
@@ -43,6 +44,10 @@ func (f *sep24HandlerServiceFake) GetTransaction(_ context.Context, principal us
 	f.transactionPrincipal = principal
 	f.transactionID = transactionID
 	return f.transactionView, f.transactionErr
+}
+
+func (f *sep24HandlerServiceFake) ListTransactions(_ context.Context, _ usecase.OrderPrincipal, _ int) ([]usecase.Sep24TransactionView, error) {
+	return f.transactionViews, nil
 }
 
 type sep24HandlerAPIAuthenticatorFake struct {
@@ -197,5 +202,38 @@ func TestSEP24TransactionUsesPersistedStatusInsteadOfClientSuppliedStatus(t *tes
 	if payload.Transaction.Status != "pending_user_transfer_start" ||
 		payload.Transaction.PaymentLinkURL != "https://checkout-staging.xendit.co/sessions/ps-1" {
 		t.Fatalf("transaction = %+v", payload.Transaction)
+	}
+}
+
+func TestSEP24TransactionsReturnsOwnerHistory(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	principal := usecase.Principal{ClientID: "client-1", OwnerUserID: "user-1"}
+	service := &sep24HandlerServiceFake{transactionViews: []usecase.Sep24TransactionView{
+		{ID: "deposit-order-1", Kind: usecase.Sep24KindDeposit, Status: "completed"},
+	}}
+	handler := NewSep24Handler(service, Sep24Config{TransferServerURL: "https://anchor.example/sep24"}, nil)
+	router := gin.New()
+	router.Use(middleware.RequireOrderPrincipal(sep24HandlerAPIAuthenticatorFake{principal: principal}, nil, middleware.DefaultSessionCookieName, nil))
+	router.GET("/transactions", handler.Transactions)
+
+	request := httptest.NewRequest(http.MethodGet, "/transactions?limit=10", nil)
+	request.Header.Set("Authorization", "Bearer pk_test_secret")
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %q", response.Code, response.Body.String())
+	}
+	var payload struct {
+		Transactions []struct {
+			ID     string `json:"id"`
+			Status string `json:"status"`
+		} `json:"transactions"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decoding response: %v", err)
+	}
+	if len(payload.Transactions) != 1 || payload.Transactions[0].ID != "deposit-order-1" || payload.Transactions[0].Status != "completed" {
+		t.Fatalf("transactions = %+v", payload.Transactions)
 	}
 }

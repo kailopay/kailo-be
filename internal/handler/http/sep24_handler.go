@@ -21,6 +21,7 @@ type Sep24Config struct {
 	DepositAccount        string
 	NetworkPassphrase     string
 	TransferServerURL     string
+	QuoteServerURL        string
 	FederationURL         string
 	DepositMinAmountMinor int64
 	DepositMaxAmountMinor int64
@@ -30,6 +31,7 @@ type Sep24Service interface {
 	StartDeposit(ctx context.Context, command usecase.Sep24DepositCommand) (usecase.Sep24TransactionView, error)
 	StartWithdraw(ctx context.Context, command usecase.Sep24WithdrawCommand) (usecase.Sep24TransactionView, error)
 	GetTransaction(ctx context.Context, principal usecase.OrderPrincipal, transactionID string) (usecase.Sep24TransactionView, error)
+	ListTransactions(ctx context.Context, principal usecase.OrderPrincipal, limit int) ([]usecase.Sep24TransactionView, error)
 }
 
 // Sep24Handler serves discovery and authenticated interactive transaction
@@ -64,6 +66,7 @@ NETWORK_PASSPHRASE = "%s"
 ACCOUNTS = ["%s"]
 VERSION = "0.1.0"
 TRANSFER_SERVER_SEP24 = "%s"
+ANCHOR_QUOTE_SERVER = "%s"
 FEDERATION_SERVER = "%s"
 DOCUMENTATION = "https://github.com/febry3/kailopay-be"
 [[CURRENCIES]]
@@ -72,7 +75,7 @@ issuer = ""
 status = "test"
 desc = "Native XLM on Stellar testnet (sandbox corridor)."
 `, h.config.NetworkPassphrase, h.config.DepositAccount,
-		h.config.TransferServerURL, h.config.FederationURL)
+		h.config.TransferServerURL, h.config.QuoteServerURL, h.config.FederationURL)
 }
 
 // Federation resolves synthetic demo names to the deposit account with the
@@ -185,6 +188,30 @@ func (h *Sep24Handler) Transaction(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"transaction": h.publicTransaction(view)})
 }
 
+// Transactions returns the authenticated owner's SEP-24 transaction history.
+func (h *Sep24Handler) Transactions(c *gin.Context) {
+	principal, ok := middleware.OrderPrincipal(c.Request.Context())
+	if !ok {
+		writeAuthError(c, http.StatusUnauthorized)
+		return
+	}
+	limit, err := parseLimit(c.Query("limit"))
+	if err != nil {
+		h.writeError(c, "listing SEP-24 transactions", usecase.ErrSEP24InvalidRequest)
+		return
+	}
+	views, err := h.service.ListTransactions(c.Request.Context(), principal, limit)
+	if err != nil {
+		h.writeError(c, "listing SEP-24 transactions", err)
+		return
+	}
+	transactions := make([]gin.H, 0, len(views))
+	for _, view := range views {
+		transactions = append(transactions, h.publicTransaction(view))
+	}
+	c.JSON(http.StatusOK, gin.H{"transactions": transactions})
+}
+
 // Interactive gives the wallet's browser a small authenticated projection of
 // the same transaction. A production wallet should use SEP-10/SEP-45 for the
 // browser hand-off; the sandbox bridge uses the existing order principal.
@@ -272,6 +299,18 @@ func parseIDRMinor(value string) (int64, error) {
 		return 0, errors.New("invalid idr amount")
 	}
 	return amount, nil
+}
+
+func parseLimit(value string) (int, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 20, nil
+	}
+	limit, err := strconv.Atoi(value)
+	if err != nil || limit < 1 || limit > 100 {
+		return 0, errors.New("invalid limit")
+	}
+	return limit, nil
 }
 
 func sep24FormValue(c *gin.Context, key string) string {

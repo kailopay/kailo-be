@@ -281,6 +281,36 @@ func TestAuthHandlerGoogleLoginAndCallback(t *testing.T) {
 	}
 }
 
+func TestAuthHandlerGoogleCallbackSetsConfiguredCookieDomain(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	service := &fakeAuthService{
+		googleLoginURL: "https://accounts.google.com/o/oauth2/v2/auth",
+		result: auth.SessionResult{
+			RawToken:  "opaque-session-token",
+			User:      auth.UserProfile{ID: "user-id"},
+			ExpiresAt: time.Now().Add(time.Hour),
+		},
+	}
+	handler := NewAuthHandler(service, platform.AuthConfig{
+		SuccessRedirectURL: "https://kailopay.com/",
+		CookieName:         "kailopay_session",
+		CookieDomain:       ".kailopay.com",
+		CookieSecure:       true,
+	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	router := gin.New()
+	router.GET("/auth/google/callback", handler.GoogleCallback)
+
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/auth/google/callback?code=code&state=state", nil))
+
+	if response.Code != http.StatusFound {
+		t.Fatalf("callback status = %d, want %d", response.Code, http.StatusFound)
+	}
+	if !strings.Contains(response.Header().Get("Set-Cookie"), "Domain=kailopay.com") {
+		t.Fatalf("Set-Cookie %q does not contain the configured domain", response.Header().Get("Set-Cookie"))
+	}
+}
+
 func TestAuthHandlerGoogleCallbackAndLogoutSanitizeErrors(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	service := &fakeAuthService{googleCompleteErr: errors.New("provider secret authorization code leaked")}

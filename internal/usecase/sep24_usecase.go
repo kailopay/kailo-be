@@ -82,6 +82,7 @@ type Sep24OrderReader interface {
 type Sep24TransactionRepository interface {
 	Create(ctx context.Context, record Sep24TransactionRecord) error
 	Find(ctx context.Context, principal OrderPrincipal, transactionID string) (Sep24TransactionRecord, error)
+	List(ctx context.Context, principal OrderPrincipal, limit int) ([]Sep24TransactionRecord, error)
 }
 
 type Sep24Dependencies struct {
@@ -176,6 +177,28 @@ func (s *Sep24Usecase) GetTransaction(ctx context.Context, principal OrderPrinci
 		return Sep24TransactionView{}, fmt.Errorf("loading sep-24 order: %w", err)
 	}
 	return s.transactionView(record, view)
+}
+
+func (s *Sep24Usecase) ListTransactions(ctx context.Context, principal OrderPrincipal, limit int) ([]Sep24TransactionView, error) {
+	if err := principal.Validate(); err != nil {
+		return []Sep24TransactionView{}, ErrSEP24TransactionNotFound
+	}
+	if limit < 1 || limit > 100 {
+		limit = 20
+	}
+	records, err := s.dependencies.Transactions.List(ctx, principal, limit)
+	if err != nil {
+		return []Sep24TransactionView{}, fmt.Errorf("listing sep-24 transactions: %w", err)
+	}
+	views := make([]Sep24TransactionView, 0, len(records))
+	for _, record := range records {
+		view, err := s.GetTransaction(ctx, principal, record.TransactionID)
+		if err != nil {
+			return []Sep24TransactionView{}, fmt.Errorf("loading sep-24 transaction %q: %w", record.TransactionID, err)
+		}
+		views = append(views, view)
+	}
+	return views, nil
 }
 
 func (s *Sep24Usecase) recordTransaction(ctx context.Context, principal OrderPrincipal, kind string, order OrderView) (Sep24TransactionView, error) {

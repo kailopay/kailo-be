@@ -21,6 +21,8 @@ tags:
     description: Authenticated on-ramp, off-ramp, and order operations.
   - name: SEP-24
     description: Authenticated sandbox deposit and withdrawal operations.
+  - name: SEP-38
+    description: Public indicative and amount-specific sandbox quote operations.
   - name: Anchor discovery
     description: Public Stellar testnet anchor metadata and federation lookup.
   - name: Provider callbacks
@@ -869,7 +871,7 @@ paths:
       tags: [Anchor discovery]
       operationId: getStellarToml
       summary: Get the public Stellar testnet anchor descriptor
-      description: Advertises only the configured sandbox/testnet SEP-24 transfer server, federation endpoint, and native XLM asset.
+      description: Advertises only the configured sandbox/testnet SEP-24 transfer server, SEP-38 quote server, federation endpoint, and native XLM asset.
       responses:
         '200':
           description: Stellar TOML document
@@ -1046,6 +1048,46 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SEP24Error'
+  /sep24/transactions:
+    get:
+      tags: [SEP-24]
+      operationId: listSEP24Transactions
+      summary: List owned SEP-24 transactions
+      description: Returns the most recent owner-scoped SEP-24 transaction mappings. The current order state is resolved for every mapping; client-supplied status is never trusted.
+      security:
+        - kailoAPIKey: []
+        - kailoSession: []
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+          description: Maximum number of transactions to return.
+      responses:
+        '200':
+          description: Recent transactions for the authenticated owner
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SEP24TransactionListResponse'
+        '400':
+          description: Invalid limit
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SEP24Error'
+        '401':
+          description: Missing or invalid API key/session credentials
+        '503':
+          description: Transaction or order storage unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SEP24Error'
   /sep24/transaction:
     get:
       tags: [SEP-24]
@@ -1122,6 +1164,95 @@ paths:
     $ref: '#/paths/~1sep24~1transactions~1deposit~1interactive'
   /sep24/withdraw:
     $ref: '#/paths/~1sep24~1transactions~1withdraw~1interactive'
+  /sep38/info:
+    get:
+      tags: [SEP-38]
+      operationId: getSEP38Info
+      summary: Get supported SEP-38 quote assets and delivery methods
+      description: Returns the sandbox quote assets, supported delivery methods, and country metadata for the IDR/native-XLM pair.
+      responses:
+        '200':
+          description: Supported quote assets and delivery methods
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SEP38InfoResponse'
+  /sep38/prices:
+    get:
+      tags: [SEP-38]
+      operationId: getSEP38Prices
+      summary: Get an indicative SEP-38 price
+      description: Returns the current indicative price for the requested asset pair. Omit one asset to request all supported counter-assets for the specified asset.
+      parameters:
+        - name: sell_asset
+          in: query
+          required: false
+          schema: {type: string, enum: [iso4217:IDR, stellar:native]}
+        - name: buy_asset
+          in: query
+          required: false
+          schema: {type: string, enum: [iso4217:IDR, stellar:native]}
+      responses:
+        '200':
+          description: Indicative prices
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SEP38PricesResponse'
+        '400':
+          description: Invalid or unsupported asset pair
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SEP38Error'
+        '503':
+          description: Fresh market data is unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SEP38Error'
+  /sep38/price:
+    get:
+      tags: [SEP-38]
+      operationId: getSEP38Price
+      summary: Calculate a SEP-38 amount-specific price
+      description: Returns an amount-specific calculation. Provide exactly one of sell_amount or buy_amount. IDR uses minor units and native XLM uses up to 7 decimal places.
+      parameters:
+        - name: sell_asset
+          in: query
+          required: true
+          schema: {type: string, enum: [iso4217:IDR, stellar:native]}
+        - name: buy_asset
+          in: query
+          required: true
+          schema: {type: string, enum: [iso4217:IDR, stellar:native]}
+        - name: sell_amount
+          in: query
+          required: false
+          schema: {type: string}
+        - name: buy_amount
+          in: query
+          required: false
+          schema: {type: string}
+      responses:
+        '200':
+          description: Amount-specific quote calculation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SEP38PriceResponse'
+        '400':
+          description: Invalid pair, amount, or amount range
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SEP38Error'
+        '503':
+          description: Fresh market data is unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SEP38Error'
   /callbacks/kyc/persona:
     post:
       tags: [Provider callbacks]
@@ -1307,6 +1438,10 @@ components:
           type: string
         inquiry_id:
           type: string
+        url:
+          type: string
+          format: uri
+          description: Direct Persona hosted verification URL for this inquiry.
         environment_id:
           type: string
         session_token:
@@ -1848,6 +1983,14 @@ components:
       properties:
         transaction:
           $ref: '#/components/schemas/SEP24Transaction'
+    SEP24TransactionListResponse:
+      type: object
+      required: [transactions]
+      properties:
+        transactions:
+          type: array
+          items:
+            $ref: '#/components/schemas/SEP24Transaction'
     SEP24InteractiveResponse:
       type: object
       required: [environment, network, kyc_required, transaction]
@@ -1858,6 +2001,79 @@ components:
         transaction:
           $ref: '#/components/schemas/SEP24Transaction'
     SEP24Error:
+      type: object
+      required: [error, request_id]
+      properties:
+        error: {type: string}
+        request_id: {type: string}
+    SEP38InfoResponse:
+      type: object
+      required: [assets]
+      properties:
+        assets:
+          type: array
+          items:
+            $ref: '#/components/schemas/SEP38Asset'
+    SEP38Asset:
+      type: object
+      required: [asset]
+      properties:
+        asset: {type: string}
+        sell_delivery_methods:
+          type: array
+          items:
+            $ref: '#/components/schemas/SEP38DeliveryMethod'
+        buy_delivery_methods:
+          type: array
+          items:
+            $ref: '#/components/schemas/SEP38DeliveryMethod'
+        country_codes:
+          type: array
+          items: {type: string}
+    SEP38DeliveryMethod:
+      type: object
+      required: [name, description]
+      properties:
+        name: {type: string}
+        description: {type: string}
+    SEP38PricesResponse:
+      oneOf:
+        - $ref: '#/components/schemas/SEP38BuyPricesResponse'
+        - $ref: '#/components/schemas/SEP38SellPricesResponse'
+    SEP38BuyPricesResponse:
+      type: object
+      required: [buy_assets]
+      properties:
+        buy_assets:
+          type: array
+          items:
+            $ref: '#/components/schemas/SEP38AssetPrice'
+    SEP38SellPricesResponse:
+      type: object
+      required: [sell_assets]
+      properties:
+        sell_assets:
+          type: array
+          items:
+            $ref: '#/components/schemas/SEP38AssetPrice'
+    SEP38AssetPrice:
+      type: object
+      required: [asset, price, decimals]
+      properties:
+        asset: {type: string}
+        price: {type: string}
+        decimals: {type: integer, minimum: 0}
+    SEP38PriceResponse:
+      type: object
+      required: [total_price, price, sell_asset, sell_amount, buy_asset, buy_amount]
+      properties:
+        total_price: {type: string}
+        price: {type: string}
+        sell_asset: {type: string}
+        sell_amount: {type: string}
+        buy_asset: {type: string}
+        buy_amount: {type: string}
+    SEP38Error:
       type: object
       required: [error, request_id]
       properties:

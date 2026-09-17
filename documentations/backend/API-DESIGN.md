@@ -163,6 +163,7 @@ SEP-24 and federation paths follow the applicable Stellar specifications and are
 |---|---|---|---|---|
 | `POST` | `/sep24/transactions/deposit/interactive` | Test key or verified retail session | `Idempotency-Key` required | Create and persist an owned on-ramp order mapping |
 | `POST` | `/sep24/transactions/withdraw/interactive` | Test key or verified retail session | `Idempotency-Key` required | Create and persist an owned off-ramp order mapping |
+| `GET` | `/sep24/transactions?limit={n}` | Test key or verified retail session | N/A | List recent owned SEP-24 transaction mappings |
 | `GET` | `/sep24/transaction?id={transaction_id}` | Test key or verified retail session | N/A | Return current status for an owned mapping |
 | `GET` | `/sep24/interactive/{transaction_id}` | Test key or verified retail session | N/A | Return the authenticated sandbox interactive projection |
 
@@ -181,6 +182,26 @@ Deposit responses also include the sandbox-specific `payment_link_url` when a
 hosted checkout was created. Withdrawal responses do not include this field.
 `/sep24/deposit` and `/sep24/withdraw` are retained as local compatibility
 aliases.
+
+### SEP-38 quote server
+
+The anchor advertises `/sep38` through `ANCHOR_QUOTE_SERVER` in
+`/.well-known/stellar.toml`. These endpoints use the same market-price and
+spread policy as `/v1/quotes`, but expose Stellar's asset-identification format
+(`iso4217:IDR` and `stellar:native`) for wallet and anchor integrations:
+
+| Method | Path | Auth | Purpose |
+|---|---|---|---|
+| `GET` | `/sep38/info` | Public | List supported quote assets and delivery methods |
+| `GET` | `/sep38/prices?sell_asset=...&buy_asset=...` | Public | Return an indicative price for the requested pair |
+| `GET` | `/sep38/price?...&sell_amount=...` or `buy_amount` | Public | Calculate the exact amount-specific result |
+
+`/sep38/price` requires exactly one amount. IDR values are integer minor units;
+native XLM values use up to seven decimal places. `/v1/quotes` remains the
+first-party convenience contract for the web app, while both surfaces call the
+same quote policy and do not reserve liquidity or create an order. Firm quote
+creation and SEP-10/SEP-45 wallet authentication are outside this sandbox
+slice.
 
 | Method | Path | Purpose |
 |---|---|---|

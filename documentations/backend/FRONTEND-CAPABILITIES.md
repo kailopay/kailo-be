@@ -18,8 +18,8 @@ The API uses one base URL. The local default is `http://localhost:8080`. Use the
 | Developer keys | `POST /v1/api-keys`, `GET /v1/api-keys`, `DELETE /v1/api-keys/{id}` | Server-integration setup. Keep keys out of browser code. |
 | Developer webhooks | `POST /v1/webhook-endpoints`, `GET /v1/webhook-endpoints`, `DELETE /v1/webhook-endpoints/{id}` | Configuration UI only. Delivery is not active yet. |
 | Orders | `POST /v1/quotes`, `POST /v1/onramps`, `POST /v1/offramps`, `GET /v1/orders`, `GET /v1/orders/{id}` | Quote preview, buy, sell, order history, and order tracking. |
-| Anchor discovery | `GET /.well-known/stellar.toml`, `GET /federation?q=...`, `GET /sep24/info` | Stellar integration and sandbox information. |
-| SEP-24 | `POST /sep24/transactions/deposit/interactive`, `POST /sep24/transactions/withdraw/interactive`, `GET /sep24/transaction?id=...`, `GET /sep24/interactive/{id}`, `POST /sep24/deposit`, `POST /sep24/withdraw` | Authenticated JSON-based deposit and withdrawal screens. |
+| Anchor discovery | `GET /.well-known/stellar.toml`, `GET /federation?q=...`, `GET /sep24/info`, `GET /sep38/info`, `GET /sep38/prices`, `GET /sep38/price` | Stellar integration and sandbox metadata/pricing. |
+| SEP-24 | `POST /sep24/transactions/deposit/interactive`, `POST /sep24/transactions/withdraw/interactive`, `GET /sep24/transactions`, `GET /sep24/transaction?id=...`, `GET /sep24/interactive/{id}`, `POST /sep24/deposit`, `POST /sep24/withdraw` | Authenticated JSON-based deposit, withdrawal, history, and status screens. |
 | Provider callbacks | `POST /callbacks/kyc/persona`, `POST /callbacks/payments/xendit` | Provider-to-backend traffic. Do not call these from the frontend. |
 
 The `/sep24/deposit` and `/sep24/withdraw` routes are compatibility aliases. Use the nested `/sep24/transactions/.../interactive` routes for new code.
@@ -45,7 +45,7 @@ Use the following matrix when deciding which client can call an endpoint:
 
 | Client context | Endpoints | Required browser behavior |
 |---|---|---|
-| Public browser request | Health, API docs, `/.well-known/stellar.toml`, `/federation`, `/sep24/info` | No login is required. The TOML route returns text, not JSON. |
+| Public browser request | Health, API docs, `/.well-known/stellar.toml`, `/federation`, `/sep24/info`, `/sep38/*`, `POST /v1/quotes` | No login is required. The TOML route returns text, not JSON. |
 | Browser navigation | `/auth/google/login`, `/auth/google/callback` | Navigate to the URL with `location.assign`; do not call these routes through `fetch`. |
 | Session cookie | `/auth/me`, password change, avatar, KYC, API keys, webhook management | Send `credentials: "include"`. The cookie is HttpOnly, so the frontend reads the returned user or status rather than the cookie value. |
 | Session or server API key | On-ramp, off-ramp, order reads, and SEP-24 transaction routes | Use the session for the consumer web app. Use `Authorization: Bearer pk_test_...` only in a trusted server integration. |
@@ -440,6 +440,7 @@ Use these endpoints:
 - `GET /sep24/info` to read supported XLM limits and units.
 - `POST /sep24/transactions/deposit/interactive` to start a deposit.
 - `POST /sep24/transactions/withdraw/interactive` to start a withdrawal.
+- `GET /sep24/transactions?limit=...` to list recent owned transactions.
 - `GET /sep24/transaction?id=...` to read transaction status.
 - `GET /sep24/interactive/{id}` to read the authenticated transaction projection.
 
@@ -533,6 +534,10 @@ The `id` is also the mapped order identifier in this sandbox implementation. Use
 
 Use `GET /sep24/transaction?id=...` for a standard transaction projection and the interactive route when the UI needs the sandbox/environment metadata. Both are owner-scoped and require authentication.
 
+For transaction history, use `GET /sep24/transactions?limit=20`. The response
+is `{ "transactions": [...] }`, ordered newest first, and every item is
+resolved from the current owner-scoped order state.
+
 Use `FormData` for a SEP-24 start request:
 
 ```ts
@@ -556,12 +561,30 @@ const result = await apiFetch<Sep24StartResponse>(
 
 For a withdrawal, replace `amount_minor`, `account`, `memo`, `memo_type`, and `payment_method` with `amount` and `destination_token`.
 
+### SEP-38 pricing
+
+Use the public SEP-38 quote server when a wallet-facing integration needs
+standard Stellar asset identifiers. The backend exposes:
+
+- `GET /sep38/info` for supported assets and delivery methods.
+- `GET /sep38/prices?sell_asset=...&buy_asset=...` for an indicative price.
+- `GET /sep38/price?sell_asset=...&buy_asset=...&sell_amount=...` or
+  `buy_amount=...` for an amount-specific calculation.
+
+Use `iso4217:IDR` for IDR and `stellar:native` for XLM. Send exactly one of
+`sell_amount` or `buy_amount`; IDR is an integer minor-unit string and XLM has
+up to seven decimal places. `/sep38` and `POST /v1/quotes` use the same backend
+market data and spread policy. Neither endpoint creates an order or reserves
+liquidity; start settlement through the SEP-24 interactive endpoints.
+
 ### Public anchor metadata
 
 The frontend or an integration screen can read:
 
 - `GET /.well-known/stellar.toml` for the configured sandbox anchor descriptor.
 - `GET /federation?q=name*kailopay` for a testnet account and memo lookup.
+- `GET /sep38/info`, `/sep38/prices`, and `/sep38/price` for wallet-compatible
+  quote calculations.
 
 These routes describe the Stellar testnet and native XLM sandbox flow. They do not advertise a production asset or production payment rail.
 
