@@ -344,17 +344,7 @@ func (r *OfframpRepository) ConfirmRetirement(ctx context.Context, intentID, has
 			Updates(map[string]any{"processed_at": now, "lease_owner": nil, "lease_until": nil, "last_error": nil}).Error; err != nil {
 			return err
 		}
-		outboxID, outboxErr := platform.NewID()
-		if outboxErr != nil {
-			return outboxErr
-		}
-		payload, payloadErr := json.Marshal(map[string]string{"order_id": order.ID})
-		if payloadErr != nil {
-			return payloadErr
-		}
-		payoutJob := entity.OutboxMessage{ID: outboxID, Topic: "stellar.pay_offramp", AggregateType: "order",
-			AggregateID: order.ID, Payload: payload, CreatedAt: now, AvailableAt: now}
-		return tx.Create(&payoutJob).Error
+		return nil
 	})
 }
 
@@ -387,51 +377,6 @@ func (r *OfframpRepository) FailRetirement(ctx context.Context, intentID, safeEr
 		return tx.Model(&entity.OutboxMessage{}).Where("topic = ? AND aggregate_id = ? AND processed_at IS NULL", "stellar.retire_offramp", order.ID).
 			Updates(map[string]any{"processed_at": now, "lease_owner": nil, "lease_until": nil, "last_error": safeError}).Error
 	})
-}
-
-// LoadOfframpOrderAmount returns the IDR minor amount of an off-ramp order.
-func (r *OfframpRepository) LoadOfframpOrderAmount(ctx context.Context, orderID string) (int64, error) {
-	var order entity.OrderRecord
-	if err := r.db.WithContext(ctx).Select("fiat_amount_minor").Where("id = ?", orderID).First(&order).Error; err != nil {
-		return 0, fmt.Errorf("finding off-ramp order amount: %w", err)
-	}
-	return order.FiatAmountMinor, nil
-}
-
-// CompleteSimulatedPayout records the deterministic sandbox payout and
-// completes the order (ADR-003). The reference wording must always be
-// presented as simulation.
-func (r *OfframpRepository) CompleteSimulatedPayout(ctx context.Context, orderID string, amountMinor int64, now time.Time) (string, error) {
-	reference := "payout_" + orderID
-	payoutRowID, idErr := platform.NewID()
-	if idErr != nil {
-		return "", idErr
-	}
-	err := r.tx.do(ctx, func(tx *gorm.DB) error {
-		payout := entity.OfframpPayout{ID: payoutRowID, OrderID: orderID,
-			Method: string(entity.WithdrawalMethodSandboxTransfer), AmountMinor: amountMinor,
-			ReferenceID: reference, State: "completed", CompletedAt: &now, CreatedAt: now, UpdatedAt: now}
-		if err := tx.Create(&payout).Error; err != nil {
-			return fmt.Errorf("recording simulated payout: %w", err)
-		}
-		var order entity.OrderRecord
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", orderID).First(&order).Error; err != nil {
-			return err
-		}
-		if entity.OrderStatus(order.Status) != entity.OrderStatusWithdrawalProcessing {
-			return entity.ErrInvalidOrderState
-		}
-		if err := tx.Model(&entity.OrderRecord{}).Where("id = ? AND version = ?", order.ID, order.Version).
-			Updates(map[string]any{"status": entity.OrderStatusCompleted, "version": order.Version + 1,
-				"completed_at": now, "updated_at": now}).Error; err != nil {
-			return err
-		}
-		return appendOrderEvent(tx, order.ID, order.Version+1, "payout.simulated", order.Status, string(entity.OrderStatusCompleted), now)
-	})
-	if err != nil {
-		return "", err
-	}
-	return reference, nil
 }
 
 func (r *OfframpRepository) Get(ctx context.Context, principal usecase.OrderPrincipal, orderID string) (usecase.OrderView, error) {

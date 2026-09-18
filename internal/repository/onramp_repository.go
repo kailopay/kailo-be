@@ -420,6 +420,8 @@ func baseOrderView(order entity.OrderRecord) usecase.OrderView {
 		CreatedAt:     order.CreatedAt, UpdatedAt: order.UpdatedAt}
 	if order.StellarDestination != nil {
 		view.StellarDestination = *order.StellarDestination
+	} else if order.Direction == "offramp" && order.StellarSource != nil {
+		view.StellarDestination = *order.StellarSource
 	}
 	if order.StellarMemo != nil {
 		view.StellarMemo = *order.StellarMemo

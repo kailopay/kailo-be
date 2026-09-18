@@ -131,8 +131,10 @@ Needs: structured logs, searchable order identifiers, safe replay procedures, en
 3. User transfers the test asset to the configured KailoPay testnet account or follows the SEP-24 withdrawal flow.
 4. KailoPay detects or verifies the asset transfer.
 5. KailoPay burns or retires the test asset according to the configured issuance model.
-6. KailoPay initiates the supported sandbox withdrawal/payout step or records the sandbox withdrawal instruction when provider payout simulation is limited.
-7. User sees the final status, transaction hash, and sandbox withdrawal reference.
+6. KailoPay records the sandbox withdrawal instruction after retirement. The
+   provider payout step is deferred when no supported payout rail is available.
+7. User sees the retirement status, transaction hash, and the selected sandbox
+   withdrawal destination reference.
 
 ### 7.3 Developer API journey
 

@@ -22,7 +22,7 @@ import (
 
 // outboxTopics are drained in order each tick; a topic with work keeps the
 // loop running before other topics are polled.
-var outboxTopics = []string{"stellar.settle_onramp", "stellar.retire_offramp", "stellar.pay_offramp"}
+var outboxTopics = []string{"stellar.settle_onramp", "stellar.retire_offramp"}
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -147,28 +147,9 @@ func run(ctx context.Context) error {
 		}
 		return true, retireWorker.RunOnce(ctx, job.IntentID)
 	}
-	runPayout := func() (bool, error) {
-		job, err := settlementStore.LeaseOutbox(ctx, "stellar.pay_offramp", workerID, time.Now().UTC(),
-			cfg.Week1.Worker.LeaseDuration, orderPayloadDecoder)
-		if errors.Is(err, usecase.ErrNoJob) {
-			return false, nil
-		}
-		if err != nil {
-			return false, err
-		}
-		amount, loadErr := offrampRepo.LoadOfframpOrderAmount(ctx, job.IntentID)
-		if loadErr != nil {
-			return true, loadErr
-		}
-		if _, payErr := offrampRepo.CompleteSimulatedPayout(ctx, job.IntentID, amount, time.Now().UTC()); payErr != nil {
-			return true, payErr
-		}
-		return true, settlementStore.FinishOutbox(ctx, "stellar.pay_offramp", job.IntentID, time.Now().UTC())
-	}
 	drain := map[string]func() (bool, error){
 		"stellar.settle_onramp":  runSettlement,
 		"stellar.retire_offramp": runRetirement,
-		"stellar.pay_offramp":    runPayout,
 	}
 
 	depositPollInterval := cfg.Week1.Worker.PollInterval * 10
@@ -241,16 +222,6 @@ func intentPayloadDecoder(payload []byte) (usecase.Job, error) {
 		return usecase.Job{}, errors.New("invalid intent payload")
 	}
 	return usecase.Job{IntentID: decoded.IntentID}, nil
-}
-
-func orderPayloadDecoder(payload []byte) (usecase.Job, error) {
-	var decoded struct {
-		OrderID string `json:"order_id"`
-	}
-	if json.Unmarshal(payload, &decoded) != nil || decoded.OrderID == "" {
-		return usecase.Job{}, errors.New("invalid payout payload")
-	}
-	return usecase.Job{OutboxID: "pay-" + decoded.OrderID, IntentID: decoded.OrderID}, nil
 }
 
 // depositWatcherFunc adapts the stellar adapter's observation type to the

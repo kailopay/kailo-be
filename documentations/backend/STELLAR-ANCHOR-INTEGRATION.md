@@ -132,7 +132,9 @@ Minimum behavior:
 - Deposit requests support `asset_code=XLM`, `account`, `memo`, and the
   sandbox-specific `amount_minor` IDR input required by the quote workflow.
 - Withdrawal requests support `asset_code=XLM`, the exact XLM `amount`, and the
-  non-empty sandbox `destination_token` used by the simulated payout rail.
+  non-empty sandbox `destination_token` retained for the future payout rail.
+  The current release records the destination token but does not execute a
+  payout after retirement.
 - `/sep24/info` labels deposit bounds as `idr_minor` and withdrawal bounds as
   `XLM`; the distinction is intentional because deposit quotes are fiat
   denominated in this sandbox.

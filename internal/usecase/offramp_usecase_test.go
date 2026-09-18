@@ -123,9 +123,6 @@ func (r *fakeOfframpRepo) ConfirmRetirement(context.Context, string, string, tim
 	return nil
 }
 func (r *fakeOfframpRepo) FailRetirement(context.Context, string, string) error { return nil }
-func (r *fakeOfframpRepo) CompleteSimulatedPayout(context.Context, string, int64, time.Time) (string, error) {
-	return "", nil
-}
 
 var validDestination = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 

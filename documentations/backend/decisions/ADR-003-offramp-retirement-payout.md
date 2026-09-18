@@ -1,6 +1,6 @@
 # ADR-003: Off-Ramp Retirement and Payout Model
 
-- Status: accepted
+- Status: accepted; payout-completion behavior superseded for the current release by ADR-005
 - Date: 2026-08-24
 - Decision owners: KailoPay project owner and backend developer
 - Resolves: BE-002 (Stellar asset/retirement model) and BE-003 (off-ramp

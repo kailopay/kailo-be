@@ -1,5 +1,5 @@
 -- Week 2 off-ramp (ADR-003): allow offramp orders, their lifecycle states,
--- deposit/retirement transaction purposes, and the simulated payout record.
+-- deposit/retirement transaction purposes, and historical/future payout evidence.
 
 ALTER TABLE orders DROP CONSTRAINT orders_direction_check;
 ALTER TABLE orders ADD CONSTRAINT orders_direction_check

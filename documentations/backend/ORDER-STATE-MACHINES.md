@@ -73,7 +73,7 @@ stateDiagram-v2
     asset_received --> retirement_processing: retirement intent persisted
     retirement_processing --> withdrawal_processing: burn/retirement confirmed
     retirement_processing --> retirement_failed: permanent network failure
-    withdrawal_processing --> completed: payout/simulation evidence recorded
+    withdrawal_processing --> completed: payout evidence recorded (future payout rail)
     withdrawal_processing --> withdrawal_failed: permanent provider failure
     created --> cancelled: cancelled before instructions
     asset_pending --> cancelled: cancellation permitted before asset receipt
@@ -94,10 +94,16 @@ stateDiagram-v2
 | `asset_pending` | Expire order | Deposit window passed and no matching asset received | `expired` | Expiry event |
 | `asset_pending` | Invalid deposit established | A correlated deposit exists but violates required asset/amount rules | `asset_invalid` | Transaction hash and safe mismatch reason |
 | `asset_received` | Queue retirement | No existing retirement intent | `retirement_processing` | Retirement intent and outbox row |
-| `retirement_processing` | Retirement confirmed | Burn/retirement transaction is successful | `withdrawal_processing` | Retirement transaction hash and payout intent |
+| `retirement_processing` | Retirement confirmed | Burn/retirement transaction is successful | `withdrawal_processing` | Retirement transaction hash |
 | `retirement_processing` | Retirement failed | Permanent result established after reconciliation | `retirement_failed` | Attempts and final safe error |
-| `withdrawal_processing` | Withdrawal completed | Gateway sandbox reference or approved simulation evidence stored | `completed` | Payout/simulation reference |
+| `withdrawal_processing` | Withdrawal completed | Future payout rail returns durable success evidence | `completed` | Provider payout reference |
 | `withdrawal_processing` | Withdrawal failed | Verified permanent provider outcome | `withdrawal_failed` | Safe provider failure code |
+
+In the current release, the payout rail is deferred. There is intentionally no
+worker transition out of `withdrawal_processing` after retirement, so the
+frontend must not show a completed or successful IDR payout message. Enable a
+durable payout adapter and reconciliation flow before adding the `completed`
+transition.
 
 ## 4. Unknown external outcomes
 

@@ -71,7 +71,7 @@ integration client for the public API, not a second backend runtime.
 - Verified retail sessions can create and read consumer orders on the same on-ramp/off-ramp/order-history paths; history is scoped to the user across valid sessions.
 - Hashed test API keys using the `pk_test_` prefix.
 - PostgreSQL persistence, migrations, order events, and external-reference correlation.
-- One payment gateway adapter for sandbox QRIS, bank transfer/virtual account, callbacks, and the available payout simulation.
+- One payment gateway adapter for sandbox QRIS, bank transfer/virtual account, and callbacks. Off-ramp payout is deferred in the current release.
 - Stellar testnet native-XLM transfer, deposit verification, burn/retirement, and transaction correlation.
 - Authenticated SEP-24 deposit and withdrawal order mapping, Persona-backed
   sandbox KYC status gate, public `stellar.toml`, and federation configuration.
@@ -117,7 +117,7 @@ Material design changes require an ADR and synchronized updates to affected docu
 
 - ~~Select Xendit or Midtrans after confirming exact sandbox capabilities.~~ Resolved by ADR-001: use Xendit Payment Sessions.
 - ~~Confirm test asset code, precision, issuer/distributor accounts, and retirement method.~~ Resolved by ADR-001 and ADR-003: use native XLM on Stellar testnet and burn-address retirement.
-- ~~Agree acceptable off-ramp evidence when the selected gateway cannot execute a true sandbox payout.~~ Resolved by ADR-003: record a simulated payout with an explicit disclosure.
+- ~~Agree acceptable off-ramp evidence when the selected gateway cannot execute a true sandbox payout.~~ Current release decision is recorded in ADR-005: defer payout and keep the order in `withdrawal_processing` after retirement.
 - Select deployment topology, public hostnames, and managed-secret mechanism.
 - ~~Select a KYC provider and gate policy~~ Resolved by ADR-004: Persona sandbox
   status gate; only `approved` unlocks API-key and order creation.

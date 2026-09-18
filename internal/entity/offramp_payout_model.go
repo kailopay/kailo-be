@@ -2,9 +2,8 @@ package entity
 
 import "time"
 
-// OfframpPayout records the sandbox-simulated IDR payout for one off-ramp
-// order (ADR-003). The reference is deterministic and the wording everywhere
-// must disclose that no real IDR moves in the sandbox release.
+// OfframpPayout records historical or future payout evidence for one off-ramp
+// order. The current release does not create new payout rows.
 type OfframpPayout struct {
 	ID          string `gorm:"type:uuid;primaryKey"`
 	OrderID     string `gorm:"type:uuid;not null;unique"`

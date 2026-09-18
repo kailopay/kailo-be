@@ -76,7 +76,7 @@ func (h *OfframpHandler) Create(c *gin.Context) {
 	if replay {
 		status = http.StatusOK
 	}
-	c.JSON(status, gin.H{"order": publicOrder(view), "payout_simulation": true})
+	c.JSON(status, gin.H{"order": publicOrder(view)})
 }
 
 func (h *OfframpHandler) writeError(c *gin.Context, operation string, err error) {

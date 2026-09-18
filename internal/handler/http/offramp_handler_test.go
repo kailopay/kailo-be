@@ -79,4 +79,7 @@ func TestOfframpHandlerCreatesRetailSessionOwnedOrder(t *testing.T) {
 	if service.command.AssetNetwork != "stellar_testnet" || service.command.AssetCode != "XLM" || service.command.FiatCurrency != "IDR" {
 		t.Fatalf("asset/currency command = %+v", service.command)
 	}
+	if strings.Contains(response.Body.String(), "payout_simulation") {
+		t.Fatalf("response must not advertise a payout simulation: %q", response.Body.String())
+	}
 }

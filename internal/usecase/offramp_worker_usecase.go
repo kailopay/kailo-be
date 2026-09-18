@@ -7,13 +7,12 @@ import (
 	"time"
 )
 
-// OfframpWorkerRepository is the persistence port for the three off-ramp
-// worker jobs (deposit verification, burn submission, simulated payout).
+// OfframpWorkerRepository is the persistence port for off-ramp retirement
+// worker jobs.
 type OfframpWorkerRepository interface {
 	SaveRetirementHash(ctx context.Context, intentID, hash string, now time.Time) error
 	ConfirmRetirement(ctx context.Context, intentID, hash string, ledgerAt time.Time) error
 	FailRetirement(ctx context.Context, intentID, safeError string) error
-	CompleteSimulatedPayout(ctx context.Context, orderID string, amountMinor int64, now time.Time) (string, error)
 }
 
 // DepositScanner combines the ports the deposit-verification job needs.
@@ -184,11 +183,4 @@ func (w RetireWorker) reconcile(ctx context.Context, intentID, hash string) erro
 	default:
 		return nil // transient: retried on the next lease
 	}
-}
-
-// RecordSimulatedPayout records the deterministic simulated payout and
-// completes the order (ADR-003).
-func RecordSimulatedPayout(ctx context.Context, repository OfframpWorkerRepository, orderID string, amountMinor int64, config SettlementConfig) error {
-	_, err := repository.CompleteSimulatedPayout(ctx, orderID, amountMinor, config.Now().UTC())
-	return err
 }

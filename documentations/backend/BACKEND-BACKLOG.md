@@ -101,7 +101,7 @@ Acceptance: exact amount round-trips; invalid/cross-principal requests fail; dup
 | BE-034 | Implement callback deduplication and amount/currency/reference/status reconciliation. | P0 | 5 | Week 1 | BE-033, BE-021 | Implemented |
 | BE-035 | Persist one settlement intent after verified payment and process asynchronously. | P0 | 3 | Week 1-2 | BE-015, BE-034 | Implemented |
 | BE-036 | Implement provider payment status reconciliation for timeout/late/unknown events. | P0 | 5 | Week 2 | BE-030, BE-034 | Blocked |
-| BE-037 | Implement off-ramp payout/simulation intent, provider adapter, and reconciliation. | P0 | 5 | Week 2 | BE-003, BE-030 | Implemented as simulated payout (ADR-003) |
+| BE-037 | Implement off-ramp payout intent, provider adapter, and reconciliation. | P0 | 5 | Week 2 | BE-003, BE-030 | Deferred; current release stops after retirement in `withdrawal_processing` (ADR-005) |
 
 Acceptance: invalid/mismatched/replayed callback cannot duplicate state/settlement; QRIS and bank transfer produce real sandbox checkout evidence; payout language matches evidence.
 

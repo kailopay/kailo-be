@@ -45,8 +45,8 @@ func TestCreateOfframpPersistsInstructionsAndReplays(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get() error = %v", err)
 	}
-	if view.Status != entity.OrderStatusAssetPending || view.StellarMemo != usecase.OfframpDepositMemo(orderID) {
-		t.Fatalf("view status/memo = %s/%q", view.Status, view.StellarMemo)
+	if view.Status != entity.OrderStatusAssetPending || view.StellarDestination != testDestination(9) || view.StellarMemo != usecase.OfframpDepositMemo(orderID) {
+		t.Fatalf("view status/destination/memo = %s/%q/%q", view.Status, view.StellarDestination, view.StellarMemo)
 	}
 	if view.DepositTransactionHash != "" {
 		t.Fatal("fresh order must not have a deposit hash yet")
@@ -213,7 +213,7 @@ func TestRecordAssetReceivedQueuesRetirementAtomically(t *testing.T) {
 	}
 }
 
-func TestRetirementConfirmAdvancesToWithdrawalAndPayoutCompletes(t *testing.T) {
+func TestRetirementConfirmStopsBeforeDeferredPayout(t *testing.T) {
 	repo, db := newOfframpIntegration(t)
 	ctx := context.Background()
 	now := time.Now().UTC()
@@ -244,23 +244,16 @@ func TestRetirementConfirmAdvancesToWithdrawalAndPayoutCompletes(t *testing.T) {
 		t.Fatalf("status = %s, want withdrawal_processing", view.Status)
 	}
 
-	reference, err := repo.CompleteSimulatedPayout(ctx, orderID, 100_000, now.Add(3*time.Minute))
-	if err != nil {
-		t.Fatalf("CompleteSimulatedPayout() error = %v", err)
-	}
-	if reference != "payout_"+orderID {
-		t.Fatalf("reference = %q", reference)
-	}
 	view, _ = repo.Get(ctx, integrationAPIPrincipal(), orderID)
-	if view.Status != entity.OrderStatusCompleted || view.Payout == nil || !*view.Payout.Simulated {
-		t.Fatalf("final view = %+v", view)
+	if view.Status != entity.OrderStatusWithdrawalProcessing || view.Payout != nil {
+		t.Fatalf("final view = %+v, want withdrawal_processing without payout", view)
 	}
 	var webhookEvents []entity.WebhookEvent
 	if err := db.Joins("JOIN order_events ON order_events.id = webhook_events.source_order_event_id").
 		Where("webhook_events.order_id = ?", orderID).Order("order_events.aggregate_version").Find(&webhookEvents).Error; err != nil {
 		t.Fatalf("loading lifecycle webhook events: %v", err)
 	}
-	wantTypes := []string{usecase.EventOrderCreated, usecase.EventOrderAssetReceived, usecase.EventOrderProcessing, usecase.EventOrderCompleted}
+	wantTypes := []string{usecase.EventOrderCreated, usecase.EventOrderAssetReceived, usecase.EventOrderProcessing}
 	if len(webhookEvents) != len(wantTypes) {
 		t.Fatalf("webhook event count = %d, want %d", len(webhookEvents), len(wantTypes))
 	}
@@ -269,7 +262,7 @@ func TestRetirementConfirmAdvancesToWithdrawalAndPayoutCompletes(t *testing.T) {
 			t.Fatalf("webhook event %d type = %q, want %q", index, webhookEvents[index].EventType, wantType)
 		}
 	}
-	if countRows(t, db, &entity.OutboxMessage{}) < 2 {
-		t.Fatal("expected retirement and payout outbox rows")
+	if countRows(t, db, &entity.OutboxMessage{}) != 1 {
+		t.Fatal("expected only the retirement outbox row")
 	}
 }

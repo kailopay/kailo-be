@@ -694,23 +694,25 @@ instructions. It does not move real IDR.
 
 1. Open /sell.
 2. Enter an exact XLM amount such as 1.0000000.
-3. Enter a synthetic sandbox payout reference.
+3. Choose a sandbox bank-destination token.
 4. Submit the order.
 5. Copy the returned deposit account and memo.
 6. Send the exact XLM amount to the deposit account on Stellar testnet.
 7. Include the required memo.
 8. Keep the worker running while it scans the deposit account.
-9. Refresh the order until the simulated payout completes.
+9. Refresh the order until the XLM retirement is confirmed and the order reaches
+   `withdrawal_processing`. Do not expect a payout or success message yet.
 
 The expected path is:
 
 ~~~text
 asset_pending -> asset_received -> retirement_processing
-  -> withdrawal_processing -> completed
+  -> withdrawal_processing
 ~~~
 
-The completed order must include a payout object with simulated: true. No
-real bank transfer occurs.
+The order should expose the deposit transaction and retirement evidence. The
+current release does not return a payout object and does not perform a bank
+transfer.
 
 ### Postman API-key flow
 
@@ -917,7 +919,8 @@ Mark the frontend test complete only when these checks pass:
 - Order detail and activity pages poll backend status instead of guessing state
   from browser navigation.
 - Completed on-ramp orders show a Stellar testnet transaction link.
-- Completed off-ramp orders show that the payout is simulated.
+- Off-ramp orders stop at `withdrawal_processing` after retirement because the
+  payout rail is deferred.
 - SEP-24 discovery, deposit, withdrawal, and status polling work.
 - API errors show stable messages and preserve the request_id.
 - Sandbox and Stellar testnet labels appear on every value-movement screen.

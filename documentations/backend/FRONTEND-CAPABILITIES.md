@@ -359,19 +359,19 @@ Send `POST /v1/offramps` with an `Idempotency-Key` header:
 
 The intended create response contains `order.stellar_destination.account` and `order.stellar_destination.memo`. The user must send the exact XLM amount to that account with that memo before the deposit expires.
 
-There is a backend response-mapping issue to account for during integration: the off-ramp repository currently stores the configured deposit account as `StellarSource`, while the public order serializer reads `StellarDestination`. Verify that `order.stellar_destination.account` is non-empty in the deployed response before enabling the send step. If it is empty, the backend must correct that mapping first; the frontend cannot safely infer the deposit account.
+The backend maps the configured deposit account to `order.stellar_destination.account` and the order memo to `order.stellar_destination.memo`. Verify both are non-empty or present before enabling the send step; the frontend cannot safely infer the deposit account.
 
 The `destination_token` is a synthetic sandbox reference. It is not a bank account, and the frontend must not present it as real bank details.
 
 For an off-ramp, the relevant states are `asset_pending`, `asset_received`, `asset_invalid`, `retirement_processing`, `withdrawal_processing`, `completed`, `expired`, `retirement_failed`, `withdrawal_failed`, and `cancelled`.
 
-When the order reaches `completed`, the response may include `payout`. The payout has `simulated: true` and the disclosure `sandbox simulation; no IDR was transferred`. Show that disclosure in the UI.
+The current release does not execute or simulate the IDR payout. After the exact deposit is accepted and retirement is confirmed, the order remains in `withdrawal_processing`; do not show a success or completed payout message. A future payout rail may advance the order to `completed` and add `payout` evidence.
 
 The backend records `asset_received` before it queues retirement. The stored order state can already be `retirement_processing` when the frontend polls it. Treat `asset_received` as a valid transitional state, not as a state that must appear.
 
-For an off-ramp, the intended `order.stellar_destination` identifies the deposit account and memo. `order.deposit_transaction_hash` identifies the user's XLM deposit after the worker accepts it. `order.payout.reference` identifies the simulated IDR payout after the worker records it. Until the response-mapping issue above is fixed, treat an empty account as a backend error and keep the order in an instruction-unavailable state.
+For an off-ramp, `order.stellar_destination` identifies the deposit account and memo. `order.deposit_transaction_hash` identifies the user's XLM deposit after the worker accepts it. A newly created order does not include `payout`; keep polling `withdrawal_processing` after retirement until a future payout rail is enabled.
 
-The shared order response includes `payment_method`, but that field is meaningful only for on-ramp orders. Use the off-ramp request's `withdrawal.method` and the returned `payout.method` for sell orders.
+The shared order response includes `payment_method`, but that field is meaningful only for on-ramp orders. Use the off-ramp request's `withdrawal.method` for the selected payout destination; the payout object is omitted while payout is deferred.
 
 ### Developer portal
 
@@ -628,7 +628,7 @@ Order errors use this shape:
 ## Do not build against these assumptions
 
 - Do not describe the on-ramp as issuing a custom token. The backend transfers pre-funded native XLM on Stellar testnet.
-- Do not show the off-ramp as a real bank payout. The current payout is a recorded sandbox simulation.
+- Do not show the off-ramp as a completed bank payout. The current release stops at `withdrawal_processing` after Stellar retirement because payout is deferred.
 - Do not assume a successful checkout redirect means the payment was confirmed.
 - Do not call Xendit, Persona, Horizon, or federation signing flows directly from the browser. The backend owns those integrations.
 - Do not depend on outbound developer webhooks until the backend adds delivery, signing, retries, and attempt records.

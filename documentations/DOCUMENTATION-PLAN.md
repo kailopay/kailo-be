@@ -95,7 +95,7 @@ Recommended ADRs for `v0.1.0`:
 | Sandbox user guide | P0 | Product/Developer | Week 4 | Users, Ambassador reviewer | Buy, sell, status, history, and explorer-verification steps include screenshots and prominent sandbox/testnet warnings. |
 | Reviewer verification guide | P0 | Project Owner | Week 4 | Ambassador reviewer | Each SOW deliverable has a short verification procedure, expected result, and evidence link requiring minimal technical knowledge. |
 | Demo script and recording | P0 | Project Owner | Week 4 | Sponsor, public | Recording shows environment warning, QRIS/bank-transfer context, buy flow, sell flow, API/docs, testnet hashes, and known limitations. |
-| FAQ and known limitations | P1 | Product Owner | Week 4 | All users | Clearly distinguishes testnet assets, sandbox payment behavior, Persona sandbox status gating, payout simulation, and excluded production capabilities. |
+| FAQ and known limitations | P1 | Product Owner | Week 4 | All users | Clearly distinguishes testnet assets, sandbox payment behavior, Persona sandbox status gating, deferred off-ramp payout, and excluded production capabilities. |
 
 ### 4.6 Quality, security, and operations documentation
 

@@ -131,7 +131,9 @@ Invariants:
 - Creating an order requires an approved KYC inquiry for the owning user, regardless of whether the principal is an API client or a retail session.
 - State changes use optimistic versioning and a legal transition table.
 - A completed on-ramp has a reconciled payment and successful Stellar transaction.
-- A completed off-ramp has verified asset receipt, successful burn/retirement, and payout/simulation evidence.
+- A completed off-ramp has verified asset receipt, successful burn/retirement,
+  and durable payout evidence. The current release does not advance new orders
+  to completed because the payout rail is deferred.
 - A failure never erases previously recorded external evidence.
 
 ### 3.4 Order event

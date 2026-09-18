@@ -86,7 +86,7 @@ Build off-ramp and anchor capabilities on the Week 1 native-XLM settlement found
 
 1. Off-ramp deposit instructions, transaction lookup/detection, and exact validation.
 2. Sandbox payout intent and unknown-outcome reconciliation.
-4. Gateway payout/simulation intent and reconciliation.
+4. Gateway payout intent and reconciliation (deferred in the current release).
 5. SEP-24 deposit/withdrawal interactive endpoints and Persona-backed sandbox
    KYC status gate with signed callback processing.
 6. Public `stellar.toml` and federation endpoint.
@@ -95,7 +95,8 @@ Build off-ramp and anchor capabilities on the Week 1 native-XLM settlement found
 ### Week 2 gate
 
 - Internal E2E on-ramp completes with transaction hash.
-- Internal E2E off-ramp records deposit, retirement, and payout/simulation reference.
+- Internal E2E off-ramp records deposit and retirement, then leaves the order
+  in `withdrawal_processing` until a payout rail is enabled.
 - Unknown Stellar result is reconciled before retry in automated tests.
 - `stellar.toml` and federation configuration validate.
 - SEP-24 state mapping does not contradict internal order state.

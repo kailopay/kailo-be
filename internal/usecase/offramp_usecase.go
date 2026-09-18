@@ -68,8 +68,6 @@ type OfframpRepository interface {
 	SaveRetirementHash(ctx context.Context, intentID, hash string, now time.Time) error
 	ConfirmRetirement(ctx context.Context, intentID, hash string, now time.Time) error
 	FailRetirement(ctx context.Context, intentID, safeError string) error
-
-	CompleteSimulatedPayout(ctx context.Context, orderID string, amountMinor int64, now time.Time) (string, error)
 }
 
 // OfframpCreateRecord carries everything needed to persist one off-ramp

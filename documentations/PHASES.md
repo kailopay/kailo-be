@@ -37,7 +37,9 @@ Phase 0 is the opening mobilization segment inside the Phase 1 30-day window and
 ### Scope
 
 - Confirm Xendit or Midtrans as the single sandbox provider.
-- Verify that the selected sandbox exposes QRIS, bank transfer/virtual account, callbacks, and the available payout simulation.
+- Verify that the selected sandbox exposes QRIS, bank transfer/virtual account,
+  callbacks, and document whether a payout rail is available. The current
+  release defers off-ramp payout.
 - Choose the Stellar test asset code and issuer/distributor/burn model.
 - Fund required Stellar testnet accounts and prove a small transfer.
 - Decide the repository license, hosting approach, domain/subdomain layout, and secret-management approach.
