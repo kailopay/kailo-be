@@ -81,7 +81,10 @@ func (s DepositScanner) ScanDeposits(ctx context.Context, depositAccount string,
 
 	matched := 0
 	for _, order := range candidates {
-		expectedMemo := OfframpDepositMemo(order.ID)
+		expectedMemo := order.StellarMemo
+		if expectedMemo == "" {
+			expectedMemo = OfframpDepositMemo(order.ID)
+		}
 		var match *ObservedPayment
 		var mismatchReason string
 		var mismatchHash string

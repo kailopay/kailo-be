@@ -43,6 +43,35 @@ func TestParseDecimalStroops(t *testing.T) {
 	}
 }
 
+func TestOfframpDepositMemoFitsStellarTextLimit(t *testing.T) {
+	cases := []struct {
+		name    string
+		orderID string
+	}{
+		{name: "uuid order", orderID: "15854fb0-d7ea-489d-a773-b01d46f948a9"},
+		{name: "second uuid order", orderID: "02934833-b874-4aa3-b9b0-ff8c3e876505"},
+		{name: "short synthetic order", orderID: "order-off-1"},
+		{name: "long non-uuid order", orderID: strings.Repeat("x", 40)},
+	}
+
+	seen := make(map[string]string, len(cases))
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			memo := OfframpDepositMemo(testCase.orderID)
+			if len([]byte(memo)) > 28 {
+				t.Fatalf("memo length = %d, want at most 28: %q", len([]byte(memo)), memo)
+			}
+			if got := OfframpDepositMemo(testCase.orderID); got != memo {
+				t.Fatalf("memo is not deterministic: first %q, second %q", memo, got)
+			}
+			if previous, ok := seen[memo]; ok && previous != testCase.orderID {
+				t.Fatalf("memo %q is shared by orders %q and %q", memo, previous, testCase.orderID)
+			}
+			seen[memo] = testCase.orderID
+		})
+	}
+}
+
 // --- QuotePolicy.CreateReverse ---
 
 func TestQuotePolicyCreateReverseFloorsIDRAndAppliesSpread(t *testing.T) {
@@ -170,7 +199,7 @@ func TestOfframpCreatePersistsDepositInstructions(t *testing.T) {
 		t.Fatalf("quote fiat = %d, want 100000", record.Quote.FiatAmount)
 	}
 	if record.Memo != "offorderoff1" {
-		// Dashes are stripped so the memo fits SEP text-memo limits for any UUID.
+		// Short synthetic IDs retain the readable legacy memo shape.
 		t.Fatalf("memo = %q", record.Memo)
 	}
 	if record.ExpiresAt.Before(time.Now()) == false && record.ExpiresAt.Sub(time.Now()) > 24*time.Hour+time.Minute {

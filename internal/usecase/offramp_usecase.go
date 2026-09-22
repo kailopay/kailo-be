@@ -2,6 +2,9 @@ package usecase
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"math/big"
@@ -44,9 +47,28 @@ type ObservedPayment struct {
 // BurnAddress is the standard unspendable Stellar address (ADR-003).
 const BurnAddress = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWH4"
 
-// OfframpDepositMemo returns the required deposit memo for an order.
+const (
+	offrampMemoPrefix       = "off"
+	stellarTextMemoMaxBytes = 28
+	offrampMemoPayloadBytes = 16
+)
+
+// OfframpDepositMemo returns the deterministic deposit memo for an order.
+// UUID order IDs are encoded compactly so the memo preserves the full order
+// identity while staying within Stellar's 28-byte text-memo limit.
 func OfframpDepositMemo(orderID string) string {
-	return "off" + strings.ReplaceAll(orderID, "-", "")
+	normalized := strings.ReplaceAll(orderID, "-", "")
+	if decoded, err := hex.DecodeString(normalized); err == nil && len(decoded) == offrampMemoPayloadBytes {
+		return offrampMemoPrefix + base64.RawURLEncoding.EncodeToString(decoded)
+	}
+
+	memo := offrampMemoPrefix + normalized
+	if len([]byte(memo)) <= stellarTextMemoMaxBytes {
+		return memo
+	}
+
+	digest := sha256.Sum256([]byte(orderID))
+	return offrampMemoPrefix + base64.RawURLEncoding.EncodeToString(digest[:offrampMemoPayloadBytes])
 }
 
 // WithdrawalMethod names the fiat rail; only simulation exists in sandbox.

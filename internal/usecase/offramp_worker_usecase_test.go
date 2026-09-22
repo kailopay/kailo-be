@@ -117,3 +117,27 @@ func TestDepositScannerRequiresTransactionHashAndKeepsMismatchCorrelation(t *tes
 		t.Fatalf("invalid=%+v, want mismatch order and hash", sink.invalid)
 	}
 }
+
+func TestDepositScannerUsesPersistedMemo(t *testing.T) {
+	const (
+		account = "GDEPOSIT"
+		orderID = "15854fb0-d7ea-489d-a773-b01d46f948a9"
+		memo    = "offlegacy-memo"
+	)
+	candidates := &depositScanSourceFake{candidates: []OrderView{
+		{ID: orderID, StellarMemo: memo, AssetAmount: entity.Stroops(40_000_000)},
+	}}
+	payments := &depositPaymentsFake{payments: []ObservedPayment{
+		{TransactionHash: "hash-persisted-memo", To: account, Amount: entity.Stroops(40_000_000), Memo: memo, LedgerAt: time.Now()},
+	}}
+	sink := &depositSinkFake{}
+	scanner := DepositScanner{Candidates: candidates, Payments: payments, Repository: sink}
+
+	matched, err := scanner.ScanDeposits(context.Background(), account, time.Now())
+	if err != nil {
+		t.Fatalf("ScanDeposits() error = %v", err)
+	}
+	if matched != 1 || len(sink.received) != 1 || sink.received[0] != orderID {
+		t.Fatalf("matched=%d received=%v, want persisted memo to match", matched, sink.received)
+	}
+}

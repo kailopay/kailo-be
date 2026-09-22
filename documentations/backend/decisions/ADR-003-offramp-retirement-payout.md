@@ -37,10 +37,13 @@ payment gateway's sandbox offers no usable disbursement rail.
    jsonb.
 4. **Deposits are matched exactly or rejected.** A deposit qualifies only when:
    the payment is a successful native-XLM payment *to* the configured deposit
-   account, its memo equals `off<orderID>`, its stroop amount matches the
-   order exactly, and its transaction hash is not already assigned to another
-   order. Correlated-but-mismatched payments move the order to
-   `asset_invalid` with a safe reason; uncorrelated payments are ignored.
+   account, its memo equals the deterministic `OfframpDepositMemo(orderID)`
+   value, its stroop amount matches the order exactly, and its transaction hash
+   is not already assigned to another order. For UUID order IDs, the memo is
+   `off` followed by the unpadded URL-safe Base64 encoding of the 16 UUID bytes
+   (25 bytes total), preserving the full order identity within Stellar's
+   28-byte text-memo limit. Correlated-but-mismatched payments move the order
+   to `asset_invalid` with a safe reason; uncorrelated payments are ignored.
 
 ## Consequences
 
