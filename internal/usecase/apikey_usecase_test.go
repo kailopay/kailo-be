@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -124,6 +125,22 @@ func TestListAndRevokeRequireDeveloperMode(t *testing.T) {
 	}
 	if err := service.Revoke(context.Background(), "user-1", "key-1"); err != nil || store.revoked != "key-1" {
 		t.Fatalf("Revoke() error = %v, revoked = %q", err, store.revoked)
+	}
+}
+
+func TestAPIKeyMetadataContainsSafeClientContext(t *testing.T) {
+	metadata := Metadata{
+		ID: "key-1", ClientID: "client-1", Name: "Production-like test app",
+		Environment: "test", ClientStatus: "active", Prefix: "pk_test_abc_...last",
+	}
+	if metadata.Environment != "test" || metadata.ClientStatus != "active" || metadata.Name == "" {
+		t.Fatalf("dashboard metadata = %#v", metadata)
+	}
+	typeOf := reflect.TypeOf(metadata)
+	for _, field := range []string{"SecretHash", "Plaintext"} {
+		if _, ok := typeOf.FieldByName(field); ok {
+			t.Fatalf("dashboard metadata must not expose secret field %q", field)
+		}
 	}
 }
 

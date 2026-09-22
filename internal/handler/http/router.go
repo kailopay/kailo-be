@@ -24,6 +24,7 @@ type routerOptions struct {
 	sep24Interactive      bool
 	webhooks              *WebhookHandler
 	developerDashboard    *DeveloperDashboardHandler
+	developerWallet       *DeveloperWalletHandler
 	requireOrderPrincipal gin.HandlerFunc
 	requireSEP10          gin.HandlerFunc
 	xenditCallback        *XenditCallbackHandler
@@ -45,6 +46,16 @@ func WithDeveloperDashboard(handler *DeveloperDashboardHandler) RouterOption {
 			return errors.New("developer dashboard handler is required")
 		}
 		options.developerDashboard = handler
+		return nil
+	}
+}
+
+func WithDeveloperWallet(handler *DeveloperWalletHandler) RouterOption {
+	return func(options *routerOptions) error {
+		if handler == nil {
+			return errors.New("developer wallet handler is required")
+		}
+		options.developerWallet = handler
 		return nil
 	}
 }
@@ -261,6 +272,14 @@ func NewRouter(logger *slog.Logger, health *HealthHandler, authHandler *AuthHand
 		developerRoutes.GET("/revenue/summary", configured.developerDashboard.RevenueSummary)
 		developerRoutes.GET("/revenue/entries", configured.developerDashboard.RevenueEntries)
 		developerRoutes.GET("/orders", configured.developerDashboard.Orders)
+	}
+	if configured.developerWallet != nil {
+		developerWalletRoutes := router.Group("/v1/developer/wallets")
+		developerWalletRoutes.Use(requireSession)
+		developerWalletRoutes.GET("", configured.developerWallet.List)
+		developerWalletRoutes.POST("", configured.developerWallet.Create)
+		developerWalletRoutes.PATCH("/:id", configured.developerWallet.Update)
+		developerWalletRoutes.DELETE("/:id", configured.developerWallet.Delete)
 	}
 	if configured.onramp != nil {
 		onrampRoutes := router.Group("/v1")

@@ -111,11 +111,13 @@ func (r *APIKeyRepository) TouchLastUsed(ctx context.Context, keyID string, used
 func (r *APIKeyRepository) ListForOwner(ctx context.Context, ownerUserID string) ([]usecase.Metadata, error) {
 	type result struct {
 		entity.APIKey
-		Name string
+		Name         string
+		Environment  string
+		ClientStatus string
 	}
 	rows := make([]result, 0)
 	if err := r.db.WithContext(ctx).Table("api_keys").
-		Select("api_keys.*, api_clients.name").
+		Select("api_keys.*, api_clients.name, api_clients.environment, api_clients.status AS client_status").
 		Joins("JOIN api_clients ON api_clients.id = api_keys.client_id").
 		Where("api_clients.owner_user_id = ?", ownerUserID).
 		Order("api_keys.created_at DESC").Scan(&rows).Error; err != nil {
@@ -124,8 +126,9 @@ func (r *APIKeyRepository) ListForOwner(ctx context.Context, ownerUserID string)
 	keys := make([]usecase.Metadata, 0, len(rows))
 	for _, row := range rows {
 		keys = append(keys, usecase.Metadata{
-			ID: row.ID, ClientID: row.ClientID, Name: row.Name, Prefix: row.Prefix,
-			CreatedAt: row.CreatedAt, LastUsedAt: row.LastUsedAt, RevokedAt: row.RevokedAt,
+			ID: row.ID, ClientID: row.ClientID, Name: row.Name, Environment: row.Environment,
+			ClientStatus: row.ClientStatus, Prefix: row.Prefix, CreatedAt: row.CreatedAt,
+			LastUsedAt: row.LastUsedAt, RevokedAt: row.RevokedAt,
 		})
 	}
 	return keys, nil

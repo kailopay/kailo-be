@@ -143,6 +143,7 @@ func TestRouterRegistersDeveloperDashboardRoutes(t *testing.T) {
 	service := &developerDashboardServiceSpy{}
 	router, err := NewRouter(logger, health, authHandler, requireSession,
 		WithDeveloperDashboard(NewDeveloperDashboardHandler(service, logger)),
+		WithDeveloperWallet(NewDeveloperWalletHandler(&developerWalletServiceSpy{}, logger)),
 	)
 	if err != nil {
 		t.Fatalf("NewRouter() error = %v", err)
@@ -157,6 +158,10 @@ func TestRouterRegistersDeveloperDashboardRoutes(t *testing.T) {
 		"GET /v1/developer/revenue/summary",
 		"GET /v1/developer/revenue/entries",
 		"GET /v1/developer/orders",
+		"GET /v1/developer/wallets",
+		"POST /v1/developer/wallets",
+		"PATCH /v1/developer/wallets/:id",
+		"DELETE /v1/developer/wallets/:id",
 	} {
 		if !routes[route] {
 			t.Errorf("missing route %s", route)

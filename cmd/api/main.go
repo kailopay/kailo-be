@@ -285,6 +285,14 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("creating SEP-10 service: %w", err)
 	}
+	developerWalletRepository := repository.NewDeveloperWalletRepository(db)
+	developerWalletService, err := usecase.NewDeveloperWalletUsecase(
+		developerWalletRepository, sep10Service, platform.NewID, time.Now, usecase.StellarTestnetNetwork,
+	)
+	if err != nil {
+		return fmt.Errorf("creating developer wallet service: %w", err)
+	}
+	developerWalletHandler := httpapi.NewDeveloperWalletHandler(developerWalletService, appLogger)
 	sep10Handler := httpapi.NewSEP10Handler(sep10Service, appLogger)
 	sep38QuoteRepository := repository.NewSEP38QuoteRepository(db)
 	sep38QuoteService, err := usecase.NewSep38QuoteUsecase(usecase.Sep38QuoteDependencies{
@@ -352,7 +360,8 @@ func run(ctx context.Context) error {
 		httpapi.WithSep38Quotes(sep38Handler, middleware.RequireSEP10(sep10Service)),
 		httpapi.WithSep24(sep24Handler, orderPrincipalMiddleware),
 		httpapi.WithSep24Interactive(sep24Handler, middleware.RequireSEP10(sep10Service)),
-		httpapi.WithWebhooks(webhookHandler), httpapi.WithDeveloperDashboard(developerDashboardHandler), httpapi.WithXenditCallback(callbackHandler))
+		httpapi.WithWebhooks(webhookHandler), httpapi.WithDeveloperDashboard(developerDashboardHandler),
+		httpapi.WithDeveloperWallet(developerWalletHandler), httpapi.WithXenditCallback(callbackHandler))
 	if err != nil {
 		return fmt.Errorf("creating http router: %w", err)
 	}
