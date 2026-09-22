@@ -11,11 +11,11 @@ func TestRepositoryMigrationsIncludeSEPWalletVersion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DiscoverMigrations() error = %v", err)
 	}
-	if len(migrations) != 12 {
-		t.Fatalf("migration count = %d, want 12", len(migrations))
+	if len(migrations) != 13 {
+		t.Fatalf("migration count = %d, want 13", len(migrations))
 	}
 	last := migrations[len(migrations)-1]
-	if last.Version != 12 || last.Name != "sep24_interactive_browser_token" {
+	if last.Version != 13 || last.Name != "developer_experience_week3" {
 		t.Fatalf("last migration = %#v", last)
 	}
 	if last.UpSQL == "" || last.DownSQL == "" {

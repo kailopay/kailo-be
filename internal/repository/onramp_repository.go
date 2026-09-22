@@ -92,6 +92,9 @@ func (r *OnrampRepository) ReserveAndCreate(ctx context.Context, record usecase.
 		if err := tx.Create(&order).Error; err != nil {
 			return fmt.Errorf("creating order: %w", err)
 		}
+		if err := createSandboxOrderFinancial(tx, order); err != nil {
+			return err
+		}
 		reservationID, err := platform.NewID()
 		if err != nil {
 			return err

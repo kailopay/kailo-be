@@ -273,6 +273,79 @@ func TestKYCMigrationModelsAreRegistered(t *testing.T) {
 	}
 }
 
+func TestWeek3DeveloperExperienceModelsAreRegistered(t *testing.T) {
+	registeredTables := make(map[string]struct{})
+	for _, model := range MigrationModels() {
+		tableNamer, ok := model.(interface{ TableName() string })
+		if !ok {
+			continue
+		}
+		registeredTables[tableNamer.TableName()] = struct{}{}
+	}
+	for _, table := range []string{"order_financials", "developer_wallets"} {
+		if _, ok := registeredTables[table]; !ok {
+			t.Errorf("MigrationModels() is missing %q", table)
+		}
+	}
+}
+
+func TestWeek3FinancialAndWalletModelsExposeOwnershipAndAuditFields(t *testing.T) {
+	financialType := reflect.TypeOf(entity.OrderFinancial{})
+	for _, field := range []string{
+		"ID", "OrderID", "ClientID", "Direction", "Environment", "Currency",
+		"GrossAmountMinor", "FeeAmountMinor", "PlatformRevenueMinor",
+		"DeveloperRevenueMinor", "NetAmountMinor", "FeeCurrency", "FeePolicyVersion",
+		"Source", "Simulated", "CreatedAt",
+	} {
+		if _, ok := financialType.FieldByName(field); !ok {
+			t.Errorf("entity.OrderFinancial is missing %q", field)
+		}
+	}
+	if got := (entity.OrderFinancial{}).TableName(); got != "order_financials" {
+		t.Fatalf("OrderFinancial.TableName() = %q, want order_financials", got)
+	}
+
+	walletType := reflect.TypeOf(entity.DeveloperWallet{})
+	for _, field := range []string{
+		"ID", "UserID", "ClientID", "Network", "WalletAccount", "Label",
+		"IsPrimary", "VerificationMethod", "VerifiedAt", "Status", "CreatedAt", "UpdatedAt",
+	} {
+		if _, ok := walletType.FieldByName(field); !ok {
+			t.Errorf("entity.DeveloperWallet is missing %q", field)
+		}
+	}
+	if got := (entity.DeveloperWallet{}).TableName(); got != "developer_wallets" {
+		t.Fatalf("DeveloperWallet.TableName() = %q, want developer_wallets", got)
+	}
+}
+
+func TestWeek3ModelUniqueConstraintsProtectFinancialAndWalletOwnership(t *testing.T) {
+	financialSchema, err := schema.Parse(&entity.OrderFinancial{}, &sync.Map{}, schema.NamingStrategy{})
+	if err != nil {
+		t.Fatalf("financial schema.Parse() error = %v", err)
+	}
+	if field := financialSchema.LookUpField("OrderID"); field == nil || !field.Unique {
+		t.Fatal("OrderFinancial.OrderID must be unique")
+	}
+
+	walletSchema, err := schema.Parse(&entity.DeveloperWallet{}, &sync.Map{}, schema.NamingStrategy{})
+	if err != nil {
+		t.Fatalf("wallet schema.Parse() error = %v", err)
+	}
+	index := walletSchema.LookIndex("idx_developer_wallet_owner_network_account")
+	if index == nil || index.Class != "UNIQUE" {
+		t.Fatal("DeveloperWallet owner/network/account index must be unique")
+	}
+	if len(index.Fields) != 3 {
+		t.Fatalf("DeveloperWallet owner/network/account index fields = %d, want 3", len(index.Fields))
+	}
+	for fieldIndex, fieldName := range []string{"UserID", "Network", "WalletAccount"} {
+		if got := index.Fields[fieldIndex].Name; got != fieldName {
+			t.Errorf("DeveloperWallet unique index field %d = %q, want %q", fieldIndex, got, fieldName)
+		}
+	}
+}
+
 func TestKYCModelsHaveAuditableFieldsWithoutRawPayload(t *testing.T) {
 	inquiryType := reflect.TypeOf(entity.KYCInquiry{})
 	for _, field := range []string{

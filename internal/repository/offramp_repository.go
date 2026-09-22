@@ -91,6 +91,9 @@ func (r *OfframpRepository) CreateOfframp(ctx context.Context, record usecase.Of
 		if err := tx.Create(&order).Error; err != nil {
 			return fmt.Errorf("creating order: %w", err)
 		}
+		if err := createSandboxOrderFinancial(tx, order); err != nil {
+			return err
+		}
 		if err := appendOrderEvent(tx, order.ID, 1, "order.created", "", string(entity.OrderStatusCreated), now); err != nil {
 			return err
 		}

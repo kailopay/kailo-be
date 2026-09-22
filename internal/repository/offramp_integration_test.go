@@ -55,6 +55,13 @@ func TestCreateOfframpPersistsInstructionsAndReplays(t *testing.T) {
 	if order.Version != 2 {
 		t.Fatalf("order version = %d, want 2", order.Version)
 	}
+	var financial entity.OrderFinancial
+	if err := db.Where("order_id = ?", orderID).First(&financial).Error; err != nil {
+		t.Fatalf("loading financial snapshot: %v", err)
+	}
+	if financial.Direction != "offramp" || financial.GrossAmountMinor != 100_000 || financial.AssetAmountStroops != 40_000_000 || !financial.Simulated {
+		t.Fatalf("financial snapshot = %#v", financial)
+	}
 	var events []entity.OrderEvent
 	if err := db.Where("order_id = ?", orderID).Order("aggregate_version").Find(&events).Error; err != nil {
 		t.Fatalf("loading order events: %v", err)

@@ -22,6 +22,7 @@ import (
 //	TEST_DATABASE_DSN="postgres://postgres:postgres@localhost:5432/kailopay_test?sslmode=disable&TimeZone=UTC"
 
 var integrationTables = []string{
+	"developer_wallets", "order_financials",
 	"webhook_attempts", "webhook_events", "webhook_endpoints", "kyc_provider_events", "kyc_inquiries", "outbox_messages",
 	"idempotency_records", "stellar_transactions", "gateway_events", "payment_checkouts",
 	"sep24_transactions", "order_events", "treasury_reservations", "treasury_accounts", "orders", "api_keys",
@@ -153,6 +154,9 @@ func TestReserveAndCreatePersistsQRISAndBRIVAOrders(t *testing.T) {
 	}
 	if count := countRows(t, store.db, &entity.TreasuryReservation{}); count != 2 {
 		t.Fatalf("reservations count = %d, want 2", count)
+	}
+	if count := countRows(t, store.db, &entity.OrderFinancial{}); count != 2 {
+		t.Fatalf("financial snapshots count = %d, want 2", count)
 	}
 	if count := countRows(t, store.db, &entity.OrderEvent{}); count != 2 {
 		t.Fatalf("order events count = %d, want 2", count)

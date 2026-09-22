@@ -31,5 +31,7 @@ func MigrationModels() []any {
 		&entity.OfframpPayout{},
 		&entity.KYCInquiry{},
 		&entity.KYCProviderEvent{},
+		&entity.OrderFinancial{},
+		&entity.DeveloperWallet{},
 	}
 }
