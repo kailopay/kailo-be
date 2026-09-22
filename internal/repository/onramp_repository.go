@@ -537,6 +537,8 @@ func (r *OnrampRepository) orderView(ctx context.Context, order entity.OrderReco
 		PaymentMethod: entity.PaymentMethod(derefStr(order.PaymentMethod)), CreatedAt: order.CreatedAt, UpdatedAt: order.UpdatedAt}
 	if order.StellarDestination != nil {
 		view.StellarDestination = *order.StellarDestination
+	} else if order.Direction == "offramp" && order.StellarSource != nil {
+		view.StellarDestination = *order.StellarSource
 	}
 	if order.StellarMemo != nil {
 		view.StellarMemo = *order.StellarMemo
