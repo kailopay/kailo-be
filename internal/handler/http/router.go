@@ -14,6 +14,7 @@ type routerOptions struct {
 	apiKeys               *APIKeyHandler
 	kyc                   *KYCHandler
 	quote                 *QuoteHandler
+	sep38                 *Sep38Handler
 	onramp                *OnrampHandler
 	offramp               *OfframpHandler
 	sep24                 *Sep24Handler
@@ -91,6 +92,16 @@ func WithQuote(handler *QuoteHandler, requireOrderPrincipal gin.HandlerFunc) Rou
 		}
 		options.quote = handler
 		options.requireOrderPrincipal = requireOrderPrincipal
+		return nil
+	}
+}
+
+func WithSep38(handler *Sep38Handler) RouterOption {
+	return func(options *routerOptions) error {
+		if handler == nil {
+			return errors.New("sep-38 handler is required")
+		}
+		options.sep38 = handler
 		return nil
 	}
 }
@@ -208,12 +219,19 @@ func NewRouter(logger *slog.Logger, health *HealthHandler, authHandler *AuthHand
 		sep24Routes.Use(configured.requireOrderPrincipal)
 		sep24Routes.POST("/transactions/deposit/interactive", configured.sep24.Deposit)
 		sep24Routes.POST("/transactions/withdraw/interactive", configured.sep24.Withdraw)
+		sep24Routes.GET("/transactions", configured.sep24.Transactions)
 		sep24Routes.GET("/transaction", configured.sep24.Transaction)
 		sep24Routes.GET("/interactive/:id", configured.sep24.Interactive)
 		// Keep the original sandbox paths for existing local clients while the
 		// standard nested SEP-24 paths become the documented contract.
 		sep24Routes.POST("/deposit", configured.sep24.Deposit)
 		sep24Routes.POST("/withdraw", configured.sep24.Withdraw)
+	}
+	if configured.sep38 != nil {
+		sep38Routes := router.Group("/sep38")
+		sep38Routes.GET("/info", configured.sep38.Info)
+		sep38Routes.GET("/prices", configured.sep38.Prices)
+		sep38Routes.GET("/price", configured.sep38.Price)
 	}
 	return router, nil
 }

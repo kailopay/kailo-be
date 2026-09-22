@@ -190,7 +190,7 @@ Key facts for the UI:
 
 ## 5. The on-ramp order API
 
-Order endpoints accept either a `pk_test_` API key or a verified retail session.
+Order creation endpoints accept either a `pk_test_` API key or a verified retail session.
 Use the session cookie for the consumer web app. Use an API key only from a
 trusted server or the Developer playground.
 
@@ -233,6 +233,16 @@ The response is `{ "quote": { ... } }`. Read the calculated amounts from
 `quote.fiat.amount_minor` and `quote.asset.amount`. Display
 `quote.adjusted_rate` as the customer rate. Keep the amount and rate fields as
 strings.
+
+For a wallet-compatible anchor quote, the backend also exposes the public
+SEP-38 surface. Use `GET /sep38/info` to discover assets, `GET /sep38/prices`
+for an indicative pair price, and `GET /sep38/price` with exactly one of
+`sell_amount` or `buy_amount` for an amount-specific calculation. Use
+`iso4217:IDR` and `stellar:native` as the asset identifiers. IDR is an integer
+minor-unit string; XLM has up to seven decimal places. These quote endpoints
+share the same market data and spread policy as `/v1/quotes`, and neither one
+creates an order. Use the SEP-24 interactive endpoints to start the anchor
+transaction.
 
 ### `POST /v1/onramps` (requires `Idempotency-Key` header)
 

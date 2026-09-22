@@ -122,6 +122,7 @@ The protocol endpoints are exposed below the configured transfer-server base:
 |---|---|---|---|
 | `POST` | `/sep24/transactions/deposit/interactive` | API key or verified retail session | Create an on-ramp order and return the interactive transaction ID/URL |
 | `POST` | `/sep24/transactions/withdraw/interactive` | API key or verified retail session | Create an off-ramp order and return the interactive transaction ID/URL |
+| `GET` | `/sep24/transactions?limit=...` | API key or verified retail session | List recent owned transaction mappings |
 | `GET` | `/sep24/transaction?id=...` | API key or verified retail session | Read the current state of an owned mapping |
 | `GET` | `/sep24/interactive/{id}` | API key or verified retail session | Read the authenticated interactive projection |
 
@@ -157,6 +158,26 @@ Minimum behavior:
 
 Legacy `/sep24/deposit` and `/sep24/withdraw` aliases remain for existing local
 clients; new integrations should use the standard nested paths.
+
+## 8.1 SEP-38 quote server
+
+The anchor also advertises a public quote server through the
+`ANCHOR_QUOTE_SERVER` field in `stellar.toml`. It uses the same market source,
+spread, freshness checks, and exact amount arithmetic as the first-party
+`/v1/quotes` endpoint, but uses SEP-38 asset identifiers:
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/sep38/info` | List `iso4217:IDR` and `stellar:native` plus delivery methods |
+| `GET` | `/sep38/prices?sell_asset=...&buy_asset=...` | Return an indicative pair price |
+| `GET` | `/sep38/price?...&sell_amount=...` or `buy_amount=...` | Calculate an amount-specific result |
+
+For `/sep38/price`, send exactly one of `sell_amount` or `buy_amount`. IDR is
+represented as integer minor units and native XLM has up to seven decimal
+places. These endpoints calculate prices only: they do not reserve liquidity,
+create an order, or replace the SEP-24 transaction-initiation flow. Firm
+SEP-38 quote issuance and SEP-10/SEP-45 wallet authentication remain future
+interoperability work.
 
 Suggested mapping:
 
@@ -201,7 +222,8 @@ The public file must:
 - Be served from the expected `/.well-known/stellar.toml` location.
 - Use HTTPS and valid CORS/content type where required.
 - Advertise only implemented testnet endpoints and supported test asset.
-- Include transfer server/SEP-24 and federation URLs as applicable.
+- Include transfer server/SEP-24, quote-server/SEP-38, and federation URLs as
+  applicable.
 - Avoid mainnet or production claims.
 - Validate with a documented tool/manual procedure before release.
 

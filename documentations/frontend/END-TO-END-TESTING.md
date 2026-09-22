@@ -783,10 +783,22 @@ Run the public discovery requests:
 GET {{base_url}}/.well-known/stellar.toml
 GET {{base_url}}/sep24/info
 GET {{base_url}}/federation?q=demo*kailopay
+GET {{base_url}}/sep38/info
+GET {{base_url}}/sep38/prices?sell_asset=iso4217%3AIDR&buy_asset=stellar%3Anative
 ~~~
 
 Expect 200 and confirm that the responses advertise sandbox and
-stellar_testnet.
+stellar_testnet. Confirm that `stellar.toml` contains `TRANSFER_SERVER_SEP24`
+and `ANCHOR_QUOTE_SERVER`.
+
+For the amount-specific quote calculation, use exactly one amount parameter:
+
+~~~http
+GET {{base_url}}/sep38/price?sell_asset=iso4217%3AIDR&buy_asset=stellar%3Anative&sell_amount=100000
+~~~
+
+The response contains `total_price`, `price`, `sell_amount`, and `buy_amount`.
+It is a calculation only and must not create an order.
 
 Start a deposit with Postman using multipart/form-data:
 
@@ -836,10 +848,14 @@ Authorization: Bearer {{api_key}}
 
 GET {{base_url}}/sep24/interactive/{{sep24_transaction_id}}
 Authorization: Bearer {{api_key}}
+
+GET {{base_url}}/sep24/transactions?limit=20
+Authorization: Bearer {{api_key}}
 ~~~
 
 The transaction must remain owner-scoped. A different API key must receive
-404.
+404 for the single-transaction routes and must not see the first key's history
+in the list response.
 
 ## 12. Test developer webhook configuration
 

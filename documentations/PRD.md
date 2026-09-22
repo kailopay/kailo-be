@@ -294,7 +294,8 @@ The exact paths may follow the implementation's versioning convention, but `v0.1
 
 | Operation | Suggested method and path | Authentication |
 |---|---|---|
-| Preview buy/sell quote | `POST /v1/quotes` | Test API key or retail session |
+| Preview buy/sell quote | `POST /v1/quotes` | Public |
+| Wallet-compatible indicative quote | `GET /sep38/prices`, `GET /sep38/price` | Public |
 | Create on-ramp order | `POST /v1/onramps` | Test API key or retail session |
 | Create off-ramp order | `POST /v1/offramps` | Test API key or retail session |
 | Get order | `GET /v1/orders/{order_id}` | Test API key or retail session |
@@ -303,6 +304,7 @@ The exact paths may follow the implementation's versioning convention, but `v0.1
 | Register webhook endpoint | `/v1/webhook-endpoints` | Developer session or test API key |
 | SEP-24 interactive deposit | `POST /sep24/transactions/deposit/interactive` | Test API key or verified retail session |
 | SEP-24 interactive withdrawal | `POST /sep24/transactions/withdraw/interactive` | Test API key or verified retail session |
+| SEP-24 transaction history | `GET /sep24/transactions` | Test API key or verified retail session |
 | Federation lookup | Federation endpoint | Public |
 | Health check | `GET /health` | Public, no secrets |
 

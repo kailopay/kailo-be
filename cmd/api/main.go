@@ -224,9 +224,19 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("creating quote preview service: %w", err)
 	}
+	sep38Service, err := usecase.NewSep38Usecase(priceClient, usecase.Sep38UsecaseConfig{
+		QuotePolicy: quotePolicy,
+		MinIDR:      entity.IDR(cfg.Week1.Onramp.MinIDR),
+		MaxIDR:      entity.IDR(cfg.Week1.Onramp.MaxIDR),
+		Now:         time.Now,
+	})
+	if err != nil {
+		return fmt.Errorf("creating SEP-38 service: %w", err)
+	}
 	offrampHandler := httpapi.NewOfframpHandler(offrampService, appLogger)
 	onrampHandler := httpapi.NewOnrampHandler(onrampService, appLogger)
 	quoteHandler := httpapi.NewQuoteHandler(quoteService, appLogger)
+	sep38Handler := httpapi.NewSep38Handler(sep38Service, appLogger)
 	sep24Repository := repository.NewSEP24Repository(db)
 	sep24Service, err := usecase.NewSep24Usecase(usecase.Sep24Dependencies{
 		Onramp: onrampService, Offramp: offrampService, Orders: onrampService, Transactions: sep24Repository,
@@ -239,6 +249,7 @@ func run(ctx context.Context) error {
 		DepositAccount:        cfg.Week1.Offramp.DepositAccount,
 		NetworkPassphrase:     cfg.Week1.Stellar.NetworkPassphrase,
 		TransferServerURL:     publicBaseURL + "/sep24",
+		QuoteServerURL:        publicBaseURL + "/sep38",
 		FederationURL:         publicBaseURL + "/federation",
 		DepositMinAmountMinor: cfg.Week1.Onramp.MinIDR,
 		DepositMaxAmountMinor: cfg.Week1.Onramp.MaxIDR,
@@ -256,6 +267,7 @@ func run(ctx context.Context) error {
 		httpapi.WithAPIKeys(apiKeyHandler), httpapi.WithKYC(kycHandler),
 		httpapi.WithOnramp(onrampHandler, orderPrincipalMiddleware),
 		httpapi.WithOfframp(offrampHandler), httpapi.WithQuote(quoteHandler, orderPrincipalMiddleware),
+		httpapi.WithSep38(sep38Handler),
 		httpapi.WithSep24(sep24Handler, orderPrincipalMiddleware),
 		httpapi.WithWebhooks(webhookHandler), httpapi.WithXenditCallback(callbackHandler))
 	if err != nil {

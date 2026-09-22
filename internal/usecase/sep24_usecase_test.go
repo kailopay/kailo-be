@@ -69,6 +69,21 @@ func (f *sep24TransactionRepositoryFake) Find(_ context.Context, principal Order
 	return record, nil
 }
 
+func (f *sep24TransactionRepositoryFake) List(_ context.Context, principal OrderPrincipal, limit int) ([]Sep24TransactionRecord, error) {
+	f.findPrincipal = principal
+	if limit > len(f.records) {
+		limit = len(f.records)
+	}
+	list := make([]Sep24TransactionRecord, 0, limit)
+	for _, record := range f.records {
+		if len(list) == limit {
+			break
+		}
+		list = append(list, record)
+	}
+	return list, nil
+}
+
 func TestSep24StartDepositCreatesAndMapsOwnedOrder(t *testing.T) {
 	principal := sep24RetailPrincipal()
 	onramp := &sep24OnrampCreatorFake{view: OrderView{
@@ -287,6 +302,34 @@ func TestSep24GetTransactionReadsCurrentOwnedOrderStatus(t *testing.T) {
 	}
 	if orders.principal != principal || transactions.findPrincipal != principal {
 		t.Fatalf("ownership was not propagated: order = %+v, mapping = %+v", orders.principal, transactions.findPrincipal)
+	}
+}
+
+func TestSep24ListTransactionsLoadsCurrentOwnedOrderStatus(t *testing.T) {
+	principal := sep24RetailPrincipal()
+	transactions := &sep24TransactionRepositoryFake{records: map[string]Sep24TransactionRecord{
+		"deposit-order-1": {TransactionID: "deposit-order-1", OrderID: "order-1", Kind: Sep24KindDeposit},
+	}}
+	orders := &sep24OrderReaderFake{view: OrderView{ID: "order-1", Status: entity.OrderStatusCompleted}}
+	service, err := NewSep24Usecase(Sep24Dependencies{
+		Onramp:       &sep24OnrampCreatorFake{},
+		Offramp:      &sep24OfframpCreatorFake{},
+		Orders:       orders,
+		Transactions: transactions,
+	})
+	if err != nil {
+		t.Fatalf("NewSep24Usecase() error = %v", err)
+	}
+
+	views, err := service.ListTransactions(context.Background(), principal, 20)
+	if err != nil {
+		t.Fatalf("ListTransactions() error = %v", err)
+	}
+	if len(views) != 1 || views[0].ID != "deposit-order-1" || views[0].Status != "completed" {
+		t.Fatalf("views = %+v", views)
+	}
+	if transactions.findPrincipal != principal || orders.principal != principal {
+		t.Fatalf("ownership was not propagated: mapping = %+v, order = %+v", transactions.findPrincipal, orders.principal)
 	}
 }
 
