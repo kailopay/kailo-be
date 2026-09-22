@@ -132,8 +132,9 @@ Invariants:
 - State changes use optimistic versioning and a legal transition table.
 - A completed on-ramp has a reconciled payment and successful Stellar transaction.
 - A completed off-ramp has verified asset receipt, successful burn/retirement,
-  and durable payout evidence. The current release does not advance new orders
-  to completed because the payout rail is deferred.
+  and durable payout evidence. In the testnet simulator mode, that evidence is
+  a deterministic sandbox payout record with an explicit no-real-IDR disclosure;
+  disabled mode leaves the order in `withdrawal_processing`.
 - A failure never erases previously recorded external evidence.
 
 ### 3.4 Order event

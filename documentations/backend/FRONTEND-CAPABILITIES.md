@@ -18,8 +18,9 @@ The API uses one base URL. The local default is `http://localhost:8080`. Use the
 | Developer keys | `POST /v1/api-keys`, `GET /v1/api-keys`, `DELETE /v1/api-keys/{id}` | Server-integration setup. Keep keys out of browser code. |
 | Developer webhooks | `POST /v1/webhook-endpoints`, `GET /v1/webhook-endpoints`, `DELETE /v1/webhook-endpoints/{id}` | Configuration UI only. Delivery is not active yet. |
 | Orders | `POST /v1/quotes`, `POST /v1/onramps`, `POST /v1/offramps`, `GET /v1/orders`, `GET /v1/orders/{id}` | Quote preview, buy, sell, order history, and order tracking. |
-| Anchor discovery | `GET /.well-known/stellar.toml`, `GET /federation?q=...`, `GET /sep24/info`, `GET /sep38/info`, `GET /sep38/prices`, `GET /sep38/price` | Stellar integration and sandbox metadata/pricing. |
-| SEP-24 | `POST /sep24/transactions/deposit/interactive`, `POST /sep24/transactions/withdraw/interactive`, `GET /sep24/transactions`, `GET /sep24/transaction?id=...`, `GET /sep24/interactive/{id}`, `POST /sep24/deposit`, `POST /sep24/withdraw` | Authenticated JSON-based deposit, withdrawal, history, and status screens. |
+| Anchor discovery | `GET /.well-known/stellar.toml`, `GET /federation?q=...`, `GET /sep24/info`, `GET /sep38/info`, `GET /sep38/prices`, `GET /sep38/price`, `POST /sep38/quote`, `GET /sep38/quote/{id}` | Stellar integration, sandbox metadata, indicative prices, and wallet-owned firm quotes. |
+| SEP-10 | `GET /auth?account=...`, `POST /auth` | Sign a classic Stellar challenge and retain the short-lived bearer JWT in the wallet integration layer. |
+| SEP-24 | `POST /sep24/transactions/deposit/interactive`, `POST /sep24/transactions/withdraw/interactive`, `GET /sep24/transactions`, `GET /sep24/transaction?id=...`, `GET /sep24/interactive/{id}`, `POST /sep24/interactive/{id}`, `POST /sep24/deposit`, `POST /sep24/withdraw` | Wallet-owned initiation plus the KailoPay retail-session linking page, history, lookup, and status screens. |
 | Provider callbacks | `POST /callbacks/kyc/persona`, `POST /callbacks/payments/xendit` | Provider-to-backend traffic. Do not call these from the frontend. |
 
 The `/sep24/deposit` and `/sep24/withdraw` routes are compatibility aliases. Use the nested `/sep24/transactions/.../interactive` routes for new code.
@@ -31,7 +32,7 @@ Apply these rules to every frontend API client:
 - Send `Accept: application/json` for JSON endpoints.
 - Send `Content-Type: application/json` for JSON request bodies.
 - Use `credentials: "include"` for session-authenticated requests.
-- Use `Authorization: Bearer pk_test_...` only from a trusted server.
+- Use `Authorization: Bearer pk_test_...` only from a trusted server; SEP-24 wallet integrations use the SEP-10 bearer JWT instead.
 - Send an `Idempotency-Key` for every new on-ramp, off-ramp, or SEP-24 start request.
 - Keep IDR minor units, XLM amounts, quote rates, and cursors as strings unless the UI needs a separate display number.
 - Treat `environment: "sandbox"` and `network: "stellar_testnet"` as response data that the UI must show.
@@ -48,7 +49,8 @@ Use the following matrix when deciding which client can call an endpoint:
 | Public browser request | Health, API docs, `/.well-known/stellar.toml`, `/federation`, `/sep24/info`, `/sep38/*`, `POST /v1/quotes` | No login is required. The TOML route returns text, not JSON. |
 | Browser navigation | `/auth/google/login`, `/auth/google/callback` | Navigate to the URL with `location.assign`; do not call these routes through `fetch`. |
 | Session cookie | `/auth/me`, password change, avatar, KYC, API keys, webhook management | Send `credentials: "include"`. The cookie is HttpOnly, so the frontend reads the returned user or status rather than the cookie value. |
-| Session or server API key | On-ramp, off-ramp, order reads, and SEP-24 transaction routes | Use the session for the consumer web app. Use `Authorization: Bearer pk_test_...` only in a trusted server integration. |
+| Session or server API key | On-ramp, off-ramp, order reads, and the legacy SEP-24 aliases | Use the session for the consumer web app. Use `Authorization: Bearer pk_test_...` only in a trusted server integration. |
+| SEP-10 bearer JWT | Canonical SEP-24 initiation/history/lookup and SEP-38 firm quotes | Obtain it by signing the `/auth` challenge for the classic Stellar account. The browser page still requires a KailoPay retail session to create the order. |
 | Provider callback | `/callbacks/kyc/persona`, `/callbacks/payments/xendit` | Never call these from the frontend. Persona and Xendit call them directly. |
 
 Successful response conventions are also consistent across the API:
@@ -365,13 +367,17 @@ The `destination_token` is a synthetic sandbox reference. It is not a bank accou
 
 For an off-ramp, the relevant states are `asset_pending`, `asset_received`, `asset_invalid`, `retirement_processing`, `withdrawal_processing`, `completed`, `expired`, `retirement_failed`, `withdrawal_failed`, and `cancelled`.
 
-The current release does not execute or simulate the IDR payout. After the exact deposit is accepted and retirement is confirmed, the order remains in `withdrawal_processing`; do not show a success or completed payout message. A future payout rail may advance the order to `completed` and add `payout` evidence.
+When `OFFRAMP_PAYOUT_MODE=simulated` is enabled on Stellar testnet, the worker
+records a deterministic sandbox payout after retirement and advances the order
+to `completed`. Show the payout reference together with the disclosure that no
+real IDR moved. With the mode disabled, the order remains in
+`withdrawal_processing`; do not show a completed payout message.
 
 The backend records `asset_received` before it queues retirement. The stored order state can already be `retirement_processing` when the frontend polls it. Treat `asset_received` as a valid transitional state, not as a state that must appear.
 
-For an off-ramp, `order.stellar_destination` identifies the deposit account and memo. `order.deposit_transaction_hash` identifies the user's XLM deposit after the worker accepts it. A newly created order does not include `payout`; keep polling `withdrawal_processing` after retirement until a future payout rail is enabled.
+For an off-ramp, `order.stellar_destination` identifies the deposit account and memo. `order.deposit_transaction_hash` identifies the user's XLM deposit after the worker accepts it. A newly created order normally does not include `payout`; keep polling until the simulator either adds completed payout evidence or the disabled mode leaves the order pending.
 
-The shared order response includes `payment_method`, but that field is meaningful only for on-ramp orders. Use the off-ramp request's `withdrawal.method` for the selected payout destination; the payout object is omitted while payout is deferred.
+The shared order response includes `payment_method`, but that field is meaningful only for on-ramp orders. Use the off-ramp request's `withdrawal.method` for the selected payout destination; when present, `payout.disclosure` is authoritative and must remain visible.
 
 ### Developer portal
 
@@ -433,7 +439,10 @@ The create response returns `{ "endpoint": { "id": "..." }, "secret": "whsec_...
 
 ### SEP-24 deposit and withdrawal screens
 
-The frontend can build an authenticated JSON-based SEP-24 sandbox screen. The backend does not provide a wallet-facing HTML interactive page.
+The wallet integration uses SEP-10 for the protocol calls, then opens the
+returned interactive URL. The backend provides a small escaped HTML page for
+linking the wallet to a KailoPay retail session and completing the Persona
+approval gate. It is a Stellar testnet sandbox page, not a bank form.
 
 Use these endpoints:
 
@@ -441,12 +450,12 @@ Use these endpoints:
 - `POST /sep24/transactions/deposit/interactive` to start a deposit.
 - `POST /sep24/transactions/withdraw/interactive` to start a withdrawal.
 - `GET /sep24/transactions?limit=...` to list recent owned transactions.
-- `GET /sep24/transaction?id=...` to read transaction status.
-- `GET /sep24/interactive/{id}` to read the authenticated transaction projection.
+- `GET /sep24/transaction?id=...` (or a Stellar/external transaction ID) to read transaction status.
+- `GET /sep24/interactive/{id}` and `POST /sep24/interactive/{id}` for the browser hand-off.
 
-The deposit request is `multipart/form-data` with `asset_code=XLM`, a positive `amount_minor` IDR string, a Stellar testnet `account`, and an optional `memo` or `payment_method`.
+The deposit request is `multipart/form-data` or JSON with `asset_code=XLM`, a positive `amount_minor` IDR string or a wallet-owned `quote_id`, the authenticated Stellar testnet `account`, and an optional `memo` or `payment_method`. No order exists until the browser hand-off completes.
 
-The withdrawal request is `multipart/form-data` with `asset_code=XLM`, an exact XLM `amount`, and a synthetic `destination_token`.
+The withdrawal request is `multipart/form-data` or JSON with `asset_code=XLM`, an exact XLM `amount` or a wallet-owned `quote_id`. The interactive page collects a synthetic `destination_token`; random references are accepted by the testnet payout simulator and never treated as bank details.
 
 The SEP-24 status values are `pending_user_transfer_start`, `pending_anchor`, `pending_external`, `completed`, `expired`, and `error`.
 
@@ -651,7 +660,7 @@ Order errors use this shape:
 ## Do not build against these assumptions
 
 - Do not describe the on-ramp as issuing a custom token. The backend transfers pre-funded native XLM on Stellar testnet.
-- Do not show the off-ramp as a completed bank payout. The current release stops at `withdrawal_processing` after Stellar retirement because payout is deferred.
+- Do not show the off-ramp as a completed bank payout. Simulator completion means only that a deterministic sandbox record was written; keep the explicit no-real-IDR disclosure visible.
 - Do not assume a successful checkout redirect means the payment was confirmed.
 - Do not call Xendit, Persona, Horizon, or federation signing flows directly from the browser. The backend owns those integrations.
 - Do not depend on outbound developer webhooks until the backend adds delivery, signing, retries, and attempt records.
@@ -660,7 +669,7 @@ Order errors use this shape:
 
 These items are important when turning the endpoint map into production-ready screens:
 
-- **Off-ramp deposit instructions:** the normal off-ramp response may have an empty `order.stellar_destination.account` because the repository and public serializer use different fields. Do not invent an account or derive one from `destination_token`. Block the transfer-instruction step and report a backend configuration/contract error until the mapping is fixed. The SEP-24 withdrawal projection currently has a separate `withdraw_anchor_account` field, but it should not be used to hide a broken normal off-ramp response.
+- **Off-ramp deposit instructions:** use the configured `order.stellar_destination.account` and memo exactly as returned. Never invent an account or derive one from `destination_token`; the latter is only a synthetic payout reference.
 - **Developer webhooks:** endpoint registration has a client-ownership mismatch in the current handler/repository path, and the worker does not deliver outbound events. Keep the settings page disabled or label it unavailable; do not promise that a registered URL will receive events.
 - **Order direction:** the public order object does not include a stable `direction` field. For now, infer the view from the fields returned by the order and retain the original flow in local UI state. A permanent buy/sell filter needs a backend contract addition.
 - **Unknown checkout outcomes:** a `202 CHECKOUT_PENDING_RECONCILIATION` response means the provider result is unknown. Keep the original order and idempotency key visible, and do not create a duplicate checkout. The reconciliation worker is not complete in this release.
@@ -762,7 +771,7 @@ Build the frontend in this order:
 6. Add order history and detail views for both directions.
 7. Add profile, password, and avatar settings.
 8. Add Developer Mode and API-key management. Keep the full key out of browser storage.
-9. Add the JSON SEP-24 deposit and withdrawal screens if the product needs an anchor-facing flow.
+9. Add the SEP-10 wallet challenge/exchange and the SEP-24 interactive linking flow if the product needs an anchor-facing wallet integration.
 10. Keep webhook configuration hidden or marked unavailable until outbound delivery is implemented.
 
 For every order screen, show the environment and network labels. Show the quote expiry, payment or deposit instructions, the current status, and the failure code when the backend returns one.

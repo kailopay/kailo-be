@@ -73,7 +73,7 @@ func (r *OfframpRepository) CreateOfframp(ctx context.Context, record usecase.Of
 		// keeping the row version in lockstep with order_events.
 		order := entity.OrderRecord{
 			ID: record.OrderID, ClientID: ownership.ClientID, CreatedByUserID: ownership.CreatedByUserID,
-			RetailSessionID: ownership.RetailSessionID, Direction: "offramp",
+			RetailSessionID: ownership.RetailSessionID, WalletAccount: strPtrIfNotEmpty(record.WalletAccount), QuoteID: strPtrIfNotEmpty(record.QuoteID), Direction: "offramp",
 			Status: string(entity.OrderStatusAssetPending), Version: 2,
 			Currency: "IDR", FiatAmountMinor: int64(record.Quote.FiatAmount),
 			AssetCode: "XLM", AssetIssuer: "", Network: r.network,
@@ -326,6 +326,10 @@ func (r *OfframpRepository) ConfirmRetirement(ctx context.Context, intentID, has
 			"status": "confirmed", "ledger_at": ledgerAt.UTC(), "updated_at": now}).Error; err != nil {
 			return err
 		}
+		if err := tx.Model(&entity.SEP24Transaction{}).Where("order_id = ?", stellar.OrderID).
+			Updates(map[string]any{"stellar_transaction_id": hash}).Error; err != nil {
+			return fmt.Errorf("recording SEP-24 retirement transaction: %w", err)
+		}
 		var order entity.OrderRecord
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", stellar.OrderID).First(&order).Error; err != nil {
 			return err
@@ -344,7 +348,75 @@ func (r *OfframpRepository) ConfirmRetirement(ctx context.Context, intentID, has
 			Updates(map[string]any{"processed_at": now, "lease_owner": nil, "lease_until": nil, "last_error": nil}).Error; err != nil {
 			return err
 		}
+		payoutOutboxID, err := platform.NewID()
+		if err != nil {
+			return fmt.Errorf("generating payout outbox id: %w", err)
+		}
+		payoutPayload, err := json.Marshal(map[string]string{"order_id": order.ID})
+		if err != nil {
+			return fmt.Errorf("encoding payout outbox payload: %w", err)
+		}
+		if err := tx.Create(&entity.OutboxMessage{
+			ID: payoutOutboxID, Topic: usecase.SandboxPayoutTopic, AggregateType: "order", AggregateID: order.ID,
+			Payload: payoutPayload, CreatedAt: now, AvailableAt: now,
+		}).Error; err != nil {
+			return fmt.Errorf("creating payout outbox message: %w", err)
+		}
 		return nil
+	})
+}
+
+// CompleteSandboxPayout atomically records the deterministic simulated payout,
+// advances the order, and finishes the payout outbox message. Re-delivery is
+// safe because both the order and payout rows are unique per order.
+func (r *OfframpRepository) CompleteSandboxPayout(ctx context.Context, orderID, outboxID, reference string, now time.Time) error {
+	return r.tx.do(ctx, func(tx *gorm.DB) error {
+		var order entity.OrderRecord
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", orderID).First(&order).Error; err != nil {
+			return fmt.Errorf("locking payout order: %w", err)
+		}
+		if entity.OrderStatus(order.Status) != entity.OrderStatusWithdrawalProcessing && entity.OrderStatus(order.Status) != entity.OrderStatusCompleted {
+			return entity.ErrInvalidOrderState
+		}
+
+		var payout entity.OfframpPayout
+		payoutErr := tx.Where("order_id = ?", order.ID).First(&payout).Error
+		if errors.Is(payoutErr, gorm.ErrRecordNotFound) {
+			payoutID, err := platform.NewID()
+			if err != nil {
+				return fmt.Errorf("generating payout id: %w", err)
+			}
+			completedAt := now.UTC()
+			payout = entity.OfframpPayout{ID: payoutID, OrderID: order.ID, Method: "sandbox_bank_transfer",
+				AmountMinor: order.FiatAmountMinor, ReferenceID: reference, State: "completed",
+				CompletedAt: &completedAt, CreatedAt: completedAt, UpdatedAt: completedAt}
+			if err := tx.Create(&payout).Error; err != nil && !isUniqueViolation(err) {
+				return fmt.Errorf("creating sandbox payout: %w", err)
+			}
+			if err := tx.Where("order_id = ?", order.ID).First(&payout).Error; err != nil {
+				return fmt.Errorf("loading sandbox payout: %w", err)
+			}
+		} else if payoutErr != nil {
+			return fmt.Errorf("loading sandbox payout: %w", payoutErr)
+		}
+
+		if entity.OrderStatus(order.Status) == entity.OrderStatusWithdrawalProcessing {
+			if err := tx.Model(&entity.OrderRecord{}).Where("id = ? AND version = ?", order.ID, order.Version).
+				Updates(map[string]any{"status": entity.OrderStatusCompleted, "version": order.Version + 1,
+					"completed_at": now.UTC(), "updated_at": now.UTC()}).Error; err != nil {
+				return fmt.Errorf("completing payout order: %w", err)
+			}
+			if err := appendOrderEvent(tx, order.ID, order.Version+1, "payout.simulated", order.Status, string(entity.OrderStatusCompleted), now.UTC()); err != nil {
+				return err
+			}
+		}
+		if err := tx.Model(&entity.SEP24Transaction{}).Where("order_id = ?", order.ID).
+			Updates(map[string]any{"external_transaction_id": payout.ReferenceID}).Error; err != nil {
+			return fmt.Errorf("recording SEP-24 payout reference: %w", err)
+		}
+		return tx.Model(&entity.OutboxMessage{}).
+			Where("id = ? AND topic = ? AND processed_at IS NULL", outboxID, usecase.SandboxPayoutTopic).
+			Updates(map[string]any{"processed_at": now.UTC(), "lease_owner": nil, "lease_until": nil, "last_error": nil}).Error
 	})
 }
 
@@ -437,7 +509,7 @@ func (r *OfframpRepository) orderView(ctx context.Context, order entity.OrderRec
 	if err := r.db.WithContext(ctx).Where("order_id = ?", order.ID).First(&payout).Error; err == nil {
 		simulation := true
 		view.Payout = &usecase.PayoutView{Reference: payout.ReferenceID, Method: payout.Method,
-			AmountMinor: payout.AmountMinor, State: payout.State, Simulated: &simulation}
+			AmountMinor: payout.AmountMinor, State: payout.State, Simulated: &simulation, Disclosure: usecase.SandboxPayoutDisclosure}
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return usecase.OrderView{}, fmt.Errorf("finding payout: %w", err)
 	}

@@ -10,6 +10,7 @@ type SEP24InteractiveSession struct {
 	TransactionID    string  `gorm:"type:text;not null;unique"`
 	Kind             string  `gorm:"type:text;not null"`
 	WalletAccount    string  `gorm:"type:text;not null;index"`
+	BrowserTokenHash []byte  `gorm:"type:bytea;not null;unique"`
 	RequestHash      []byte  `gorm:"type:bytea;not null"`
 	RequestPayload   []byte  `gorm:"type:jsonb;not null"`
 	AssetCode        string  `gorm:"type:text;not null"`

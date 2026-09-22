@@ -121,19 +121,20 @@ Mismatch handling:
 
 ## 8. Off-ramp payout
 
-After verified asset receipt and confirmed burn/retirement:
+After verified asset receipt and confirmed burn/retirement, the worker queues a
+durable payout intent. The testnet release supports two explicit modes:
 
-1. Persist one payout intent with stable order/external ID.
-2. Call the provider's sandbox disbursement/payout capability if available.
-3. Store provider payout ID, state, exact IDR amount, and safe destination reference.
-4. Reconcile unknown outcomes before retry.
-5. Complete the order only after provider success evidence or the stakeholder-approved sandbox simulation outcome.
+1. `OFFRAMP_PAYOUT_MODE=simulated` records one deterministic
+   `sandbox_bank_transfer` payout row, exact IDR amount, synthetic destination
+   reference, and `payout.simulated`, then completes the order atomically.
+2. `OFFRAMP_PAYOUT_MODE=disabled` leaves the order in
+   `withdrawal_processing` with the payout intent pending.
 
-If a full sandbox payout is unavailable:
-
-- Use an explicitly named `simulated`/`sandbox_instruction_created` result.
-- Never show wording such as “IDR sent” unless provider evidence supports it.
-- Include the limitation in UI, API response, demo, test record, and Completion Report.
+The simulator never calls Xendit or a bank and accepts only a non-empty
+synthetic reference within the existing limit. Every response, UI, demo, test
+record, and Completion Report must say that no real IDR moved. A future real
+provider adapter still needs provider idempotency and unknown-outcome
+reconciliation before it can complete a real payout.
 
 ## 9. Error classification
 

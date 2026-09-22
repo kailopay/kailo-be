@@ -60,7 +60,7 @@ func TestSEPWalletModelsExposeStableCorrelationFields(t *testing.T) {
 		fields []string
 	}{
 		{name: "sep10 challenge", model: entity.SEP10Challenge{}, table: "sep10_challenges", fields: []string{"ID", "ChallengeHash", "Account", "HomeDomain", "Network", "ExpiresAt", "ConsumedAt"}},
-		{name: "sep24 interactive session", model: entity.SEP24InteractiveSession{}, table: "sep24_interactive_sessions", fields: []string{"ID", "TransactionID", "Kind", "WalletAccount", "RequestHash", "RequestPayload", "KYCStatus", "OrderID"}},
+		{name: "sep24 interactive session", model: entity.SEP24InteractiveSession{}, table: "sep24_interactive_sessions", fields: []string{"ID", "TransactionID", "Kind", "WalletAccount", "BrowserTokenHash", "RequestHash", "RequestPayload", "KYCStatus", "OrderID"}},
 		{name: "sep38 quote", model: entity.SEP38Quote{}, table: "sep38_quotes", fields: []string{"ID", "QuoteID", "WalletAccount", "SellAsset", "BuyAsset", "SellAmount", "BuyAmount", "ExpiresAt", "ConsumedAt"}},
 	}
 	for _, testCase := range tests {

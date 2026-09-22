@@ -157,31 +157,40 @@ the browser must refresh `GET /v1/kyc` after the embedded flow completes.
 
 ### Anchor/public operations
 
-SEP-24 and federation paths follow the applicable Stellar specifications and are detailed in `STELLAR-ANCHOR-INTEGRATION.md`. The current sandbox SEP-24 bridge uses the existing order-principal authentication (test API key or verified retail session); SEP-10/SEP-45 token exchange is a separate interoperability slice. Health endpoints are intentionally outside `/v1`:
+SEP-24 and federation paths follow the applicable Stellar specifications and are detailed in `STELLAR-ANCHOR-INTEGRATION.md`. Classic Stellar wallets authenticate with SEP-10; SEP-45 contract-account authentication is not advertised. Health endpoints are intentionally outside `/v1`:
 
 | Method | Path | Auth | Idempotency | Purpose |
 |---|---|---|---|---|
-| `POST` | `/sep24/transactions/deposit/interactive` | Test key or verified retail session | `Idempotency-Key` required | Create and persist an owned on-ramp order mapping |
-| `POST` | `/sep24/transactions/withdraw/interactive` | Test key or verified retail session | `Idempotency-Key` required | Create and persist an owned off-ramp order mapping |
-| `GET` | `/sep24/transactions?limit={n}` | Test key or verified retail session | N/A | List recent owned SEP-24 transaction mappings |
-| `GET` | `/sep24/transaction?id={transaction_id}` | Test key or verified retail session | N/A | Return current status for an owned mapping |
-| `GET` | `/sep24/interactive/{transaction_id}` | Test key or verified retail session | N/A | Return the authenticated sandbox interactive projection |
+| `GET` | `/auth?account=G...` | None | N/A | Create a SEP-10 challenge transaction |
+| `POST` | `/auth` | None | N/A | Exchange the signed challenge for a short-lived bearer JWT |
+| `POST` | `/sep24/transactions/deposit/interactive` | SEP-10 bearer JWT | `Idempotency-Key` required | Create a wallet-owned interactive deposit session |
+| `POST` | `/sep24/transactions/withdraw/interactive` | SEP-10 bearer JWT | `Idempotency-Key` required | Create a wallet-owned interactive withdrawal session |
+| `GET` | `/sep24/transactions?limit={n}` | SEP-10 bearer JWT | N/A | List recent wallet-owned SEP-24 transaction mappings |
+| `GET` | `/sep24/transaction?id={transaction_id}` | SEP-10 bearer JWT | N/A | Return current status for an owned mapping |
+| `GET`/`POST` | `/sep24/interactive/{transaction_id}` | Browser token + KailoPay session | N/A | Link the wallet to a retail user and complete the interactive session |
 
-Initiation requests use `multipart/form-data`. Deposit requires `asset_code=XLM`,
-`account`, and positive sandbox `amount_minor` IDR units; `memo` and
-`payment_method` are optional. Withdrawal requires `asset_code=XLM`, exact
-decimal `amount`, and the non-empty sandbox `destination_token`. `/sep24/info`
+Initiation requests use `multipart/form-data` or the JSON equivalent. Deposit
+requires `asset_code=XLM`, the authenticated wallet account, and positive
+sandbox `amount_minor` IDR units unless a firm `quote_id` is supplied; `memo`
+and `payment_method` are optional. Withdrawal requires `asset_code=XLM`, exact
+decimal `amount` unless a firm `quote_id` is supplied. Its non-empty
+`destination_token` is collected by the interactive page as a synthetic
+sandbox reference. `/sep24/info`
 labels deposit limits as `idr_minor` and withdrawal limits as `XLM`; this keeps
-the sandbox's fiat-denominated quote input explicit. The backend routes both
-directions through the normal order use cases, so approved Persona KYC is
-required before order creation. `sep24_transactions` stores the stable
-transaction-to-order mapping; polling resolves the order through the caller's
-authenticated owner and never trusts a client-supplied status. An unknown
-checkout outcome is reported as `pending_external` until reconciliation.
+the sandbox's fiat-denominated quote input explicit. Initiation creates a
+durable session; the existing order use cases run only after the browser links a
+KailoPay retail session and approved Persona KYC is present. `sep24_transactions`
+stores the stable wallet-to-transaction-to-order mapping; polling resolves the
+order through the caller's SEP-10 account and never trusts a client-supplied
+status. An unknown checkout outcome is reported as `pending_external` until
+reconciliation.
 Deposit responses also include the sandbox-specific `payment_link_url` when a
 hosted checkout was created. Withdrawal responses do not include this field.
 `/sep24/deposit` and `/sep24/withdraw` are retained as local compatibility
-aliases.
+aliases. When `OFFRAMP_PAYOUT_MODE=simulated` is enabled on Stellar testnet,
+retirement queues a deterministic sandbox payout and completes the order; the
+optional payout evidence keeps its existing shape and explicitly discloses that
+no real IDR moved. `disabled` leaves the order in `withdrawal_processing`.
 
 ### SEP-38 quote server
 
@@ -195,13 +204,16 @@ spread policy as `/v1/quotes`, but expose Stellar's asset-identification format
 | `GET` | `/sep38/info` | Public | List supported quote assets and delivery methods |
 | `GET` | `/sep38/prices?sell_asset=...&buy_asset=...` | Public | Return an indicative price for the requested pair |
 | `GET` | `/sep38/price?...&sell_amount=...` or `buy_amount` | Public | Calculate the exact amount-specific result |
+| `POST` | `/sep38/quote` | SEP-10 bearer JWT | Create a wallet-owned firm quote |
+| `GET` | `/sep38/quote/{id}` | SEP-10 bearer JWT | Retrieve an unexpired, unconsumed firm quote |
 
 `/sep38/price` requires exactly one amount. IDR values are integer minor units;
 native XLM values use up to seven decimal places. `/v1/quotes` remains the
 first-party convenience contract for the web app, while both surfaces call the
-same quote policy and do not reserve liquidity or create an order. Firm quote
-creation and SEP-10/SEP-45 wallet authentication are outside this sandbox
-slice.
+same quote policy and do not reserve liquidity or create an order. Firm quotes
+are persisted for one wallet, expire, and can be consumed once by a matching
+SEP-24 initiation. The `/v1/onramps` and `/v1/offramps` request/response
+contracts are unchanged.
 
 | Method | Path | Purpose |
 |---|---|---|

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/febry3/kailopay-be/internal/handler/middleware"
 	openapi "github.com/febry3/kailopay-be/openapi"
@@ -15,12 +16,15 @@ type routerOptions struct {
 	kyc                   *KYCHandler
 	quote                 *QuoteHandler
 	sep38                 *Sep38Handler
+	sep38Quotes           bool
 	sep10                 *SEP10Handler
 	onramp                *OnrampHandler
 	offramp               *OfframpHandler
 	sep24                 *Sep24Handler
+	sep24Interactive      bool
 	webhooks              *WebhookHandler
 	requireOrderPrincipal gin.HandlerFunc
+	requireSEP10          gin.HandlerFunc
 	xenditCallback        *XenditCallbackHandler
 }
 
@@ -51,6 +55,21 @@ func WithSep24(handler *Sep24Handler, requireOrderPrincipal gin.HandlerFunc) Rou
 		}
 		options.sep24 = handler
 		options.requireOrderPrincipal = requireOrderPrincipal
+		return nil
+	}
+}
+
+// WithSep24Interactive enables the canonical wallet-owned initiation routes.
+// The existing order-principal middleware remains attached to the legacy
+// routes and to transaction history/lookups.
+func WithSep24Interactive(handler *Sep24Handler, requireSEP10 gin.HandlerFunc) RouterOption {
+	return func(options *routerOptions) error {
+		if handler == nil || requireSEP10 == nil || handler.interactive == nil {
+			return errors.New("configured SEP-24 interactive handler and SEP-10 middleware are required")
+		}
+		options.sep24 = handler
+		options.sep24Interactive = true
+		options.requireSEP10 = requireSEP10
 		return nil
 	}
 }
@@ -107,6 +126,18 @@ func WithSep38(handler *Sep38Handler) RouterOption {
 	}
 }
 
+func WithSep38Quotes(handler *Sep38Handler, requireSEP10 gin.HandlerFunc) RouterOption {
+	return func(options *routerOptions) error {
+		if handler == nil || handler.quotes == nil || requireSEP10 == nil {
+			return errors.New("configured SEP-38 quote handler and SEP-10 middleware are required")
+		}
+		options.sep38 = handler
+		options.sep38Quotes = true
+		options.requireSEP10 = requireSEP10
+		return nil
+	}
+}
+
 func WithSEP10(handler *SEP10Handler) RouterOption {
 	return func(options *routerOptions) error {
 		if handler == nil {
@@ -155,6 +186,7 @@ func NewRouter(logger *slog.Logger, health *HealthHandler, authHandler *AuthHand
 		middleware.RequestID(),
 		middleware.Recovery(logger),
 		middleware.Logging(logger),
+		protocolCORS,
 	)
 	// Kubernetes-style probes are the canonical endpoints. The aliases keep
 	// the original bootstrap contract available to existing local callers.
@@ -232,11 +264,27 @@ func NewRouter(logger *slog.Logger, health *HealthHandler, authHandler *AuthHand
 		router.GET("/sep24/info", configured.sep24.Info)
 		sep24Routes := router.Group("/sep24")
 		sep24Routes.Use(configured.requireOrderPrincipal)
-		sep24Routes.POST("/transactions/deposit/interactive", configured.sep24.Deposit)
-		sep24Routes.POST("/transactions/withdraw/interactive", configured.sep24.Withdraw)
-		sep24Routes.GET("/transactions", configured.sep24.Transactions)
-		sep24Routes.GET("/transaction", configured.sep24.Transaction)
-		sep24Routes.GET("/interactive/:id", configured.sep24.Interactive)
+		if configured.sep24Interactive {
+			walletSep24Routes := router.Group("/sep24")
+			walletSep24Routes.Use(configured.requireSEP10)
+			walletSep24Routes.POST("/transactions/deposit/interactive", configured.sep24.InteractiveDeposit)
+			walletSep24Routes.POST("/transactions/withdraw/interactive", configured.sep24.InteractiveWithdraw)
+		} else {
+			sep24Routes.POST("/transactions/deposit/interactive", configured.sep24.Deposit)
+			sep24Routes.POST("/transactions/withdraw/interactive", configured.sep24.Withdraw)
+		}
+		if configured.sep24Interactive {
+			walletSep24Routes := router.Group("/sep24")
+			walletSep24Routes.Use(configured.requireSEP10)
+			walletSep24Routes.GET("/transactions", configured.sep24.WalletTransactions)
+			walletSep24Routes.GET("/transaction", configured.sep24.WalletTransaction)
+			router.GET("/sep24/interactive/:id", configured.sep24.Interactive)
+			router.POST("/sep24/interactive/:id", configured.sep24.InteractiveComplete)
+		} else {
+			sep24Routes.GET("/transactions", configured.sep24.Transactions)
+			sep24Routes.GET("/transaction", configured.sep24.Transaction)
+			sep24Routes.GET("/interactive/:id", configured.sep24.Interactive)
+		}
 		// Keep the original sandbox paths for existing local clients while the
 		// standard nested SEP-24 paths become the documented contract.
 		sep24Routes.POST("/deposit", configured.sep24.Deposit)
@@ -247,6 +295,30 @@ func NewRouter(logger *slog.Logger, health *HealthHandler, authHandler *AuthHand
 		sep38Routes.GET("/info", configured.sep38.Info)
 		sep38Routes.GET("/prices", configured.sep38.Prices)
 		sep38Routes.GET("/price", configured.sep38.Price)
+		if configured.sep38Quotes {
+			quoteRoutes := router.Group("/sep38")
+			quoteRoutes.Use(configured.requireSEP10)
+			quoteRoutes.POST("/quote", configured.sep38.CreateQuote)
+			quoteRoutes.GET("/quote/:id", configured.sep38.GetQuote)
+		}
 	}
 	return router, nil
+}
+
+func protocolCORS(c *gin.Context) {
+	path := c.Request.URL.Path
+	protocol := path == "/auth" || path == "/.well-known/stellar.toml" || strings.HasPrefix(path, "/sep24") || strings.HasPrefix(path, "/sep38")
+	if !protocol {
+		c.Next()
+		return
+	}
+	c.Header("Access-Control-Allow-Origin", "*")
+	c.Header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+	c.Header("Access-Control-Allow-Headers", "Authorization, Content-Type, Idempotency-Key")
+	c.Header("Access-Control-Expose-Headers", "Content-Type")
+	if c.Request.Method == http.MethodOptions {
+		c.AbortWithStatus(http.StatusNoContent)
+		return
+	}
+	c.Next()
 }

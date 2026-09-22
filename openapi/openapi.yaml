@@ -17,6 +17,8 @@ tags:
     description: Sandbox API-key management.
   - name: Developer webhooks
     description: Register and disable sandbox order-event destinations.
+  - name: SEP-10
+    description: Classic Stellar wallet authentication for the sandbox anchor.
   - name: Orders
     description: Authenticated on-ramp, off-ramp, and order operations.
   - name: SEP-24
@@ -28,6 +30,57 @@ tags:
   - name: Provider callbacks
     description: Signed callbacks from Persona and Xendit.
 paths:
+  /auth:
+    get:
+      tags: [SEP-10]
+      operationId: getSEP10Challenge
+      summary: Create a SEP-10 challenge transaction
+      description: Returns a short-lived challenge transaction for a classic Stellar testnet account. The wallet must sign this transaction before exchanging it for a bearer token.
+      parameters:
+        - name: account
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 2
+          description: Classic Stellar G-account to authenticate.
+      responses:
+        '200':
+          description: Unsigned SEP-10 challenge transaction
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SEP10ChallengeResponse'
+        '400':
+          description: Invalid account or challenge request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SEP10Error'
+    post:
+      tags: [SEP-10]
+      operationId: exchangeSEP10Challenge
+      summary: Exchange a signed SEP-10 challenge
+      description: Verifies the wallet signature and returns a short-lived bearer JWT bound to the classic Stellar account.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SEP10ExchangeRequest'
+      responses:
+        '200':
+          description: SEP-10 bearer token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SEP10TokenResponse'
+        '400':
+          description: Invalid, expired, or already-used challenge
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SEP10Error'
   /auth/register:
     post:
       summary: Create an email account
@@ -931,10 +984,9 @@ paths:
     post:
       tags: [SEP-24]
       summary: Start an authenticated SEP-24 deposit
-      description: Creates an owner-scoped KailoPay on-ramp order after the normal approved-Persona KYC gate and persists the SEP-24 transaction mapping. The sandbox uses amount_minor IDR units because the order quote is fiat-denominated.
+      description: Creates a durable wallet-owned interactive session. No on-ramp order is created until the wallet browser links a KailoPay retail session and passes the Persona approval gate. The sandbox uses amount_minor IDR units because the order quote is fiat-denominated.
       security:
-        - kailoAPIKey: []
-        - kailoSession: []
+        - sep10Bearer: []
       parameters:
         - name: Idempotency-Key
           in: header
@@ -963,7 +1015,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/SEP24Error'
         '401':
-          description: Missing or invalid API key/session credentials
+          description: Missing or invalid SEP-10 bearer credentials
         '403':
           description: Approved Persona verification is required
           content:
@@ -992,10 +1044,9 @@ paths:
     post:
       tags: [SEP-24]
       summary: Start an authenticated SEP-24 withdrawal
-      description: Creates an owner-scoped KailoPay off-ramp order after the normal approved-Persona KYC gate and persists the SEP-24 transaction mapping. The sandbox payout rail uses a synthetic destination token.
+      description: Creates a durable wallet-owned interactive session. No off-ramp order is created until the wallet browser links a KailoPay retail session and passes the Persona approval gate. The sandbox payout rail uses a synthetic destination token.
       security:
-        - kailoAPIKey: []
-        - kailoSession: []
+        - sep10Bearer: []
       parameters:
         - name: Idempotency-Key
           in: header
@@ -1024,7 +1075,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/SEP24Error'
         '401':
-          description: Missing or invalid API key/session credentials
+          description: Missing or invalid SEP-10 bearer credentials
         '403':
           description: Approved Persona verification is required
           content:
@@ -1054,10 +1105,9 @@ paths:
       tags: [SEP-24]
       operationId: listSEP24Transactions
       summary: List owned SEP-24 transactions
-      description: Returns the most recent owner-scoped SEP-24 transaction mappings. The current order state is resolved for every mapping; client-supplied status is never trusted.
+      description: Returns the most recent SEP-24 transaction mappings owned by the SEP-10 wallet account. The current order state is resolved for every mapping; client-supplied status is never trusted.
       security:
-        - kailoAPIKey: []
-        - kailoSession: []
+        - sep10Bearer: []
       parameters:
         - name: limit
           in: query
@@ -1068,6 +1118,35 @@ paths:
             maximum: 100
             default: 20
           description: Maximum number of transactions to return.
+        - name: asset_code
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [XLM]
+        - name: kind
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [deposit, withdrawal]
+        - name: no_older_than
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: paging_id
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: lang
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Accepted for SEP-24 wallet compatibility; the sandbox currently returns English messages.
       responses:
         '200':
           description: Recent transactions for the authenticated owner
@@ -1082,7 +1161,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/SEP24Error'
         '401':
-          description: Missing or invalid API key/session credentials
+          description: Missing or invalid SEP-10 bearer credentials
         '503':
           description: Transaction or order storage unavailable
           content:
@@ -1094,14 +1173,23 @@ paths:
       tags: [SEP-24]
       operationId: getSEP24Transaction
       summary: Get the current status of an owned SEP-24 transaction
-      description: Loads the durable transaction-to-order mapping and returns the current order state. Client-supplied status values are ignored.
+      description: Loads the durable wallet-owned transaction-to-order mapping and returns the current order state. Supply exactly one of id, stellar_transaction_id, or external_transaction_id. Client-supplied status values are ignored.
       security:
-        - kailoAPIKey: []
-        - kailoSession: []
+        - sep10Bearer: []
       parameters:
         - name: id
           in: query
-          required: true
+          required: false
+          schema:
+            type: string
+        - name: stellar_transaction_id
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: external_transaction_id
+          in: query
+          required: false
           schema:
             type: string
       responses:
@@ -1118,7 +1206,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/SEP24Error'
         '401':
-          description: Missing or invalid API key/session credentials
+          description: Missing or invalid SEP-10 bearer credentials
         '404':
           description: Transaction is missing or belongs to another owner
           content:
@@ -1135,11 +1223,8 @@ paths:
     get:
       tags: [SEP-24]
       operationId: getSEP24InteractiveTransaction
-      summary: Get the authenticated SEP-24 interactive projection
-      description: Returns the same owner-scoped transaction state with sandbox and Stellar testnet labels. A wallet-facing HTML UI is not included in this backend slice.
-      security:
-        - kailoAPIKey: []
-        - kailoSession: []
+      summary: Get the SEP-24 wallet interactive page or JSON projection
+      description: Loads the opaque browser hand-off token, links the page to the KailoPay retail session when present, and returns either a small HTML page or a JSON projection. The page requires a KailoPay retail login before order creation.
       parameters:
         - name: id
           in: path
@@ -1154,9 +1239,72 @@ paths:
               schema:
                 $ref: '#/components/schemas/SEP24InteractiveResponse'
         '401':
-          description: Missing or invalid API key/session credentials
+          description: A KailoPay retail session is required for completion; the initial page may be loaded with its opaque token.
         '404':
           description: Transaction is missing or belongs to another owner
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SEP24Error'
+            text/html:
+              schema:
+                type: string
+        '410':
+          description: Interactive session expired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SEP24Error'
+        '405':
+          description: Interactive method is not supported
+    post:
+      tags: [SEP-24]
+      operationId: completeSEP24InteractiveTransaction
+      summary: Complete the SEP-24 browser hand-off
+      description: Uses the KailoPay retail session cookie to link the wallet account, satisfy the Persona approval gate, and create or replay the mapped on-ramp/off-ramp order. Withdrawal completion accepts a synthetic destination_token.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                destination_token:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+      responses:
+        '200':
+          description: Order mapping created or safely replayed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SEP24TransactionResponse'
+            text/html:
+              schema:
+                type: string
+        '401':
+          description: A KailoPay retail session is required
+        '403':
+          description: Approved Persona verification is required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SEP24Error'
+        '409':
+          description: Interactive session was already completed by another user or request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SEP24Error'
+        '410':
+          description: Interactive session expired
           content:
             application/json:
               schema:
@@ -1254,6 +1402,76 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SEP38Error'
+  /sep38/quote:
+    post:
+      tags: [SEP-38]
+      operationId: createSEP38Quote
+      summary: Create an authenticated firm SEP-38 quote
+      description: Creates a short-lived, wallet-owned firm quote for the supported IDR/native-XLM pair. The quote can be used once by a matching SEP-24 wallet flow.
+      security:
+        - sep10Bearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SEP38QuoteRequest'
+      responses:
+        '200':
+          description: Firm quote created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SEP38QuoteResponse'
+        '400':
+          description: Invalid pair, amount, or delivery method
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SEP38Error'
+        '401':
+          description: Missing or invalid SEP-10 bearer credentials
+        '503':
+          description: Fresh market data or quote persistence is unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SEP38Error'
+  /sep38/quote/{id}:
+    get:
+      tags: [SEP-38]
+      operationId: getSEP38Quote
+      summary: Retrieve an authenticated firm SEP-38 quote
+      description: Retrieves an unexpired, unconsumed firm quote owned by the SEP-10 wallet account.
+      security:
+        - sep10Bearer: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Firm quote
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SEP38QuoteResponse'
+        '401':
+          description: Missing or invalid SEP-10 bearer credentials
+        '404':
+          description: Quote is not owned by this wallet or does not exist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SEP38Error'
+        '410':
+          description: Quote expired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SEP38Error'
   /callbacks/kyc/persona:
     post:
       tags: [Provider callbacks]
@@ -1329,6 +1547,11 @@ paths:
           description: Invalid callback token or malformed/unsupported callback payload
 components:
   securitySchemes:
+    sep10Bearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Short-lived SEP-10 JWT bound to a classic Stellar testnet account.
     kailoSession:
       type: apiKey
       in: cookie
@@ -1348,6 +1571,37 @@ components:
       name: Persona-Signature
       description: Timestamped HMAC signature calculated by Persona over the exact callback body.
   schemas:
+    SEP10ChallengeResponse:
+      type: object
+      required: [transaction]
+      properties:
+        transaction:
+          type: string
+          description: Unsigned SEP-10 challenge transaction to sign with the wallet account.
+        expires_at: {type: string, format: date-time}
+    SEP10ExchangeRequest:
+      type: object
+      additionalProperties: false
+      required: [transaction]
+      properties:
+        transaction:
+          type: string
+          minLength: 1
+          description: Signed SEP-10 challenge transaction.
+    SEP10TokenResponse:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+          description: Short-lived bearer JWT for the authenticated classic Stellar account.
+        expires_at: {type: string, format: date-time}
+    SEP10Error:
+      type: object
+      required: [error, request_id]
+      properties:
+        error: {type: string}
+        request_id: {type: string}
     UserProfileResponse:
       type: object
       required: [user]
@@ -1921,13 +2175,13 @@ components:
     SEP24DepositRequest:
       type: object
       additionalProperties: false
-      required: [asset_code, amount_minor, account]
+      required: [asset_code, account]
       properties:
         asset_code: {type: string, enum: [XLM]}
         amount_minor:
           type: string
           pattern: '^[1-9][0-9]*$'
-          description: Positive IDR minor units; sandbox-specific input for the fiat-denominated quote flow.
+          description: Positive IDR minor units; required unless quote_id is supplied.
         account:
           type: string
           minLength: 56
@@ -1936,6 +2190,9 @@ components:
         memo: {type: string, maxLength: 28}
         memo_type: {type: string, enum: [text]}
         payment_method: {type: string, enum: [xendit, qris, bri_va]}
+        quote_id:
+          type: string
+          description: Optional authenticated firm SEP-38 quote owned by the wallet.
     SEP24WithdrawRequest:
       type: object
       additionalProperties: false
@@ -1951,6 +2208,9 @@ components:
           minLength: 1
           maxLength: 200
           description: Synthetic sandbox destination reference; never real bank details.
+        quote_id:
+          type: string
+          description: Optional authenticated firm SEP-38 quote owned by the wallet.
     SEP24StartResponse:
       type: object
       required: [type, url, id, kyc_required, environment, network]
@@ -1958,15 +2218,16 @@ components:
         type: {type: string, enum: [interactive_customer_info_needed]}
         url: {type: string, format: uri}
         id: {type: string}
-        kyc_required: {type: boolean, enum: [false]}
+        kyc_required: {type: boolean}
         environment: {type: string, enum: [sandbox]}
         network: {type: string, enum: [stellar_testnet]}
+        payment_link_url: {type: string, format: uri}
     SEP24Transaction:
       type: object
       required: [id, kind, status, started_at, updated_at]
       properties:
         id: {type: string}
-        kind: {type: string, enum: [deposit, withdraw]}
+        kind: {type: string, enum: [deposit, withdrawal]}
         status:
           type: string
           enum: [pending_user_transfer_start, pending_anchor, pending_external, completed, expired, error]
@@ -1977,6 +2238,12 @@ components:
         withdraw_memo: {type: string}
         withdraw_memo_type: {type: string, enum: [text]}
         amount_in: {type: string}
+        amount_out: {type: string}
+        quote_id: {type: string}
+        external_transaction_id: {type: string}
+        sandbox_disclosure:
+          type: string
+          description: Present for the simulated testnet payout and explicitly states that no real IDR moved.
         more_info_url: {type: string, format: uri}
     SEP24TransactionResponse:
       type: object
@@ -1994,11 +2261,15 @@ components:
             $ref: '#/components/schemas/SEP24Transaction'
     SEP24InteractiveResponse:
       type: object
-      required: [environment, network, kyc_required, transaction]
+      required: [environment, network, kyc_required]
       properties:
         environment: {type: string, enum: [sandbox]}
         network: {type: string, enum: [stellar_testnet]}
-        kyc_required: {type: boolean, enum: [false]}
+        kyc_required: {type: boolean}
+        interactive:
+          type: object
+          description: Durable interactive-session projection returned before order creation.
+          additionalProperties: true
         transaction:
           $ref: '#/components/schemas/SEP24Transaction'
     SEP24Error:
@@ -2074,6 +2345,37 @@ components:
         sell_amount: {type: string}
         buy_asset: {type: string}
         buy_amount: {type: string}
+    SEP38QuoteRequest:
+      type: object
+      additionalProperties: false
+      required: [sell_asset, buy_asset]
+      properties:
+        sell_asset: {type: string, enum: [iso4217:IDR, stellar:native]}
+        buy_asset: {type: string, enum: [iso4217:IDR, stellar:native]}
+        sell_amount:
+          type: string
+          description: Exact amount on the sell side. Provide exactly one of sell_amount or buy_amount.
+        buy_amount:
+          type: string
+          description: Exact amount on the buy side. Provide exactly one of sell_amount or buy_amount.
+        sell_delivery_method: {type: string}
+        buy_delivery_method: {type: string}
+    SEP38QuoteResponse:
+      type: object
+      required: [id, quote_id, sell_asset, buy_asset, sell_amount, buy_amount, price, expires_at]
+      properties:
+        id: {type: string}
+        quote_id: {type: string}
+        sell_asset: {type: string}
+        buy_asset: {type: string}
+        sell_amount: {type: string}
+        buy_amount: {type: string}
+        price: {type: string}
+        spread_bps: {type: integer, minimum: 0}
+        delivery_method: {type: string}
+        sell_delivery_method: {type: string}
+        buy_delivery_method: {type: string}
+        expires_at: {type: string, format: date-time}
     SEP38Error:
       type: object
       required: [error, request_id]

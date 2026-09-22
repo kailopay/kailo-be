@@ -154,7 +154,16 @@ Tests must not assume instant ledger availability; use bounded polling with mean
 ## 10. SEP-24 and federation tests
 
 - `stellar.toml` syntax, HTTPS location, advertised URLs, asset, and testnet context.
-- Deposit/withdraw initiation and status mapping.
+- SEP-10 challenge construction, signature/account/network checks, one-time
+  replay rejection, JWT expiry/audience/account checks, and CORS/preflight.
+- Deposit/withdraw initiation creates no order before the interactive hand-off;
+  browser-token hashing, wallet ownership, retail-session linking, KYC gate,
+  idempotent completion, standard forms/JSON, status mapping, history filters,
+  and lookup by protocol/Stellar/external ID.
+- SEP-38 firm quote creation, ownership, expiry, exact amounts, one-time
+  consumption, and SEP-24 quote correlation.
+- Testnet payout simulator completion, disabled-mode pending behavior, unique
+  payout/reference rows, outbox retry, and explicit no-real-IDR disclosure.
 - Persona sandbox inquiry/status behavior, approved-only gating, and explicit
   non-production KYC wording.
 - Federation valid lookup, unknown name, malformed query, and safe output.
@@ -186,7 +195,11 @@ Create on-ramp order using supported sandbox bank transfer/virtual account and v
 
 ### E2E-SELL
 
-Create off-ramp order, send correct test asset with correlation data, detect deposit, retire asset, initiate sandbox payout or approved simulation, and capture both Stellar and withdrawal evidence.
+Authenticate an external classic wallet with SEP-10, start an SEP-24 off-ramp,
+link a KailoPay retail session, complete the approved-KYC (or guarded test)
+flow, send the correct test asset with correlation data, detect deposit, retire
+the asset, run the sandbox payout simulator, and capture both Stellar and
+disclosed withdrawal evidence.
 
 The SOW requires at least two documented flows. The release target should run QRIS buy and sell as the mandatory pair; bank-transfer buy is also required to demonstrate the promised method.
 
@@ -209,6 +222,7 @@ Before `v0.1.0`:
 
 - Build, lint, unit, repository, API, worker, adapter, contract, and security scans pass.
 - No open defect can cause unauthorized/duplicate asset movement or misreport completed settlement.
+- Existing `/v1/onramps` and `/v1/offramps` contract tests remain unchanged and pass.
 - Required gateway sandbox and Stellar testnet E2E evidence passes.
 - OpenAPI matches the deployed API.
 - `stellar.toml`, federation, SEP-24, and webhook verification tests pass.

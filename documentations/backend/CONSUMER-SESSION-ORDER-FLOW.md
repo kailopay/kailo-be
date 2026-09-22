@@ -488,9 +488,15 @@ change:
 - `documentations/backend/TESTING-STRATEGY.md`
 - `documentations/backend/BACKEND-BACKLOG.md`
 - `documentations/backend/IMPLEMENTATION-PHASES.md`
+- `documentations/backend/STELLAR-ANCHOR-INTEGRATION.md`
+- `documentations/backend/ORDER-STATE-MACHINES.md`
+- `documentations/backend/PAYMENT-GATEWAY-INTEGRATION.md`
+- `documentations/backend/decisions/ADR-005-defer-offramp-payout.md`
+- `documentations/backend/decisions/ADR-006-testnet-simulated-offramp-payout.md`
 
-Remove the statement that retail-session order access is deferred only after
-the endpoint, migration, authorization, and test changes have landed.
+The SEP-10/SEP-24 wallet flow, retail-session linking, firm quotes, and the
+testnet payout simulator are now implemented. Keep this document's consumer
+session rules aligned with the canonical wallet flow as it evolves.
 
 ## 15. Acceptance criteria
 
@@ -507,4 +513,7 @@ The backend implementation is ready for the consumer frontend when:
 - Unknown checkout outcomes return a trackable pending response.
 - Payment and settlement status remains backend-controlled.
 - No endpoint accepts owner identifiers from the consumer request.
+- A classic Stellar wallet can authenticate with SEP-10, open an interactive
+  session, link to a KailoPay retail session, and complete the approved-KYC
+  flow without changing the existing `/v1/onramps` or `/v1/offramps` contract.
 - OpenAPI, migrations, docs, and tests describe the same behavior.

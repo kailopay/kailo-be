@@ -194,10 +194,14 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("creating Stellar balance reader: %w", err)
 	}
+	orderKYC := usecase.KYCStatusReader(kycService)
+	if cfg.Anchor.TestAutoApproveKYC {
+		orderKYC = usecase.TestAutoApproveKYCStatusReader{Delegate: kycService}
+	}
 	onrampRepository := repository.NewOnrampRepository(db, cfg.Week1.Stellar.TreasuryAccount, usecase.StellarTestnetNetwork,
 		entity.Stroops(cfg.Week1.Stellar.OperatingBufferStroops))
 	onrampService, err := usecase.NewOnrampUsecase(usecase.OnrampDependencies{Repository: onrampRepository, Prices: priceClient,
-		Treasury: treasuryReader, Gateway: paymentClient, Destinations: treasuryReader, KYC: kycService}, usecase.ServiceConfig{
+		Treasury: treasuryReader, Gateway: paymentClient, Destinations: treasuryReader, KYC: orderKYC}, usecase.ServiceConfig{
 		QuotePolicy: quotePolicy, MinIDR: entity.IDR(cfg.Week1.Onramp.MinIDR),
 		MaxIDR: entity.IDR(cfg.Week1.Onramp.MaxIDR), TreasuryAccount: cfg.Week1.Stellar.TreasuryAccount,
 		NewID: platform.NewID, Now: time.Now,
@@ -211,7 +215,7 @@ func run(ctx context.Context) error {
 	}
 	offrampRepository := repository.NewOfframpRepository(db, cfg.Week1.Offramp.DepositAccount, usecase.StellarTestnetNetwork)
 	offrampService, err := usecase.NewOfframpUsecase(usecase.OfframpDependencies{
-		Repository: offrampRepository, Prices: priceClient, Destinations: treasuryReader, KYC: kycService}, usecase.OfframpServiceConfig{
+		Repository: offrampRepository, Prices: priceClient, Destinations: treasuryReader, KYC: orderKYC}, usecase.OfframpServiceConfig{
 		QuotePolicy: quotePolicy, MinIDR: entity.IDR(cfg.Week1.Onramp.MinIDR),
 		MaxIDR: entity.IDR(cfg.Week1.Onramp.MaxIDR), DepositAccount: cfg.Week1.Offramp.DepositAccount,
 		DepositExpiry: cfg.Week1.Offramp.DepositExpiry, NewID: platform.NewID, Now: time.Now,
@@ -282,6 +286,20 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("creating SEP-10 service: %w", err)
 	}
 	sep10Handler := httpapi.NewSEP10Handler(sep10Service, appLogger)
+	sep38QuoteRepository := repository.NewSEP38QuoteRepository(db)
+	sep38QuoteService, err := usecase.NewSep38QuoteUsecase(usecase.Sep38QuoteDependencies{
+		Prices: priceClient, Quotes: sep38QuoteRepository,
+	}, usecase.Sep38QuoteConfig{
+		QuotePolicy: quotePolicy,
+		MinIDR:      entity.IDR(cfg.Week1.Onramp.MinIDR),
+		MaxIDR:      entity.IDR(cfg.Week1.Onramp.MaxIDR),
+		Now:         time.Now,
+		NewID:       platform.NewID,
+	})
+	if err != nil {
+		return fmt.Errorf("creating SEP-38 quote service: %w", err)
+	}
+	sep38Handler.ConfigureFirmQuotes(sep38QuoteService, sep10Service)
 	sep24Config := httpapi.Sep24Config{
 		DepositAccount:        cfg.Week1.Offramp.DepositAccount,
 		NetworkPassphrase:     cfg.Week1.Stellar.NetworkPassphrase,
@@ -294,6 +312,23 @@ func run(ctx context.Context) error {
 		DepositMaxAmountMinor: cfg.Week1.Onramp.MaxIDR,
 	}
 	sep24Handler := httpapi.NewSep24Handler(sep24Service, sep24Config, appLogger)
+	sep24InteractiveRepository := repository.NewSEP24InteractiveRepository(db)
+	sep24InteractiveService, err := usecase.NewSEP24InteractiveUsecase(usecase.Sep24InteractiveDependencies{
+		Sessions: sep24InteractiveRepository, Transfers: sep24Service, KYC: kycService, Quotes: sep38QuoteService,
+	}, usecase.Sep24InteractiveConfig{
+		InteractiveURLBase: publicBaseURL + "/sep24/interactive",
+		SessionTTL:         30 * time.Minute,
+		Environment:        cfg.App.Environment,
+		Network:            usecase.StellarTestnetNetwork,
+		TestAutoApproveKYC: cfg.Anchor.TestAutoApproveKYC,
+		Now:                time.Now,
+		NewID:              platform.NewID,
+		Random:             rand.Reader,
+	})
+	if err != nil {
+		return fmt.Errorf("creating SEP-24 interactive service: %w", err)
+	}
+	sep24Handler.ConfigureInteractive(sep24InteractiveService, authService, sep10Service, cfg.Auth.CookieName)
 	webhookRepository := repository.NewWebhookRepository(db)
 	webhookService, err := usecase.NewWebhookUsecase(webhookRepository, platform.NewID, time.Now)
 	if err != nil {
@@ -308,7 +343,9 @@ func run(ctx context.Context) error {
 		httpapi.WithOfframp(offrampHandler), httpapi.WithQuote(quoteHandler, orderPrincipalMiddleware),
 		httpapi.WithSEP10(sep10Handler),
 		httpapi.WithSep38(sep38Handler),
+		httpapi.WithSep38Quotes(sep38Handler, middleware.RequireSEP10(sep10Service)),
 		httpapi.WithSep24(sep24Handler, orderPrincipalMiddleware),
+		httpapi.WithSep24Interactive(sep24Handler, middleware.RequireSEP10(sep10Service)),
 		httpapi.WithWebhooks(webhookHandler), httpapi.WithXenditCallback(callbackHandler))
 	if err != nil {
 		return fmt.Errorf("creating http router: %w", err)

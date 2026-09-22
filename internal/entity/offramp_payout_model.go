@@ -2,8 +2,8 @@ package entity
 
 import "time"
 
-// OfframpPayout records historical or future payout evidence for one off-ramp
-// order. The current release does not create new payout rows.
+// OfframpPayout records sandbox payout evidence for one off-ramp order. The
+// simulator creates at most one row per order and never moves real fiat.
 type OfframpPayout struct {
 	ID          string `gorm:"type:uuid;primaryKey"`
 	OrderID     string `gorm:"type:uuid;not null;unique"`

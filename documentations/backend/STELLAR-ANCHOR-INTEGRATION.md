@@ -13,8 +13,9 @@ All `v0.1.0` operations use **Stellar testnet**. The release demonstrates:
 - On-ramp issuance or distribution after confirmed sandbox payment.
 - Off-ramp asset receipt, validation, and burn/retirement.
 - Testnet transaction hashes linked to orders.
-- Authenticated SEP-24 deposit and withdrawal order bridge; full SEP-10/SEP-45
-  wallet interoperability remains a separate integration slice.
+- Canonical SEP-10-authenticated SEP-24 deposit and withdrawal flows for classic
+  Stellar wallets, including retail-session linking and Persona approval.
+- SEP-38 indicative and wallet-owned firm quotes for the supported testnet pair.
 - Clearly labelled Persona sandbox KYC verification flow; it is not a production
   compliance decision.
 - Public `stellar.toml` and federation configuration/service.
@@ -89,6 +90,21 @@ After acceptance, persist a retirement intent. Burn/retirement must be confirmed
 
 Unexpected/wrong deposits are not silently credited. Record safe evidence and follow the sandbox exception procedure.
 
+## 5.1 Testnet payout simulator
+
+Set `OFFRAMP_PAYOUT_MODE=simulated` to enable the worker-owned sandbox payout
+adapter. It is accepted only with the Stellar testnet passphrase. After a
+confirmed retirement, the worker leases a `payout.simulate_offramp` outbox job,
+creates one deterministic `sandbox_bank_transfer` payout reference, records
+`payout.simulated`, and advances the order to `completed`.
+
+The simulator accepts any non-empty synthetic destination reference within the
+existing 200-character limit. It does not validate, contact, or transfer to a
+bank account, and every public payout/SEP-24 response says that no real IDR
+moved. If the mode is `disabled`, the order remains safely in
+`withdrawal_processing` with the payout intent pending; no false success is
+returned.
+
 ## 6. Sequence numbers and concurrent submissions
 
 Stellar source-account sequence numbers make concurrent submission risky. For `v0.1.0` use one of:
@@ -109,46 +125,51 @@ Classify outcomes:
 
 Reconciliation reads the network, compares source, sequence, hash, memo, asset, amount, and destination, then updates the existing intent. It never creates an unrelated replacement transaction without resolving the prior intent.
 
-## 8. SEP-24 authenticated order bridge
+## 8. SEP-10 and SEP-24 wallet bridge
 
-The current sandbox bridge uses the existing authenticated order principal: a
-valid test API key or a verified retail session. It does not yet implement the
-SEP-10/SEP-45 token exchange required for independent wallet interoperability.
-`ANCHOR_BASE_URL` must point to the public API origin; it is intentionally
-separate from `AUTH_EMAIL_LINK_BASE_URL`, which points to the frontend.
-The protocol endpoints are exposed below the configured transfer-server base:
+The sandbox supports classic Stellar accounts through SEP-10. Contract-account
+authentication through SEP-45 is intentionally not advertised. `ANCHOR_BASE_URL`
+must point to the public API origin; it is intentionally separate from
+`AUTH_EMAIL_LINK_BASE_URL`, which points to the frontend.
+
+The wallet first requests and signs a challenge, then exchanges it for the
+short-lived bearer JWT. The JWT is the only authentication accepted by the
+canonical wallet-owned SEP-24 routes:
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
-| `POST` | `/sep24/transactions/deposit/interactive` | API key or verified retail session | Create an on-ramp order and return the interactive transaction ID/URL |
-| `POST` | `/sep24/transactions/withdraw/interactive` | API key or verified retail session | Create an off-ramp order and return the interactive transaction ID/URL |
-| `GET` | `/sep24/transactions?limit=...` | API key or verified retail session | List recent owned transaction mappings |
-| `GET` | `/sep24/transaction?id=...` | API key or verified retail session | Read the current state of an owned mapping |
-| `GET` | `/sep24/interactive/{id}` | API key or verified retail session | Read the authenticated interactive projection |
+| `GET` | `/auth?account=G...` | None | Create a SEP-10 challenge transaction |
+| `POST` | `/auth` | None | Exchange a signed challenge for a bearer JWT |
+| `POST` | `/sep24/transactions/deposit/interactive` | SEP-10 bearer JWT | Create a wallet-owned interactive deposit session |
+| `POST` | `/sep24/transactions/withdraw/interactive` | SEP-10 bearer JWT | Create a wallet-owned interactive withdrawal session |
+| `GET` | `/sep24/transactions?limit=...` | SEP-10 bearer JWT | List recent wallet-owned transaction mappings |
+| `GET` | `/sep24/transaction?id=...` | SEP-10 bearer JWT | Read a wallet-owned mapping by protocol or external transaction ID |
+| `GET`/`POST` | `/sep24/interactive/{id}` | Opaque browser token then KailoPay session | Link the wallet to a retail user, pass KYC, and complete the session |
 
 Minimum behavior:
 
 - Both initiation endpoints require `Idempotency-Key` and accept the standard
-  `multipart/form-data` request shape.
+  `multipart/form-data` request shape as well as the JSON equivalent.
 - Deposit requests support `asset_code=XLM`, `account`, `memo`, and the
   sandbox-specific `amount_minor` IDR input required by the quote workflow.
-- Withdrawal requests support `asset_code=XLM`, the exact XLM `amount`, and the
-  non-empty sandbox `destination_token` retained for the future payout rail.
-  The current release records the destination token but does not execute a
-  payout after retirement.
+- Withdrawal requests support `asset_code=XLM`, the exact XLM `amount`, and an
+  optional `quote_id`. The interactive page collects a non-empty synthetic
+  `destination_token`; it never accepts or contacts a real bank account.
 - `/sep24/info` labels deposit bounds as `idr_minor` and withdrawal bounds as
   `XLM`; the distinction is intentional because deposit quotes are fiat
   denominated in this sandbox.
-- The normal on-ramp/off-ramp use cases enforce the approved Persona KYC gate;
-  unauthenticated callers are rejected and non-approved users cannot create an
-  order.
+- Initiation creates a durable interactive session before any order exists. The
+  browser URL contains only a short-lived opaque token; the server stores its
+  hash. The browser must establish a KailoPay retail session, link that user to
+  the SEP-10 wallet, and pass the approved Persona KYC gate before the existing
+  on-ramp/off-ramp use case creates an order.
 - A successful order is correlated in `sep24_transactions` using a stable
-  protocol transaction ID, order ID, and direction. The order remains the
-  source of ownership authorization, so another client or retail user cannot
-  read the mapping.
+  protocol transaction ID, wallet account, order ID, direction, quote ID, and
+  Stellar/external transaction IDs. Ownership is checked against the SEP-10
+  wallet; the linked retail session is required for completion.
 - Transaction polling loads the current order state and ignores any
-  client-supplied status. The interactive response is a JSON sandbox projection
-  until a dedicated wallet-facing UI is added.
+  client-supplied status. The interactive endpoint returns an escaped HTML
+  sandbox page by default and a JSON projection when requested.
 - Deposit initiation and transaction projections include the sandbox extension
   `payment_link_url` when the hosted payment checkout is available. Withdrawal
   projections do not include this field.
@@ -157,7 +178,8 @@ Minimum behavior:
   user-transfer state.
 
 Legacy `/sep24/deposit` and `/sep24/withdraw` aliases remain for existing local
-clients; new integrations should use the standard nested paths.
+clients and continue to use the existing order-principal middleware. They do
+not change the public `/v1/onramps` or `/v1/offramps` contracts.
 
 ## 8.1 SEP-38 quote server
 
@@ -171,13 +193,15 @@ spread, freshness checks, and exact amount arithmetic as the first-party
 | `GET` | `/sep38/info` | List `iso4217:IDR` and `stellar:native` plus delivery methods |
 | `GET` | `/sep38/prices?sell_asset=...&buy_asset=...` | Return an indicative pair price |
 | `GET` | `/sep38/price?...&sell_amount=...` or `buy_amount=...` | Calculate an amount-specific result |
+| `POST` | `/sep38/quote` | Create a SEP-10 wallet-owned firm quote |
+| `GET` | `/sep38/quote/{id}` | Retrieve an unexpired, unconsumed firm quote |
 
 For `/sep38/price`, send exactly one of `sell_amount` or `buy_amount`. IDR is
 represented as integer minor units and native XLM has up to seven decimal
 places. These endpoints calculate prices only: they do not reserve liquidity,
-create an order, or replace the SEP-24 transaction-initiation flow. Firm
-SEP-38 quote issuance and SEP-10/SEP-45 wallet authentication remain future
-interoperability work.
+create an order, or replace the SEP-24 transaction-initiation flow. Firm quotes
+are separate, short-lived records owned by the SEP-10 wallet and can be
+consumed once by a matching SEP-24 initiation.
 
 Suggested mapping:
 
@@ -192,9 +216,9 @@ Suggested mapping:
 
 The implementation follows the transaction vocabulary in the [SEP-24
 specification](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0024.md)
-and covers the order/status projection with unit and HTTP tests. Full
-SEP-10/SEP-45 authentication and wallet-provider contract evidence remain open
-interoperability work.
+and covers SEP-10 challenge exchange, wallet-owned history/lookup, interactive
+linking, firm quote ownership, and simulator disclosure with unit and HTTP
+tests. SEP-45 contract-account authentication remains future scope.
 
 ## 9. Persona sandbox KYC gate
 
@@ -257,4 +281,6 @@ Requirements:
 - Public federation test.
 - SEP-24 deposit and withdrawal discovery/interactive bridge, including
   authenticated order ownership, persisted transaction mapping, current-state
-  polling, and Persona sandbox KYC-gate disclosure.
+  polling, wallet linking, and Persona sandbox KYC-gate disclosure.
+- SEP-38 firm quote ownership/expiry/consumption evidence and a testnet
+  off-ramp simulator record that explicitly says no real IDR moved.

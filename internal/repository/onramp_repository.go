@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/febry3/kailopay-be/internal/entity"
@@ -76,7 +77,8 @@ func (r *OnrampRepository) ReserveAndCreate(ctx context.Context, record usecase.
 
 		order := entity.OrderRecord{
 			ID: record.OrderID, ClientID: ownership.ClientID, CreatedByUserID: ownership.CreatedByUserID,
-			RetailSessionID: ownership.RetailSessionID, Direction: "onramp", Status: string(entity.OrderStatusCreated), Version: 1,
+			RetailSessionID: ownership.RetailSessionID, WalletAccount: strPtrIfNotEmpty(record.WalletAccount), QuoteID: strPtrIfNotEmpty(record.QuoteID),
+			Direction: "onramp", Status: string(entity.OrderStatusCreated), Version: 1,
 			Currency: "IDR", FiatAmountMinor: int64(record.Quote.FiatAmount), AssetCode: "XLM", AssetIssuer: "",
 			Network: r.network, AssetAmount: record.Quote.AssetAmount.String(), AssetAmountStroops: int64(record.Quote.AssetAmount),
 			QuoteProvider: "coinmarketcap", QuoteSourceAt: record.Quote.SourceAt, QuoteRate: record.Quote.Rate,
@@ -432,6 +434,25 @@ func baseOrderView(order entity.OrderRecord) usecase.OrderView {
 	return view
 }
 
+func (r *OnrampRepository) GetByWallet(ctx context.Context, walletAccount, orderID string) (usecase.OrderView, error) {
+	var order entity.OrderRecord
+	if err := r.db.WithContext(ctx).Where("id = ? AND wallet_account = ?", orderID, strings.TrimSpace(walletAccount)).First(&order).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return usecase.OrderView{}, usecase.ErrOrderNotFound
+		}
+		return usecase.OrderView{}, fmt.Errorf("finding wallet order: %w", err)
+	}
+	return r.orderView(ctx, order)
+}
+
+func strPtrIfNotEmpty(value string) *string {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	value = strings.TrimSpace(value)
+	return &value
+}
+
 func derefStr(value *string) string {
 	if value == nil {
 		return ""
@@ -550,7 +571,7 @@ func (r *OnrampRepository) orderView(ctx context.Context, order entity.OrderReco
 		if err := r.db.WithContext(ctx).Where("order_id = ?", order.ID).First(&payout).Error; err == nil {
 			simulation := true
 			view.Payout = &usecase.PayoutView{Reference: payout.ReferenceID, Method: payout.Method,
-				AmountMinor: payout.AmountMinor, State: payout.State, Simulated: &simulation}
+				AmountMinor: payout.AmountMinor, State: payout.State, Simulated: &simulation, Disclosure: usecase.SandboxPayoutDisclosure}
 		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return usecase.OrderView{}, fmt.Errorf("finding payout: %w", err)
 		}

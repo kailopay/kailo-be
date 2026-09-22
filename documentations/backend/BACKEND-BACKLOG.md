@@ -101,7 +101,7 @@ Acceptance: exact amount round-trips; invalid/cross-principal requests fail; dup
 | BE-034 | Implement callback deduplication and amount/currency/reference/status reconciliation. | P0 | 5 | Week 1 | BE-033, BE-021 | Implemented |
 | BE-035 | Persist one settlement intent after verified payment and process asynchronously. | P0 | 3 | Week 1-2 | BE-015, BE-034 | Implemented |
 | BE-036 | Implement provider payment status reconciliation for timeout/late/unknown events. | P0 | 5 | Week 2 | BE-030, BE-034 | Blocked |
-| BE-037 | Implement off-ramp payout intent, provider adapter, and reconciliation. | P0 | 5 | Week 2 | BE-003, BE-030 | Deferred; current release stops after retirement in `withdrawal_processing` (ADR-005) |
+| BE-037 | Implement off-ramp payout intent, provider adapter, and reconciliation. | P0 | 5 | Week 2 | BE-003, BE-030 | Testnet simulator implemented; real provider adapter/reconciliation remains future work |
 
 Acceptance: invalid/mismatched/replayed callback cannot duplicate state/settlement; QRIS and bank transfer produce real sandbox checkout evidence; payout language matches evidence.
 
@@ -117,7 +117,7 @@ Acceptance: invalid/mismatched/replayed callback cannot duplicate state/settleme
 | BE-045 | Detect/look up and validate off-ramp deposit transaction. | P0 | 5 | Week 2 | BE-044 | Implemented (Horizon payment-history scan) |
 | BE-046 | Implement burn/retirement worker and transaction correlation. | P0 | 5 | Week 2 | BE-045, BE-041 | Implemented as burn-address retirement (ADR-003) |
 | BE-047 | Link transaction hashes/explorer metadata to public order result. | P0 | 2 | Week 2-3 | BE-042, BE-046 | Blocked |
-| BE-048 | Correct public off-ramp deposit-account serialization. | P0 | 2 | Week 2 | BE-025, BE-044 | Open; repository stores `StellarSource` while the public order serializer reads `StellarDestination` |
+| BE-048 | Correct public off-ramp deposit-account serialization. | P0 | 2 | Week 2 | BE-025, BE-044 | Implemented; existing `/v1/offramps` contract is covered by regression tests |
 
 Acceptance: one paid order creates one testnet settlement; wrong deposits are rejected; unknown result reconciles before retry; off-ramp payout cannot precede confirmed retirement.
 
@@ -125,18 +125,21 @@ Acceptance: one paid order creates one testnet settlement; wrong deposits are re
 
 | ID | Story | Pri | SP | Target | Dependency | Status |
 |---|---|---:|---:|---|---|---|
-| BE-050 | Implement SEP-24 deposit initiation mapped to on-ramp order. | P0 | 5 | Week 2 | BE-024 | Implemented with authenticated persisted mapping |
-| BE-051 | Implement SEP-24 withdrawal initiation mapped to off-ramp order. | P0 | 5 | Week 2 | BE-025 | Implemented with authenticated persisted mapping |
+| BE-050 | Implement SEP-24 deposit initiation mapped to on-ramp order. | P0 | 5 | Week 2 | BE-024 | Implemented with SEP-10 wallet session, retail linking, and persisted mapping |
+| BE-051 | Implement SEP-24 withdrawal initiation mapped to off-ramp order. | P0 | 5 | Week 2 | BE-025 | Implemented with SEP-10 wallet session, simulator payout, and persisted mapping |
 | BE-052 | Implement Persona-backed sandbox KYC inquiry/status flow, signed webhook processing, and the approval gate. | P0 | 2 | Week 2 | BE-050, BE-051 | Implemented |
 | BE-053 | Implement/document SEP-facing transaction status mapping. | P0 | 3 | Week 2 | BE-021, BE-050 | Implemented |
 | BE-054 | Publish and validate testnet `stellar.toml`. | P0 | 2 | Week 2 | BE-005, BE-040 | Implemented |
 | BE-055 | Implement minimal public federation lookup/configuration. | P0 | 3 | Week 2 | BE-005, BE-040 | Implemented |
+| BE-056 | Implement SEP-10 classic-wallet authentication and advertise it through SEP-1. | P0 | 5 | Week 3 | BE-040 | Implemented; SEP-45 is not advertised |
+| BE-057 | Implement wallet-owned SEP-38 firm quote lifecycle and filters. | P0 | 5 | Week 3 | BE-050, BE-056 | Implemented |
 
 Acceptance: discovery resolves to implemented HTTPS endpoints; deposit/withdraw
 flows create valid orders; Persona sandbox status is server-authoritative; only
 approved users can create API keys or orders; transaction lookup is owner-scoped;
-raw identity documents and raw provider payloads are never stored. SEP-10/SEP-45
-wallet interoperability and provider evidence remain separate release work.
+raw identity documents and raw provider payloads are never stored. SEP-45
+contract-account interoperability and real provider payout evidence remain
+separate future work.
 
 ### BE6: Developer webhooks
 

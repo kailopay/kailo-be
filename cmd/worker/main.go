@@ -22,7 +22,7 @@ import (
 
 // outboxTopics are drained in order each tick; a topic with work keeps the
 // loop running before other topics are polled.
-var outboxTopics = []string{"stellar.settle_onramp", "stellar.retire_offramp"}
+var outboxTopics = []string{"stellar.settle_onramp", "stellar.retire_offramp", usecase.SandboxPayoutTopic}
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -116,6 +116,11 @@ func run(ctx context.Context) error {
 	retireWorker := usecase.RetireWorker{Repository: offrampRepo, Intents: offrampRepo,
 		Network: depositSigner, Config: usecase.SettlementConfig{
 			LeaseDuration: cfg.Week1.Worker.LeaseDuration, RetryDelay: cfg.Week1.Worker.RetryDelay, Now: time.Now}}
+	payoutWorker, err := usecase.NewSandboxPayoutWorker(offrampRepo,
+		usecase.SandboxPayoutMode(cfg.Week1.Offramp.PayoutMode), time.Now)
+	if err != nil {
+		return fmt.Errorf("creating sandbox payout worker: %w", err)
+	}
 	paymentWatcher := depositWatcherFunc(func(ctx context.Context, account string, limit int) ([]usecase.ObservedPayment, error) {
 		observed, err := network.RecentPayments(ctx, account, limit)
 		if err != nil {
@@ -147,9 +152,24 @@ func run(ctx context.Context) error {
 		}
 		return true, retireWorker.RunOnce(ctx, job.IntentID)
 	}
+	runPayout := func() (bool, error) {
+		if payoutWorker.Mode == usecase.SandboxPayoutDisabled {
+			return false, nil
+		}
+		job, err := settlementStore.LeaseOutbox(ctx, usecase.SandboxPayoutTopic, workerID, time.Now().UTC(),
+			cfg.Week1.Worker.LeaseDuration, payoutPayloadDecoder)
+		if errors.Is(err, usecase.ErrNoJob) {
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		return true, payoutWorker.RunOnce(ctx, job)
+	}
 	drain := map[string]func() (bool, error){
-		"stellar.settle_onramp":  runSettlement,
-		"stellar.retire_offramp": runRetirement,
+		"stellar.settle_onramp":    runSettlement,
+		"stellar.retire_offramp":   runRetirement,
+		usecase.SandboxPayoutTopic: runPayout,
 	}
 
 	depositPollInterval := cfg.Week1.Worker.PollInterval * 10
@@ -222,6 +242,16 @@ func intentPayloadDecoder(payload []byte) (usecase.Job, error) {
 		return usecase.Job{}, errors.New("invalid intent payload")
 	}
 	return usecase.Job{IntentID: decoded.IntentID}, nil
+}
+
+func payoutPayloadDecoder(payload []byte) (usecase.Job, error) {
+	var decoded struct {
+		OrderID string `json:"order_id"`
+	}
+	if json.Unmarshal(payload, &decoded) != nil || decoded.OrderID == "" {
+		return usecase.Job{}, errors.New("invalid payout payload")
+	}
+	return usecase.Job{IntentID: decoded.OrderID}, nil
 }
 
 // depositWatcherFunc adapts the stellar adapter's observation type to the

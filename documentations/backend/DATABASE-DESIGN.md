@@ -279,11 +279,45 @@ reads join through `orders` and apply the same API-client or retail-user scope.
 | `transaction_id` | `text` | Stable protocol identifier; unique |
 | `order_id` | `uuid` | FK to `orders`; unique to prevent two protocol mappings for one order |
 | `kind` | `text` | `deposit` or `withdraw`; must match `orders.direction` |
+| `wallet_account`, `quote_id` | `text` | SEP-10 owner and optional consumed SEP-38 quote |
+| `stellar_transaction_id`, `external_transaction_id` | `text` | Protocol-visible Stellar and sandbox payout correlations; external ID is unique when present |
 | `created_at` | `timestamptz` | UTC mapping creation time |
 
-The mapping is inserted after the normal order workflow succeeds. A retry uses
-the same namespaced idempotency key and stable transaction ID, allowing the
-mapping insert to be safely repaired if the first request lost its response.
+Canonical SEP-24 initiation first creates a durable interactive session; the
+mapping is inserted only after retail-session linking and approved Persona KYC
+allow the normal order workflow to succeed. A retry uses the same namespaced
+idempotency key and stable transaction ID, allowing the mapping insert to be
+safely repaired if the first request lost its response. Legacy order-principal
+aliases continue to use the existing ownership path.
+
+### `sep10_challenges`
+
+Stores only a hash of each short-lived SEP-10 challenge transaction. The
+account, home domain, network, expiry, single-use consumption timestamp, and
+creation timestamp support replay and cross-network checks; the signed
+challenge payload is never persisted.
+
+### `sep38_quotes`
+
+Each firm quote is owned by one SEP-10 wallet account and stores the exact
+sell/buy amount strings, raw price, spread basis points, delivery method,
+expiry, and optional consumption timestamp. `quote_id` is unique, ownership is
+checked on read/use, and an expired or consumed quote cannot enter SEP-24.
+
+### `sep24_interactive_sessions`
+
+This pre-order record binds a wallet account to the opaque transaction ID and
+hashed browser token. It stores the normalized request payload/hash, direction,
+quote, expiry, linked KailoPay user/session, KYC status, and eventual order ID.
+The browser token is never stored in plaintext. `order_id` is unique so a
+completion retry cannot create a second order mapping.
+
+### `offramp_payouts`
+
+One unique row per off-ramp order records the method, exact IDR minor amount,
+deterministic sandbox reference, state, completion timestamp, and timestamps.
+The testnet simulator writes it only after confirmed retirement; it does not
+contain bank details or claim that real IDR moved.
 
 ### `order_events`
 
@@ -432,6 +466,11 @@ Minimum indexes:
 - `kyc_inquiries(user_id, created_at desc, id desc)` for stable current-attempt reads; implemented in migration 000009.
 - `kyc_provider_events(provider, provider_event_id)` unique for callback deduplication; implemented in migration 000008.
 - `sep24_transactions(transaction_id)` and `sep24_transactions(order_id)` unique; implemented in migration 000010.
+- `sep10_challenges(challenge_hash)` and active expiry; implemented in migration 000011.
+- `sep38_quotes(quote_id)` and `(wallet_account, expires_at, quote_id)`; implemented in migration 000011.
+- `sep24_interactive_sessions(transaction_id)`, browser-token hash, wallet/expiry, and unique order mapping; implemented in migrations 000011–000012.
+- `offramp_payouts(order_id)` and payout reference unique; implemented in migration 000011.
+- `orders(wallet_account, created_at desc, id desc)` and `sep24_transactions(wallet_account, created_at desc, id desc)` for wallet history; implemented in migration 000011.
 - `webhook_attempts(status, scheduled_at)` for delivery worker; deferred with the webhook pipeline.
 - `outbox_messages(available_at) where processed_at is null` partial; implemented.
 - `idempotency_records(expires_at)` for retention cleanup; deferred until the cleanup job ships.

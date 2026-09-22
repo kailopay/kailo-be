@@ -213,7 +213,7 @@ func TestRecordAssetReceivedQueuesRetirementAtomically(t *testing.T) {
 	}
 }
 
-func TestRetirementConfirmStopsBeforeDeferredPayout(t *testing.T) {
+func TestRetirementConfirmQueuesAndCompletesSandboxPayoutIdempotently(t *testing.T) {
 	repo, db := newOfframpIntegration(t)
 	ctx := context.Background()
 	now := time.Now().UTC()
@@ -246,7 +246,7 @@ func TestRetirementConfirmStopsBeforeDeferredPayout(t *testing.T) {
 
 	view, _ = repo.Get(ctx, integrationAPIPrincipal(), orderID)
 	if view.Status != entity.OrderStatusWithdrawalProcessing || view.Payout != nil {
-		t.Fatalf("final view = %+v, want withdrawal_processing without payout", view)
+		t.Fatalf("post-retirement view = %+v, want withdrawal_processing without payout before worker", view)
 	}
 	var webhookEvents []entity.WebhookEvent
 	if err := db.Joins("JOIN order_events ON order_events.id = webhook_events.source_order_event_id").
@@ -262,7 +262,43 @@ func TestRetirementConfirmStopsBeforeDeferredPayout(t *testing.T) {
 			t.Fatalf("webhook event %d type = %q, want %q", index, webhookEvents[index].EventType, wantType)
 		}
 	}
-	if countRows(t, db, &entity.OutboxMessage{}) != 1 {
-		t.Fatal("expected only the retirement outbox row")
+	if countRows(t, db, &entity.OutboxMessage{}) != 2 {
+		t.Fatal("expected retirement and sandbox payout outbox rows")
+	}
+	var payoutOutbox entity.OutboxMessage
+	if err := db.Where("topic = ? AND aggregate_id = ?", usecase.SandboxPayoutTopic, orderID).First(&payoutOutbox).Error; err != nil {
+		t.Fatalf("loading payout outbox message: %v", err)
+	}
+	worker, err := usecase.NewSandboxPayoutWorker(repo, usecase.SandboxPayoutSimulated, func() time.Time { return retireAt.Add(time.Minute) })
+	if err != nil {
+		t.Fatalf("NewSandboxPayoutWorker() error = %v", err)
+	}
+	job := usecase.Job{OutboxID: payoutOutbox.ID, IntentID: orderID}
+	if err := worker.RunOnce(ctx, job); err != nil {
+		t.Fatalf("RunOnce() error = %v", err)
+	}
+	if err := worker.RunOnce(ctx, job); err != nil {
+		t.Fatalf("replayed RunOnce() error = %v", err)
+	}
+	view, err = repo.Get(ctx, integrationAPIPrincipal(), orderID)
+	if err != nil {
+		t.Fatalf("Get(completed) error = %v", err)
+	}
+	if view.Status != entity.OrderStatusCompleted || view.Payout == nil || view.Payout.Reference != usecase.SandboxPayoutReference(orderID) || view.Payout.Simulated == nil || !*view.Payout.Simulated {
+		t.Fatalf("completed payout view = %+v", view)
+	}
+	if view.Payout.Disclosure != usecase.SandboxPayoutDisclosure {
+		t.Fatalf("payout disclosure = %q", view.Payout.Disclosure)
+	}
+	var payouts []entity.OfframpPayout
+	if err := db.Where("order_id = ?", orderID).Find(&payouts).Error; err != nil {
+		t.Fatalf("loading payout rows: %v", err)
+	}
+	if len(payouts) != 1 {
+		t.Fatalf("payout rows = %d, want 1", len(payouts))
+	}
+	var processed entity.OutboxMessage
+	if err := db.First(&processed, "id = ?", payoutOutbox.ID).Error; err != nil || processed.ProcessedAt == nil {
+		t.Fatalf("payout outbox processed = %v/%v, want timestamp", processed.ProcessedAt, err)
 	}
 }

@@ -1,13 +1,16 @@
 package httpapi
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"html/template"
 	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/febry3/kailopay-be/internal/entity"
 	"github.com/febry3/kailopay-be/internal/handler/middleware"
@@ -43,6 +46,11 @@ type Sep24Handler struct {
 	logger   *slog.Logger
 	service  Sep24Service
 	resolver *usecase.FederationResolver
+
+	interactive       usecase.Sep24InteractiveService
+	sessionAuth       middleware.SessionAuthenticator
+	sep10Auth         middleware.SEP10Authenticator
+	sessionCookieName string
 }
 
 func NewSep24Handler(service Sep24Service, config Sep24Config, logger *slog.Logger) *Sep24Handler {
@@ -54,6 +62,18 @@ func NewSep24Handler(service Sep24Service, config Sep24Config, logger *slog.Logg
 		logger:   logger,
 		service:  service,
 		resolver: &usecase.FederationResolver{DepositAccount: config.DepositAccount},
+	}
+}
+
+// ConfigureInteractive adds the wallet-authenticated browser hand-off to the
+// canonical SEP-24 routes. It does not alter the legacy order-backed service.
+func (h *Sep24Handler) ConfigureInteractive(service usecase.Sep24InteractiveService, sessionAuth middleware.SessionAuthenticator, sep10Auth middleware.SEP10Authenticator, sessionCookieName string) {
+	h.interactive = service
+	h.sessionAuth = sessionAuth
+	h.sep10Auth = sep10Auth
+	h.sessionCookieName = strings.TrimSpace(sessionCookieName)
+	if h.sessionCookieName == "" {
+		h.sessionCookieName = middleware.DefaultSessionCookieName
 	}
 }
 
@@ -172,6 +192,49 @@ func (h *Sep24Handler) Withdraw(c *gin.Context) {
 	h.writeInteractiveResponse(c, view)
 }
 
+// InteractiveDeposit starts the wallet-owned session. The SEP-10 middleware
+// has already authenticated the wallet account before this method runs.
+func (h *Sep24Handler) InteractiveDeposit(c *gin.Context) {
+	principal, ok := middleware.SEP10Principal(c.Request.Context())
+	if !ok || h.interactive == nil {
+		writeAuthError(c, http.StatusUnauthorized)
+		return
+	}
+	request, err := parseInteractiveRequest(c, usecase.Sep24KindDeposit)
+	if err != nil {
+		h.writeError(c, "starting SEP-24 interactive deposit", usecase.ErrSEP24InvalidRequest)
+		return
+	}
+	view, err := h.interactive.Start(c.Request.Context(), principal, request)
+	if err != nil {
+		h.writeError(c, "starting SEP-24 interactive deposit", err)
+		return
+	}
+	h.writeInteractiveSessionResponse(c, view)
+}
+
+// InteractiveWithdraw starts the wallet-owned withdrawal session without
+// creating an off-ramp order. The order is created only after browser
+// linking and KYC completion.
+func (h *Sep24Handler) InteractiveWithdraw(c *gin.Context) {
+	principal, ok := middleware.SEP10Principal(c.Request.Context())
+	if !ok || h.interactive == nil {
+		writeAuthError(c, http.StatusUnauthorized)
+		return
+	}
+	request, err := parseInteractiveRequest(c, usecase.Sep24KindWithdraw)
+	if err != nil {
+		h.writeError(c, "starting SEP-24 interactive withdrawal", usecase.ErrSEP24InvalidRequest)
+		return
+	}
+	view, err := h.interactive.Start(c.Request.Context(), principal, request)
+	if err != nil {
+		h.writeError(c, "starting SEP-24 interactive withdrawal", err)
+		return
+	}
+	h.writeInteractiveSessionResponse(c, view)
+}
+
 // Transaction returns the current persisted order state for an owned SEP-24
 // mapping. Client-supplied internal status values are intentionally ignored.
 func (h *Sep24Handler) Transaction(c *gin.Context) {
@@ -217,10 +280,91 @@ func (h *Sep24Handler) Transactions(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"transactions": transactions})
 }
 
+func (h *Sep24Handler) WalletTransaction(c *gin.Context) {
+	principal, ok := middleware.SEP10Principal(c.Request.Context())
+	service, serviceOK := h.service.(interface {
+		GetWalletTransactionByIdentifier(context.Context, string, string) (usecase.Sep24TransactionView, error)
+	})
+	if !ok || !serviceOK {
+		writeAuthError(c, http.StatusUnauthorized)
+		return
+	}
+	identifiers := []string{strings.TrimSpace(c.Query("id")), strings.TrimSpace(c.Query("stellar_transaction_id")), strings.TrimSpace(c.Query("external_transaction_id"))}
+	identifier := ""
+	for _, candidate := range identifiers {
+		if candidate != "" {
+			if identifier != "" {
+				h.writeError(c, "getting wallet SEP-24 transaction", usecase.ErrSEP24InvalidRequest)
+				return
+			}
+			identifier = candidate
+		}
+	}
+	if identifier == "" {
+		h.writeError(c, "getting wallet SEP-24 transaction", usecase.ErrSEP24InvalidRequest)
+		return
+	}
+	view, err := service.GetWalletTransactionByIdentifier(c.Request.Context(), principal.Account, identifier)
+	if err != nil {
+		h.writeError(c, "getting wallet SEP-24 transaction", err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"transaction": h.publicTransaction(view)})
+}
+
+func (h *Sep24Handler) WalletTransactions(c *gin.Context) {
+	principal, ok := middleware.SEP10Principal(c.Request.Context())
+	service, serviceOK := h.service.(interface {
+		ListWalletTransactions(context.Context, string, int) ([]usecase.Sep24TransactionView, error)
+	})
+	if !ok || !serviceOK {
+		writeAuthError(c, http.StatusUnauthorized)
+		return
+	}
+	limit, err := parseLimit(c.Query("limit"))
+	if err != nil {
+		h.writeError(c, "listing wallet SEP-24 transactions", usecase.ErrSEP24InvalidRequest)
+		return
+	}
+	var views []usecase.Sep24TransactionView
+	if filteredService, filteredOK := h.service.(interface {
+		ListWalletTransactionsFiltered(context.Context, string, usecase.Sep24HistoryFilter) ([]usecase.Sep24TransactionView, error)
+	}); filteredOK {
+		var noOlderThan *time.Time
+		if raw := strings.TrimSpace(c.Query("no_older_than")); raw != "" {
+			parsed, parseErr := time.Parse(time.RFC3339, raw)
+			if parseErr != nil {
+				h.writeError(c, "listing wallet SEP-24 transactions", usecase.ErrSEP24InvalidRequest)
+				return
+			}
+			noOlderThan = &parsed
+		}
+		views, err = filteredService.ListWalletTransactionsFiltered(c.Request.Context(), principal.Account, usecase.Sep24HistoryFilter{
+			AssetCode: c.Query("asset_code"), Kind: c.Query("kind"), Limit: limit,
+			NoOlderThan: noOlderThan, PagingID: c.Query("paging_id"),
+		})
+	} else {
+		views, err = service.ListWalletTransactions(c.Request.Context(), principal.Account, limit)
+	}
+	if err != nil {
+		h.writeError(c, "listing wallet SEP-24 transactions", err)
+		return
+	}
+	transactions := make([]gin.H, 0, len(views))
+	for _, view := range views {
+		transactions = append(transactions, h.publicTransaction(view))
+	}
+	c.JSON(http.StatusOK, gin.H{"transactions": transactions})
+}
+
 // Interactive gives the wallet's browser a small authenticated projection of
 // the same transaction. A production wallet should use SEP-10/SEP-45 for the
 // browser hand-off; the sandbox bridge uses the existing order principal.
 func (h *Sep24Handler) Interactive(c *gin.Context) {
+	if h.interactive != nil {
+		h.interactivePage(c)
+		return
+	}
 	principal, ok := middleware.OrderPrincipal(c.Request.Context())
 	if !ok {
 		writeAuthError(c, http.StatusUnauthorized)
@@ -238,6 +382,166 @@ func (h *Sep24Handler) Interactive(c *gin.Context) {
 		"kyc_required": false,
 		"transaction":  h.publicTransaction(view),
 	})
+}
+
+// InteractiveComplete handles the form posted by the browser page. The
+// cookie is intentionally authenticated here because the initial interactive
+// URL must remain usable before a retail session exists.
+func (h *Sep24Handler) InteractiveComplete(c *gin.Context) {
+	if h.interactive == nil {
+		writeAuthError(c, http.StatusUnauthorized)
+		return
+	}
+	user, ok := h.currentInteractiveUser(c)
+	if !ok {
+		if wantsJSON(c) {
+			writeAuthError(c, http.StatusUnauthorized)
+			return
+		}
+		h.writeInteractiveHTML(c, usecase.Sep24InteractiveView{ID: strings.TrimSpace(c.Param("id"))}, "Sign in to KailoPay to continue.", false)
+		return
+	}
+	input := usecase.Sep24InteractiveCompletion{DestinationToken: sep24FormValue(c, "destination_token")}
+	view, err := h.interactive.Complete(c.Request.Context(), c.Param("id"), user, input)
+	if err != nil {
+		h.writeError(c, "completing SEP-24 interactive transaction", err)
+		return
+	}
+	if wantsJSON(c) {
+		c.JSON(http.StatusOK, gin.H{
+			"environment": "sandbox",
+			"network":     usecase.StellarTestnetNetwork,
+			"transaction": h.publicTransaction(view),
+		})
+		return
+	}
+	h.writeInteractiveHTML(c, usecase.Sep24InteractiveView{ID: view.ID, Kind: view.Kind, Status: view.Status, KYCStatus: string(usecase.KYCStatusApproved)}, "The transaction has been linked. This is a Stellar testnet sandbox; no real IDR moved.", false)
+}
+
+func (h *Sep24Handler) interactivePage(c *gin.Context) {
+	transactionID := strings.TrimSpace(c.Param("id"))
+	token := strings.TrimSpace(c.Query("token"))
+	var (
+		view usecase.Sep24InteractiveView
+		err  error
+	)
+	if token != "" {
+		view, err = h.interactive.LoadBrowser(c.Request.Context(), transactionID, token)
+	} else if principal, authenticated := h.sep10Principal(c); authenticated {
+		view, err = h.interactive.Load(c.Request.Context(), principal, transactionID)
+	} else {
+		h.writeError(c, "loading SEP-24 interactive transaction", usecase.ErrSEP24InteractiveNotFound)
+		return
+	}
+	if err != nil {
+		h.writeError(c, "loading SEP-24 interactive transaction", err)
+		return
+	}
+	message := "Sign in to KailoPay to continue."
+	if user, authenticated := h.currentInteractiveUser(c); authenticated {
+		view, err = h.interactive.Link(c.Request.Context(), transactionID, user)
+		if err != nil {
+			h.writeError(c, "linking SEP-24 interactive session", err)
+			return
+		}
+		message = "Complete identity verification to continue."
+	}
+	if wantsJSON(c) {
+		response := gin.H{
+			"environment":  "sandbox",
+			"network":      usecase.StellarTestnetNetwork,
+			"kyc_required": view.KYCRequired,
+			"interactive":  view,
+		}
+		if view.Transaction != nil {
+			response["transaction"] = h.publicTransaction(*view.Transaction)
+		}
+		c.JSON(http.StatusOK, response)
+		return
+	}
+	h.writeInteractiveHTML(c, view, message, true)
+}
+
+func (h *Sep24Handler) sep10Principal(c *gin.Context) (usecase.SEP10Principal, bool) {
+	if principal, ok := middleware.SEP10Principal(c.Request.Context()); ok {
+		return principal, true
+	}
+	if h.sep10Auth == nil {
+		return usecase.SEP10Principal{}, false
+	}
+	parts := strings.Fields(c.GetHeader("Authorization"))
+	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+		return usecase.SEP10Principal{}, false
+	}
+	principal, err := h.sep10Auth.Authenticate(c.Request.Context(), parts[1])
+	if err != nil {
+		return usecase.SEP10Principal{}, false
+	}
+	return principal, true
+}
+
+func (h *Sep24Handler) currentInteractiveUser(c *gin.Context) (usecase.AuthenticatedUser, bool) {
+	if user, ok := middleware.AuthenticatedUser(c.Request.Context()); ok {
+		return user, true
+	}
+	if h.sessionAuth == nil {
+		return usecase.AuthenticatedUser{}, false
+	}
+	rawToken, err := c.Cookie(h.sessionCookieName)
+	if err != nil || strings.TrimSpace(rawToken) == "" {
+		return usecase.AuthenticatedUser{}, false
+	}
+	user, err := h.sessionAuth.Authenticate(c.Request.Context(), rawToken)
+	if err != nil {
+		return usecase.AuthenticatedUser{}, false
+	}
+	return user, true
+}
+
+func (h *Sep24Handler) writeInteractiveSessionResponse(c *gin.Context, view usecase.Sep24InteractiveView) {
+	c.JSON(http.StatusOK, gin.H{
+		"type":         usecase.Sep24InteractiveResponseType,
+		"url":          view.URL,
+		"id":           view.ID,
+		"kyc_required": view.KYCRequired,
+		"environment":  "sandbox",
+		"network":      usecase.StellarTestnetNetwork,
+	})
+}
+
+func (h *Sep24Handler) writeInteractiveHTML(c *gin.Context, view usecase.Sep24InteractiveView, message string, showForm bool) {
+	type interactivePageData struct {
+		ID             string
+		Kind           string
+		Status         string
+		KYCStatus      string
+		Message        string
+		ShowForm       bool
+		NeedsReference bool
+	}
+	data := interactivePageData{
+		ID:             view.ID,
+		Kind:           view.Kind,
+		Status:         view.Status,
+		KYCStatus:      view.KYCStatus,
+		Message:        message,
+		ShowForm:       showForm,
+		NeedsReference: view.Kind == usecase.Sep24KindWithdraw,
+	}
+	const page = `<!doctype html><html><head><meta charset="utf-8"><title>KailoPay sandbox transfer</title></head><body><main><h1>KailoPay sandbox transfer</h1><p>{{.Message}}</p><p>Stellar testnet only. No real IDR moves. Off-ramp destinations are synthetic sandbox references.</p>{{if .ID}}<p>Transaction: <code>{{.ID}}</code></p>{{end}}{{if .KYCStatus}}<p>KYC status: <strong>{{.KYCStatus}}</strong></p>{{end}}{{if .ShowForm}}<form method="post"><input type="hidden" name="_csrf" value="interactive"><label>{{if .NeedsReference}}Sandbox payout reference <input name="destination_token" required>{{else}}Continue{{end}}</label><button type="submit">Continue</button></form>{{end}}</main></body></html>`
+	parsed, err := template.New("sep24-interactive").Parse(page)
+	if err != nil {
+		h.logger.ErrorContext(c.Request.Context(), "rendering SEP-24 interactive page", slog.Any("error", err))
+		c.Status(http.StatusInternalServerError)
+		return
+	}
+	var body bytes.Buffer
+	if err := parsed.Execute(&body, data); err != nil {
+		h.logger.ErrorContext(c.Request.Context(), "writing SEP-24 interactive page", slog.Any("error", err))
+		c.Status(http.StatusInternalServerError)
+		return
+	}
+	c.Data(http.StatusOK, "text/html; charset=utf-8", body.Bytes())
 }
 
 func (h *Sep24Handler) writeInteractiveResponse(c *gin.Context, view usecase.Sep24TransactionView) {
@@ -261,12 +565,30 @@ func (h *Sep24Handler) interactiveURL(transactionID string) string {
 }
 
 func (h *Sep24Handler) publicTransaction(view usecase.Sep24TransactionView) gin.H {
+	kind := view.Kind
+	if kind == usecase.Sep24KindWithdraw {
+		kind = "withdrawal"
+	}
 	transaction := gin.H{
 		"id":         view.ID,
-		"kind":       view.Kind,
+		"kind":       kind,
 		"status":     view.Status,
 		"started_at": view.Order.CreatedAt,
 		"updated_at": view.Order.UpdatedAt,
+	}
+	if view.QuoteID != "" {
+		transaction["quote_id"] = view.QuoteID
+	}
+	if view.StellarTransactionID != "" {
+		transaction["stellar_transaction_id"] = view.StellarTransactionID
+	}
+	if view.ExternalTransactionID != "" {
+		transaction["external_transaction_id"] = view.ExternalTransactionID
+		transaction["sandbox_disclosure"] = "No real IDR moved; this is a simulated testnet payout."
+	}
+	if view.Kind == usecase.Sep24KindDeposit {
+		transaction["amount_in"] = strconv.FormatInt(int64(view.Order.FiatAmountMinor), 10)
+		transaction["amount_out"] = view.Order.AssetAmount.String()
 	}
 	if paymentLinkURL := sep24PaymentLinkURL(view); paymentLinkURL != "" {
 		transaction["payment_link_url"] = paymentLinkURL
@@ -282,6 +604,7 @@ func (h *Sep24Handler) publicTransaction(view usecase.Sep24TransactionView) gin.
 		transaction["withdraw_memo"] = view.Order.StellarMemo
 		transaction["withdraw_memo_type"] = "text"
 		transaction["amount_in"] = view.Order.AssetAmount.String()
+		transaction["amount_out"] = strconv.FormatInt(int64(view.Order.FiatAmountMinor), 10)
 		transaction["more_info_url"] = h.interactiveURL(view.ID)
 	}
 	return transaction
@@ -292,6 +615,76 @@ func sep24PaymentLinkURL(view usecase.Sep24TransactionView) string {
 		return ""
 	}
 	return strings.TrimSpace(view.Order.Checkout.PaymentLinkURL)
+}
+
+type sep24InteractiveRequestBody struct {
+	AssetCode        string `json:"asset_code"`
+	AmountMinor      int64  `json:"amount_minor"`
+	Amount           string `json:"amount"`
+	Account          string `json:"account"`
+	Memo             string `json:"memo"`
+	PaymentMethod    string `json:"payment_method"`
+	DestinationToken string `json:"destination_token"`
+	QuoteID          string `json:"quote_id"`
+}
+
+func parseInteractiveRequest(c *gin.Context, kind string) (usecase.Sep24InteractiveRequest, error) {
+	input := sep24InteractiveRequestBody{
+		AssetCode:        sep24FormValue(c, "asset_code"),
+		AmountMinor:      parseOptionalInt64(sep24FormValue(c, "amount_minor")),
+		Amount:           sep24FormValue(c, "amount"),
+		Account:          sep24FormValue(c, "account"),
+		Memo:             sep24FormValue(c, "memo"),
+		PaymentMethod:    sep24FormValue(c, "payment_method"),
+		DestinationToken: sep24FormValue(c, "destination_token"),
+		QuoteID:          sep24FormValue(c, "quote_id"),
+	}
+	if strings.Contains(strings.ToLower(c.GetHeader("Content-Type")), "application/json") {
+		var body sep24InteractiveRequestBody
+		if err := c.ShouldBindJSON(&body); err != nil {
+			return usecase.Sep24InteractiveRequest{}, err
+		}
+		input = body
+	}
+	amountMinor := input.AmountMinor
+	if amountMinor == 0 && strings.TrimSpace(input.Amount) != "" && kind == usecase.Sep24KindDeposit {
+		parsed, err := parseIDRMinor(input.Amount)
+		if err != nil {
+			return usecase.Sep24InteractiveRequest{}, err
+		}
+		amountMinor = parsed
+	}
+	return usecase.Sep24InteractiveRequest{
+		Kind:             kind,
+		AssetCode:        strings.TrimSpace(input.AssetCode),
+		AmountMinor:      entity.IDR(amountMinor),
+		AssetAmount:      strings.TrimSpace(input.Amount),
+		Account:          strings.TrimSpace(input.Account),
+		Memo:             strings.TrimSpace(input.Memo),
+		PaymentMethod:    entity.PaymentMethod(strings.TrimSpace(input.PaymentMethod)),
+		DestinationToken: strings.TrimSpace(input.DestinationToken),
+		QuoteID:          strings.TrimSpace(input.QuoteID),
+		IdempotencyKey:   strings.TrimSpace(c.GetHeader("Idempotency-Key")),
+	}, nil
+}
+
+func parseOptionalInt64(value string) int64 {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0
+	}
+	parsed, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		return 0
+	}
+	return parsed
+}
+
+func wantsJSON(c *gin.Context) bool {
+	if strings.EqualFold(strings.TrimSpace(c.Query("format")), "json") {
+		return true
+	}
+	return strings.Contains(strings.ToLower(c.GetHeader("Accept")), "application/json")
 }
 
 func parseIDRMinor(value string) (int64, error) {
@@ -343,13 +736,17 @@ func sep24ErrorMapping(err error) (string, int) {
 	switch {
 	case errors.Is(err, usecase.ErrSEP24InvalidRequest), errors.Is(err, usecase.ErrInvalidCommand), errors.Is(err, usecase.ErrInvalidWithdrawal), errors.Is(err, usecase.ErrInvalidDestination):
 		return "INVALID_REQUEST", http.StatusBadRequest
-	case errors.Is(err, usecase.ErrSEP24TransactionNotFound), errors.Is(err, usecase.ErrOrderNotFound):
+	case errors.Is(err, usecase.ErrSEP24TransactionNotFound), errors.Is(err, usecase.ErrOrderNotFound), errors.Is(err, usecase.ErrSEP24InteractiveNotFound):
 		return "TRANSACTION_NOT_FOUND", http.StatusNotFound
+	case errors.Is(err, usecase.ErrSEP24InteractiveExpired):
+		return "TRANSACTION_EXPIRED", http.StatusGone
+	case errors.Is(err, usecase.ErrSEP24InteractiveUserMismatch), errors.Is(err, usecase.ErrSEP24InteractiveWalletMismatch):
+		return "AUTHENTICATION_REQUIRED", http.StatusForbidden
 	case errors.Is(err, usecase.ErrKYCRequired):
 		return "KYC_REQUIRED", http.StatusForbidden
 	case errors.Is(err, usecase.ErrAmountOutOfRange):
 		return "AMOUNT_OUT_OF_RANGE", http.StatusUnprocessableEntity
-	case errors.Is(err, usecase.ErrIdempotencyConflict), errors.Is(err, usecase.ErrSEP24TransactionConflict):
+	case errors.Is(err, usecase.ErrIdempotencyConflict), errors.Is(err, usecase.ErrSEP24TransactionConflict), errors.Is(err, usecase.ErrSEP24InteractiveConflict), errors.Is(err, usecase.ErrSEP24InteractiveCompleted):
 		return "CONFLICT", http.StatusConflict
 	case errors.Is(err, usecase.ErrCheckoutUnknown):
 		return "TRANSACTION_PENDING_RECONCILIATION", http.StatusAccepted
@@ -364,6 +761,10 @@ func sep24PublicErrorMessage(code string) string {
 		return "The SEP-24 request is invalid."
 	case "TRANSACTION_NOT_FOUND":
 		return "The transaction does not exist or is not visible to this authenticated owner."
+	case "TRANSACTION_EXPIRED":
+		return "The interactive transaction has expired."
+	case "AUTHENTICATION_REQUIRED":
+		return "Authenticate the wallet and KailoPay account before continuing."
 	case "KYC_REQUIRED":
 		return "Complete identity verification before using this feature."
 	case "AMOUNT_OUT_OF_RANGE":

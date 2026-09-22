@@ -90,6 +90,8 @@ type ServiceConfig struct {
 
 type Command struct {
 	Principal      OrderPrincipal
+	WalletAccount  string
+	QuoteID        string
 	IdempotencyKey string
 	Amount         entity.IDR
 	PaymentMethod  entity.PaymentMethod
@@ -100,6 +102,8 @@ type Command struct {
 type CreateRecord struct {
 	OrderID            string
 	Principal          OrderPrincipal
+	WalletAccount      string
+	QuoteID            string
 	IdempotencyKeyHash string
 	RequestHash        string
 	PaymentMethod      entity.PaymentMethod
@@ -160,6 +164,16 @@ func (e *GatewayError) Unwrap() error { return e.Err }
 type OnrampUsecase struct {
 	dependencies OnrampDependencies
 	config       ServiceConfig
+}
+
+func (s *OnrampUsecase) GetByWallet(ctx context.Context, walletAccount, orderID string) (OrderView, error) {
+	reader, ok := s.dependencies.Repository.(interface {
+		GetByWallet(context.Context, string, string) (OrderView, error)
+	})
+	if !ok {
+		return OrderView{}, ErrOrderNotFound
+	}
+	return reader.GetByWallet(ctx, walletAccount, orderID)
 }
 
 func NewOnrampUsecase(dependencies OnrampDependencies, config ServiceConfig) (*OnrampUsecase, error) {
@@ -223,7 +237,7 @@ func (s *OnrampUsecase) Create(ctx context.Context, command Command) (OrderView,
 	if err != nil {
 		return OrderView{}, false, fmt.Errorf("generating order id: %w", err)
 	}
-	record := CreateRecord{OrderID: orderID, Principal: command.Principal, IdempotencyKeyHash: idempotencyHash,
+	record := CreateRecord{OrderID: orderID, Principal: command.Principal, WalletAccount: strings.TrimSpace(command.WalletAccount), QuoteID: strings.TrimSpace(command.QuoteID), IdempotencyKeyHash: idempotencyHash,
 		RequestHash: requestHash, PaymentMethod: command.PaymentMethod, Destination: command.Destination,
 		Memo: command.Memo, Quote: quote, CreatedAt: now}
 	if err := s.dependencies.Repository.ReserveAndCreate(ctx, record, observedBalance); err != nil {

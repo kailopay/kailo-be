@@ -75,6 +75,8 @@ type OfframpRepository interface {
 type OfframpCreateRecord struct {
 	OrderID            string
 	Principal          OrderPrincipal
+	WalletAccount      string
+	QuoteID            string
 	IdempotencyKeyHash string
 	RequestHash        string
 	AssetAmount        entity.Stroops
@@ -97,15 +99,18 @@ type RetirementIntent struct {
 	TransactionHash string
 }
 
-// PayoutView is the public simulated-payout representation. Simulated is
-// always true in this release (ADR-003) and must surface in every client.
+// PayoutView is the public simulated-payout representation. Simulated is true
+// for the testnet payout mode and must surface with its disclosure in clients.
 type PayoutView struct {
 	Reference   string
 	Method      string
 	AmountMinor int64
 	State       string
 	Simulated   *bool
+	Disclosure  string
 }
+
+const SandboxPayoutDisclosure = "No real IDR moved; this is a simulated testnet payout."
 
 // OfframpDependencies bundles the ports the off-ramp create flow consumes.
 type OfframpDependencies struct {
@@ -129,6 +134,8 @@ type OfframpServiceConfig struct {
 // OfframpCommand is the public create-off-ramp input.
 type OfframpCommand struct {
 	Principal        OrderPrincipal
+	WalletAccount    string
+	QuoteID          string
 	IdempotencyKey   string
 	AssetNetwork     string
 	AssetCode        string
@@ -216,6 +223,8 @@ func (s *OfframpUsecase) Create(ctx context.Context, command OfframpCommand) (Or
 	record := OfframpCreateRecord{
 		OrderID:            orderID,
 		Principal:          command.Principal,
+		WalletAccount:      strings.TrimSpace(command.WalletAccount),
+		QuoteID:            strings.TrimSpace(command.QuoteID),
 		IdempotencyKeyHash: idempotencyHash,
 		RequestHash:        requestHash,
 		AssetAmount:        stroops,

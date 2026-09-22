@@ -73,7 +73,7 @@ stateDiagram-v2
     asset_received --> retirement_processing: retirement intent persisted
     retirement_processing --> withdrawal_processing: burn/retirement confirmed
     retirement_processing --> retirement_failed: permanent network failure
-    withdrawal_processing --> completed: payout evidence recorded (future payout rail)
+    withdrawal_processing --> completed: simulated payout evidence recorded on testnet
     withdrawal_processing --> withdrawal_failed: permanent provider failure
     created --> cancelled: cancelled before instructions
     asset_pending --> cancelled: cancellation permitted before asset receipt
@@ -96,14 +96,16 @@ stateDiagram-v2
 | `asset_received` | Queue retirement | No existing retirement intent | `retirement_processing` | Retirement intent and outbox row |
 | `retirement_processing` | Retirement confirmed | Burn/retirement transaction is successful | `withdrawal_processing` | Retirement transaction hash |
 | `retirement_processing` | Retirement failed | Permanent result established after reconciliation | `retirement_failed` | Attempts and final safe error |
-| `withdrawal_processing` | Withdrawal completed | Future payout rail returns durable success evidence | `completed` | Provider payout reference |
+| `withdrawal_processing` | Withdrawal completed | `OFFRAMP_PAYOUT_MODE=simulated` and retirement is confirmed | `completed` | Deterministic sandbox payout reference and disclosure |
 | `withdrawal_processing` | Withdrawal failed | Verified permanent provider outcome | `withdrawal_failed` | Safe provider failure code |
 
-In the current release, the payout rail is deferred. There is intentionally no
-worker transition out of `withdrawal_processing` after retirement, so the
-frontend must not show a completed or successful IDR payout message. Enable a
-durable payout adapter and reconciliation flow before adding the `completed`
-transition.
+The testnet release has an explicit worker-owned simulator. When
+`OFFRAMP_PAYOUT_MODE=simulated`, confirmed retirement queues an idempotent
+`payout.simulate_offramp` job and the worker records a deterministic
+`sandbox_bank_transfer` reference before moving the order to `completed`. Every
+surface discloses that no real IDR moved. With the mode disabled, the order
+remains in `withdrawal_processing`; a real payout adapter still requires its own
+provider idempotency, reconciliation, and failure policy.
 
 ## 4. Unknown external outcomes
 

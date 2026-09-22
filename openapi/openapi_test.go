@@ -17,6 +17,7 @@ func TestDocumentValidatesAuthContract(t *testing.T) {
 		t.Fatalf("validating OpenAPI document: %v", err)
 	}
 	for _, path := range []string{
+		"/auth",
 		"/auth/register",
 		"/auth/login",
 		"/auth/google/login",
@@ -52,6 +53,8 @@ func TestDocumentValidatesAuthContract(t *testing.T) {
 		"/sep38/info",
 		"/sep38/prices",
 		"/sep38/price",
+		"/sep38/quote",
+		"/sep38/quote/{id}",
 		"/callbacks/payments/xendit",
 		"/callbacks/kyc/persona",
 	} {
@@ -81,15 +84,34 @@ func TestDocumentValidatesAuthContract(t *testing.T) {
 		"/sep24/transactions/withdraw/interactive",
 	} {
 		operation := document.Paths.Find(path).Post
-		if operation == nil || operation.Responses.Value("403") == nil {
+		if operation == nil || operation.Responses.Value("403") == nil || operation.Security == nil {
 			t.Fatalf("POST %s must document the KYC-required response", path)
 		}
+		if _, ok := (*operation.Security)[0]["sep10Bearer"]; !ok {
+			t.Fatalf("POST %s must use SEP-10 bearer security", path)
+		}
+	}
+	sep10 := document.Paths.Find("/auth")
+	if sep10 == nil || sep10.Get == nil || sep10.Post == nil {
+		t.Fatal("/auth must document both SEP-10 challenge and exchange")
+	}
+	if document.Components.SecuritySchemes["sep10Bearer"] == nil {
+		t.Fatal("missing SEP-10 bearer security scheme")
+	}
+	firmQuote := document.Paths.Find("/sep38/quote")
+	if firmQuote == nil || firmQuote.Post == nil || firmQuote.Post.Security == nil {
+		t.Fatal("POST /sep38/quote must document authenticated firm quotes")
+	}
+	if document.Paths.Find("/sep38/quote/{id}").Get == nil {
+		t.Fatal("GET /sep38/quote/{id} must be documented")
 	}
 	for _, schema := range []string{
 		"SEP24TransactionListResponse",
 		"SEP38InfoResponse",
 		"SEP38PricesResponse",
 		"SEP38PriceResponse",
+		"SEP38QuoteRequest",
+		"SEP38QuoteResponse",
 		"SEP38Error",
 	} {
 		if document.Components.Schemas[schema] == nil {

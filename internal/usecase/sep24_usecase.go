@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/febry3/kailopay-be/internal/entity"
 )
@@ -30,6 +31,8 @@ var (
 // fiat amount before it can reserve a quote and checkout.
 type Sep24DepositCommand struct {
 	Principal      OrderPrincipal
+	WalletAccount  string
+	QuoteID        string
 	IdempotencyKey string
 	AssetCode      string
 	AmountMinor    entity.IDR
@@ -42,6 +45,8 @@ type Sep24DepositCommand struct {
 // off-ramp order from the SEP-24 interactive endpoint.
 type Sep24WithdrawCommand struct {
 	Principal        OrderPrincipal
+	WalletAccount    string
+	QuoteID          string
 	IdempotencyKey   string
 	AssetCode        string
 	AssetAmount      string
@@ -52,19 +57,26 @@ type Sep24WithdrawCommand struct {
 // identifier and the owned KailoPay order. Ownership remains authoritative on
 // the order so session and API-client scopes cannot diverge.
 type Sep24TransactionRecord struct {
-	Principal     OrderPrincipal
-	TransactionID string
-	OrderID       string
-	Kind          string
+	Principal             OrderPrincipal
+	WalletAccount         string
+	QuoteID               string
+	TransactionID         string
+	OrderID               string
+	Kind                  string
+	StellarTransactionID  string
+	ExternalTransactionID string
 }
 
 // Sep24TransactionView is the use-case projection consumed by the protocol
 // handler. Order contains the current persisted order state.
 type Sep24TransactionView struct {
-	ID     string
-	Kind   string
-	Status string
-	Order  OrderView
+	ID                    string
+	Kind                  string
+	Status                string
+	QuoteID               string
+	StellarTransactionID  string
+	ExternalTransactionID string
+	Order                 OrderView
 }
 
 type Sep24OnrampCreator interface {
@@ -83,6 +95,27 @@ type Sep24TransactionRepository interface {
 	Create(ctx context.Context, record Sep24TransactionRecord) error
 	Find(ctx context.Context, principal OrderPrincipal, transactionID string) (Sep24TransactionRecord, error)
 	List(ctx context.Context, principal OrderPrincipal, limit int) ([]Sep24TransactionRecord, error)
+}
+
+type Sep24WalletTransactionReader interface {
+	FindByWallet(ctx context.Context, walletAccount, transactionID string) (Sep24TransactionRecord, error)
+	ListByWallet(ctx context.Context, walletAccount string, limit int) ([]Sep24TransactionRecord, error)
+}
+
+type Sep24WalletIdentifierReader interface {
+	FindByWalletIdentifier(ctx context.Context, walletAccount, identifier string) (Sep24TransactionRecord, error)
+}
+
+type Sep24WalletOrderReader interface {
+	GetByWallet(ctx context.Context, walletAccount, orderID string) (OrderView, error)
+}
+
+type Sep24HistoryFilter struct {
+	AssetCode   string
+	Kind        string
+	Limit       int
+	NoOlderThan *time.Time
+	PagingID    string
 }
 
 type Sep24Dependencies struct {
@@ -115,6 +148,8 @@ func (s *Sep24Usecase) StartDeposit(ctx context.Context, command Sep24DepositCom
 	}
 	view, _, err := s.dependencies.Onramp.Create(ctx, Command{
 		Principal:      command.Principal,
+		WalletAccount:  strings.TrimSpace(command.WalletAccount),
+		QuoteID:        strings.TrimSpace(command.QuoteID),
 		IdempotencyKey: sep24IdempotencyKey(Sep24KindDeposit, command.IdempotencyKey),
 		Amount:         command.AmountMinor,
 		PaymentMethod:  command.PaymentMethod,
@@ -131,7 +166,7 @@ func (s *Sep24Usecase) StartDeposit(ctx context.Context, command Sep24DepositCom
 			return Sep24TransactionView{}, fmt.Errorf("loading checkout-unknown order: %w", err)
 		}
 	}
-	return s.recordTransaction(ctx, command.Principal, Sep24KindDeposit, view)
+	return s.recordTransaction(ctx, command.Principal, command.WalletAccount, command.QuoteID, Sep24KindDeposit, view)
 }
 
 func (s *Sep24Usecase) StartWithdraw(ctx context.Context, command Sep24WithdrawCommand) (Sep24TransactionView, error) {
@@ -143,6 +178,8 @@ func (s *Sep24Usecase) StartWithdraw(ctx context.Context, command Sep24WithdrawC
 	}
 	view, _, err := s.dependencies.Offramp.Create(ctx, OfframpCommand{
 		Principal:        command.Principal,
+		WalletAccount:    strings.TrimSpace(command.WalletAccount),
+		QuoteID:          strings.TrimSpace(command.QuoteID),
 		IdempotencyKey:   sep24IdempotencyKey(Sep24KindWithdraw, command.IdempotencyKey),
 		AssetNetwork:     StellarTestnetNetwork,
 		AssetCode:        command.AssetCode,
@@ -154,7 +191,7 @@ func (s *Sep24Usecase) StartWithdraw(ctx context.Context, command Sep24WithdrawC
 	if err != nil {
 		return Sep24TransactionView{}, err
 	}
-	return s.recordTransaction(ctx, command.Principal, Sep24KindWithdraw, view)
+	return s.recordTransaction(ctx, command.Principal, command.WalletAccount, command.QuoteID, Sep24KindWithdraw, view)
 }
 
 func (s *Sep24Usecase) GetTransaction(ctx context.Context, principal OrderPrincipal, transactionID string) (Sep24TransactionView, error) {
@@ -201,12 +238,128 @@ func (s *Sep24Usecase) ListTransactions(ctx context.Context, principal OrderPrin
 	return views, nil
 }
 
-func (s *Sep24Usecase) recordTransaction(ctx context.Context, principal OrderPrincipal, kind string, order OrderView) (Sep24TransactionView, error) {
+func (s *Sep24Usecase) GetWalletTransaction(ctx context.Context, walletAccount, transactionID string) (Sep24TransactionView, error) {
+	reader, ok := s.dependencies.Transactions.(Sep24WalletTransactionReader)
+	if !ok {
+		return Sep24TransactionView{}, ErrSEP24TransactionNotFound
+	}
+	orders, ok := s.dependencies.Orders.(Sep24WalletOrderReader)
+	if !ok {
+		return Sep24TransactionView{}, ErrSEP24TransactionNotFound
+	}
+	walletAccount = strings.TrimSpace(walletAccount)
+	if walletAccount == "" {
+		return Sep24TransactionView{}, ErrSEP24TransactionNotFound
+	}
+	record, err := reader.FindByWallet(ctx, walletAccount, strings.TrimSpace(transactionID))
+	if err != nil {
+		return Sep24TransactionView{}, err
+	}
+	order, err := orders.GetByWallet(ctx, walletAccount, record.OrderID)
+	if errors.Is(err, ErrOrderNotFound) {
+		return Sep24TransactionView{}, ErrSEP24TransactionNotFound
+	}
+	if err != nil {
+		return Sep24TransactionView{}, fmt.Errorf("loading wallet SEP-24 order: %w", err)
+	}
+	return s.transactionView(record, order)
+}
+
+func (s *Sep24Usecase) GetWalletTransactionByIdentifier(ctx context.Context, walletAccount, identifier string) (Sep24TransactionView, error) {
+	reader, ok := s.dependencies.Transactions.(Sep24WalletIdentifierReader)
+	if !ok {
+		return s.GetWalletTransaction(ctx, walletAccount, identifier)
+	}
+	orders, ok := s.dependencies.Orders.(Sep24WalletOrderReader)
+	if !ok {
+		return Sep24TransactionView{}, ErrSEP24TransactionNotFound
+	}
+	record, err := reader.FindByWalletIdentifier(ctx, strings.TrimSpace(walletAccount), strings.TrimSpace(identifier))
+	if err != nil {
+		return Sep24TransactionView{}, err
+	}
+	order, err := orders.GetByWallet(ctx, walletAccount, record.OrderID)
+	if errors.Is(err, ErrOrderNotFound) {
+		return Sep24TransactionView{}, ErrSEP24TransactionNotFound
+	}
+	if err != nil {
+		return Sep24TransactionView{}, fmt.Errorf("loading wallet SEP-24 order: %w", err)
+	}
+	return s.transactionView(record, order)
+}
+
+func (s *Sep24Usecase) ListWalletTransactions(ctx context.Context, walletAccount string, limit int) ([]Sep24TransactionView, error) {
+	reader, ok := s.dependencies.Transactions.(Sep24WalletTransactionReader)
+	if !ok {
+		return []Sep24TransactionView{}, ErrSEP24TransactionNotFound
+	}
+	if _, ok := s.dependencies.Orders.(Sep24WalletOrderReader); !ok {
+		return []Sep24TransactionView{}, ErrSEP24TransactionNotFound
+	}
+	if limit < 1 || limit > 100 {
+		limit = 20
+	}
+	records, err := reader.ListByWallet(ctx, strings.TrimSpace(walletAccount), limit)
+	if err != nil {
+		return []Sep24TransactionView{}, fmt.Errorf("listing wallet SEP-24 transactions: %w", err)
+	}
+	views := make([]Sep24TransactionView, 0, len(records))
+	for _, record := range records {
+		view, err := s.GetWalletTransaction(ctx, walletAccount, record.TransactionID)
+		if err != nil {
+			return []Sep24TransactionView{}, err
+		}
+		views = append(views, view)
+	}
+	return views, nil
+}
+
+func (s *Sep24Usecase) ListWalletTransactionsFiltered(ctx context.Context, walletAccount string, filter Sep24HistoryFilter) ([]Sep24TransactionView, error) {
+	if filter.Limit < 1 || filter.Limit > 100 {
+		filter.Limit = 20
+	}
+	views, err := s.ListWalletTransactions(ctx, walletAccount, 100)
+	if err != nil {
+		return []Sep24TransactionView{}, err
+	}
+	assetCode := strings.ToLower(strings.TrimSpace(filter.AssetCode))
+	kind := strings.ToLower(strings.TrimSpace(filter.Kind))
+	pagingPassed := strings.TrimSpace(filter.PagingID) == ""
+	filtered := make([]Sep24TransactionView, 0, filter.Limit)
+	for _, view := range views {
+		if !pagingPassed {
+			if view.ID == strings.TrimSpace(filter.PagingID) {
+				pagingPassed = true
+			}
+			continue
+		}
+		if filter.NoOlderThan != nil && view.Order.CreatedAt.After(filter.NoOlderThan.UTC()) {
+			continue
+		}
+		if assetCode != "" && assetCode != "xlm" && assetCode != "native" && assetCode != "stellar:native" {
+			continue
+		}
+		viewKind := strings.ToLower(view.Kind)
+		if viewKind == Sep24KindWithdraw {
+			viewKind = "withdrawal"
+		}
+		if kind != "" && kind != viewKind && !(kind == Sep24KindWithdraw && viewKind == "withdrawal") {
+			continue
+		}
+		filtered = append(filtered, view)
+		if len(filtered) == filter.Limit {
+			break
+		}
+	}
+	return filtered, nil
+}
+
+func (s *Sep24Usecase) recordTransaction(ctx context.Context, principal OrderPrincipal, walletAccount, quoteID, kind string, order OrderView) (Sep24TransactionView, error) {
 	if strings.TrimSpace(order.ID) == "" {
 		return Sep24TransactionView{}, ErrSEP24StatusUnavailable
 	}
 	transactionID := Sep24TransactionID(kind, order.ID)
-	record := Sep24TransactionRecord{Principal: principal, TransactionID: transactionID, OrderID: order.ID, Kind: kind}
+	record := Sep24TransactionRecord{Principal: principal, WalletAccount: strings.TrimSpace(walletAccount), QuoteID: strings.TrimSpace(quoteID), TransactionID: transactionID, OrderID: order.ID, Kind: kind}
 	if err := s.dependencies.Transactions.Create(ctx, record); err != nil {
 		return Sep24TransactionView{}, fmt.Errorf("recording sep-24 transaction: %w", err)
 	}
@@ -218,7 +371,8 @@ func (s *Sep24Usecase) transactionView(record Sep24TransactionRecord, order Orde
 	if !ok {
 		return Sep24TransactionView{}, ErrSEP24StatusUnavailable
 	}
-	return Sep24TransactionView{ID: record.TransactionID, Kind: record.Kind, Status: status, Order: order}, nil
+	return Sep24TransactionView{ID: record.TransactionID, Kind: record.Kind, Status: status, QuoteID: record.QuoteID,
+		StellarTransactionID: record.StellarTransactionID, ExternalTransactionID: record.ExternalTransactionID, Order: order}, nil
 }
 
 func validateSep24Start(principal OrderPrincipal, idempotencyKey, assetCode string) error {

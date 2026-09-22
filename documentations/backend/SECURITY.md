@@ -5,7 +5,7 @@
 Protect sandbox credentials, testnet signing keys, order integrity, and external-effect correctness while clearly avoiding any claim of production security or regulatory readiness.
 
 Security controls in `v0.1.0` focus on the highest-risk boundaries: API keys,
-Persona KYC callbacks, payment callbacks, Stellar signing, webhook
+SEP-10 challenge/JWT authentication, Persona KYC callbacks, payment callbacks, Stellar signing, webhook
 SSRF/signing, secret handling, idempotency, and public evidence.
 
 ## 2. Security boundaries and assets
@@ -43,6 +43,7 @@ Trust boundaries:
 | SQL/injection attacks | Data corruption/exposure | Schema validation, parameterized queries/ORM, no shell interpolation, least-privilege DB account |
 | Cross-client/cross-user access | Order data exposure | Explicit principal context in every repository query, ownership checks, enumeration policy tests |
 | Cookie-authenticated order CSRF | Unauthorized consumer order creation | SameSite session cookie plus exact `Origin`/`Referer` allowlist for order mutations |
+| Forged/replayed SEP-10 challenge | Wallet impersonation or cross-wallet order access | Testnet network/home-domain/account checks, signature validation, hashed single-use challenge, short-lived JWT issuer/audience/expiry checks |
 | Forged/replayed Persona callback | Unauthorized approval or KYC state corruption | Timestamped raw-body HMAC verification, bounded body, unique provider event, idempotent processing, and safe out-of-order handling |
 | Secret leakage in public evidence | Credential compromise | Redaction, secret scanning, sanitized fixtures/logs/screenshots, release checklist |
 | Misleading production claim | Legal/reputational risk | Persistent sandbox/testnet labels and explicit non-goals |
@@ -119,6 +120,9 @@ Recommended format: `pk_test_<public_id>_<random_secret>`.
 
 ## 8. Stellar key and transaction security
 
+- SEP-10 uses a dedicated anchor signing secret and never reuses treasury,
+  deposit, or payout credentials. Challenge payloads are not stored; only a
+  hash is retained until the one-time exchange consumes it.
 - Signing secrets are injected into the worker only.
 - Use dedicated testnet accounts and least-funded balances suitable for the demo.
 - Serialize submissions per source account or enforce account-level locking.
@@ -148,6 +152,10 @@ Rules:
 
 - Inject from the selected managed environment; local development uses ignored `.env` files based on `.env.example`.
 - Fail startup when required secrets are missing or obviously invalid.
+- `SEP24_TEST_AUTO_APPROVE_KYC=true` is accepted only with `APP_ENV=test` and
+  the Stellar testnet passphrase; it is not a request-controlled bypass.
+- `OFFRAMP_PAYOUT_MODE=simulated` is testnet-only and never contacts a bank;
+  public evidence must retain the no-real-IDR disclosure.
 - Never echo secrets during startup or health checks.
 - Rotate exposed secrets and document testnet account replacement.
 - CI scans repository history/current changes for credential patterns.
@@ -205,6 +213,10 @@ Screenshots and demo recordings require the same review as source code.
 - Webhook signature sample has positive and negative tests.
 - Public repository, logs, screenshots, video, and docs pass secret/PII review.
 - Deployment confirms sandbox provider and Stellar testnet at startup.
+- SEP-10 challenge replay, wrong-account signatures, expired/wrong-audience
+  JWTs, and wallet-scoped SEP-24 lookups are rejected.
+- Test KYC auto-approval and simulated payout modes are rejected when their
+  testnet/environment guards are not satisfied.
 
 ## 14. Residual risk and future requirements
 

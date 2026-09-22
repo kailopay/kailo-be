@@ -166,6 +166,10 @@ func (r *SettlementRepository) Confirm(ctx context.Context, intentID, hash strin
 		}).Error; err != nil {
 			return err
 		}
+		if err := tx.Model(&entity.SEP24Transaction{}).Where("order_id = ?", stellar.OrderID).
+			Updates(map[string]any{"stellar_transaction_id": hash}).Error; err != nil {
+			return fmt.Errorf("recording SEP-24 settlement transaction: %w", err)
+		}
 		if err := appendSettlementEvent(tx, order, now); err != nil {
 			return err
 		}

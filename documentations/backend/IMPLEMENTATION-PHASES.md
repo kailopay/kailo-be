@@ -85,21 +85,24 @@ Build off-ramp and anchor capabilities on the Week 1 native-XLM settlement found
 ### Build order
 
 1. Off-ramp deposit instructions, transaction lookup/detection, and exact validation.
-2. Sandbox payout intent and unknown-outcome reconciliation.
-4. Gateway payout intent and reconciliation (deferred in the current release).
-5. SEP-24 deposit/withdrawal interactive endpoints and Persona-backed sandbox
-   KYC status gate with signed callback processing.
+2. Sandbox payout intent and idempotent testnet simulator after retirement.
+3. SEP-10 challenge exchange and classic-wallet bearer authentication.
+4. SEP-24 deposit/withdrawal interactive sessions, wallet history/lookup, and
+   Persona-backed retail-session linking.
+5. SEP-38 indicative and wallet-owned firm quotes.
 6. Public `stellar.toml` and federation endpoint.
 7. Developer webhook event/outbox foundation.
 
 ### Week 2 gate
 
 - Internal E2E on-ramp completes with transaction hash.
-- Internal E2E off-ramp records deposit and retirement, then leaves the order
-  in `withdrawal_processing` until a payout rail is enabled.
+- Internal E2E off-ramp records deposit and retirement, then either completes
+  through the explicit testnet simulator or remains in `withdrawal_processing`
+  when payout mode is disabled.
 - Unknown Stellar result is reconciled before retry in automated tests.
 - `stellar.toml` and federation configuration validate.
-- SEP-24 state mapping does not contradict internal order state.
+- SEP-10/SEP-24 wallet ownership, interactive linking, and state mapping do not
+  contradict internal order state.
 - A user must reach approved Persona sandbox status before creating an API key
   or an order; duplicate, invalid, and out-of-order KYC callbacks are safe.
 

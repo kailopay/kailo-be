@@ -2,7 +2,7 @@
 
 Date: 2026-09-22
 
-Status: Proposed for review
+Status: Accepted and implemented on `main`
 
 ## Goal
 

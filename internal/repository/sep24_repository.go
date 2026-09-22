@@ -55,7 +55,8 @@ func (r *SEP24Repository) Create(ctx context.Context, record usecase.Sep24Transa
 		if err != nil {
 			return fmt.Errorf("generating sep-24 mapping id: %w", err)
 		}
-		mapping := entity.SEP24Transaction{ID: id, TransactionID: record.TransactionID, OrderID: record.OrderID, Kind: record.Kind, CreatedAt: now}
+		mapping := entity.SEP24Transaction{ID: id, TransactionID: record.TransactionID, OrderID: record.OrderID, Kind: record.Kind,
+			WalletAccount: strPtrIfNotEmpty(record.WalletAccount), QuoteID: strPtrIfNotEmpty(record.QuoteID), CreatedAt: now}
 		result := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&mapping)
 		if result.Error != nil {
 			return fmt.Errorf("creating sep-24 mapping: %w", result.Error)
@@ -112,11 +113,60 @@ func (r *SEP24Repository) Find(ctx context.Context, principal usecase.OrderPrinc
 		return usecase.Sep24TransactionRecord{}, fmt.Errorf("finding sep-24 mapping: %w", err)
 	}
 	return usecase.Sep24TransactionRecord{
-		Principal:     principal,
-		TransactionID: mapping.TransactionID,
-		OrderID:       mapping.OrderID,
-		Kind:          mapping.Kind,
+		Principal:             principal,
+		WalletAccount:         derefStr(mapping.WalletAccount),
+		QuoteID:               derefStr(mapping.QuoteID),
+		TransactionID:         mapping.TransactionID,
+		OrderID:               mapping.OrderID,
+		Kind:                  mapping.Kind,
+		StellarTransactionID:  derefStr(mapping.StellarTransactionID),
+		ExternalTransactionID: derefStr(mapping.ExternalTransactionID),
 	}, nil
+}
+
+func (r *SEP24Repository) FindByWallet(ctx context.Context, walletAccount, transactionID string) (usecase.Sep24TransactionRecord, error) {
+	var mapping entity.SEP24Transaction
+	if err := r.db.WithContext(ctx).
+		Where("wallet_account = ? AND transaction_id = ?", strings.TrimSpace(walletAccount), strings.TrimSpace(transactionID)).
+		First(&mapping).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return usecase.Sep24TransactionRecord{}, usecase.ErrSEP24TransactionNotFound
+		}
+		return usecase.Sep24TransactionRecord{}, fmt.Errorf("finding wallet SEP-24 mapping: %w", err)
+	}
+	return walletTransactionRecord(mapping), nil
+}
+
+func (r *SEP24Repository) FindByWalletIdentifier(ctx context.Context, walletAccount, identifier string) (usecase.Sep24TransactionRecord, error) {
+	var mapping entity.SEP24Transaction
+	identifier = strings.TrimSpace(identifier)
+	if identifier == "" {
+		return usecase.Sep24TransactionRecord{}, usecase.ErrSEP24TransactionNotFound
+	}
+	if err := r.db.WithContext(ctx).Where("wallet_account = ? AND (transaction_id = ? OR stellar_transaction_id = ? OR external_transaction_id = ?)",
+		strings.TrimSpace(walletAccount), identifier, identifier, identifier).First(&mapping).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return usecase.Sep24TransactionRecord{}, usecase.ErrSEP24TransactionNotFound
+		}
+		return usecase.Sep24TransactionRecord{}, fmt.Errorf("finding wallet SEP-24 identifier: %w", err)
+	}
+	return walletTransactionRecord(mapping), nil
+}
+
+func (r *SEP24Repository) ListByWallet(ctx context.Context, walletAccount string, limit int) ([]usecase.Sep24TransactionRecord, error) {
+	if limit < 1 || limit > 100 {
+		limit = 20
+	}
+	var mappings []entity.SEP24Transaction
+	if err := r.db.WithContext(ctx).Where("wallet_account = ?", strings.TrimSpace(walletAccount)).
+		Order("created_at DESC, id DESC").Limit(limit).Find(&mappings).Error; err != nil {
+		return []usecase.Sep24TransactionRecord{}, fmt.Errorf("listing wallet SEP-24 mappings: %w", err)
+	}
+	records := make([]usecase.Sep24TransactionRecord, 0, len(mappings))
+	for _, mapping := range mappings {
+		records = append(records, walletTransactionRecord(mapping))
+	}
+	return records, nil
 }
 
 func (r *SEP24Repository) List(ctx context.Context, principal usecase.OrderPrincipal, limit int) ([]usecase.Sep24TransactionRecord, error) {
@@ -144,11 +194,21 @@ func (r *SEP24Repository) List(ctx context.Context, principal usecase.OrderPrinc
 	records := make([]usecase.Sep24TransactionRecord, 0, len(mappings))
 	for _, mapping := range mappings {
 		records = append(records, usecase.Sep24TransactionRecord{
-			Principal:     principal,
-			TransactionID: mapping.TransactionID,
-			OrderID:       mapping.OrderID,
-			Kind:          mapping.Kind,
+			Principal:             principal,
+			WalletAccount:         derefStr(mapping.WalletAccount),
+			QuoteID:               derefStr(mapping.QuoteID),
+			TransactionID:         mapping.TransactionID,
+			OrderID:               mapping.OrderID,
+			Kind:                  mapping.Kind,
+			StellarTransactionID:  derefStr(mapping.StellarTransactionID),
+			ExternalTransactionID: derefStr(mapping.ExternalTransactionID),
 		})
 	}
 	return records, nil
+}
+
+func walletTransactionRecord(mapping entity.SEP24Transaction) usecase.Sep24TransactionRecord {
+	return usecase.Sep24TransactionRecord{WalletAccount: derefStr(mapping.WalletAccount), QuoteID: derefStr(mapping.QuoteID),
+		TransactionID: mapping.TransactionID, OrderID: mapping.OrderID, Kind: mapping.Kind,
+		StellarTransactionID: derefStr(mapping.StellarTransactionID), ExternalTransactionID: derefStr(mapping.ExternalTransactionID)}
 }
