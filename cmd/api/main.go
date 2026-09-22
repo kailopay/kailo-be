@@ -335,6 +335,12 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("creating webhook service: %w", err)
 	}
 	webhookHandler := httpapi.NewWebhookHandler(webhookService, appLogger)
+	developerDashboardRepository := repository.NewDeveloperDashboardRepository(db)
+	developerDashboardService, err := usecase.NewDeveloperDashboardUsecase(developerDashboardRepository, time.Now)
+	if err != nil {
+		return fmt.Errorf("creating developer dashboard service: %w", err)
+	}
+	developerDashboardHandler := httpapi.NewDeveloperDashboardHandler(developerDashboardService, appLogger)
 	callbackHandler := httpapi.NewXenditCallbackHandler(callbackService, appLogger)
 	orderPrincipalMiddleware := middleware.RequireOrderPrincipal(apiKeyService, authService, cfg.Auth.CookieName, cfg.HTTP.AllowedOrigins)
 	router, err := httpapi.NewRouter(appLogger, health, authHandler, sessionMiddleware,
@@ -346,7 +352,7 @@ func run(ctx context.Context) error {
 		httpapi.WithSep38Quotes(sep38Handler, middleware.RequireSEP10(sep10Service)),
 		httpapi.WithSep24(sep24Handler, orderPrincipalMiddleware),
 		httpapi.WithSep24Interactive(sep24Handler, middleware.RequireSEP10(sep10Service)),
-		httpapi.WithWebhooks(webhookHandler), httpapi.WithXenditCallback(callbackHandler))
+		httpapi.WithWebhooks(webhookHandler), httpapi.WithDeveloperDashboard(developerDashboardHandler), httpapi.WithXenditCallback(callbackHandler))
 	if err != nil {
 		return fmt.Errorf("creating http router: %w", err)
 	}

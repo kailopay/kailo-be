@@ -23,6 +23,7 @@ type routerOptions struct {
 	sep24                 *Sep24Handler
 	sep24Interactive      bool
 	webhooks              *WebhookHandler
+	developerDashboard    *DeveloperDashboardHandler
 	requireOrderPrincipal gin.HandlerFunc
 	requireSEP10          gin.HandlerFunc
 	xenditCallback        *XenditCallbackHandler
@@ -34,6 +35,16 @@ func WithWebhooks(handler *WebhookHandler) RouterOption {
 			return errors.New("webhook handler is required")
 		}
 		options.webhooks = handler
+		return nil
+	}
+}
+
+func WithDeveloperDashboard(handler *DeveloperDashboardHandler) RouterOption {
+	return func(options *routerOptions) error {
+		if handler == nil {
+			return errors.New("developer dashboard handler is required")
+		}
+		options.developerDashboard = handler
 		return nil
 	}
 }
@@ -241,6 +252,15 @@ func NewRouter(logger *slog.Logger, health *HealthHandler, authHandler *AuthHand
 		webhookRoutes.POST("", configured.webhooks.Create)
 		webhookRoutes.GET("", configured.webhooks.List)
 		webhookRoutes.DELETE("/:id", configured.webhooks.Disable)
+	}
+	if configured.developerDashboard != nil {
+		developerRoutes := router.Group("/v1/developer")
+		developerRoutes.Use(requireSession)
+		developerRoutes.GET("/overview", configured.developerDashboard.Overview)
+		developerRoutes.GET("/analytics", configured.developerDashboard.Analytics)
+		developerRoutes.GET("/revenue/summary", configured.developerDashboard.RevenueSummary)
+		developerRoutes.GET("/revenue/entries", configured.developerDashboard.RevenueEntries)
+		developerRoutes.GET("/orders", configured.developerDashboard.Orders)
 	}
 	if configured.onramp != nil {
 		onrampRoutes := router.Group("/v1")

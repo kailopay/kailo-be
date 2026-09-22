@@ -135,6 +135,35 @@ func TestRouterRegistersWeek1Routes(t *testing.T) {
 	}
 }
 
+func TestRouterRegistersDeveloperDashboardRoutes(t *testing.T) {
+	authHandler := testAuthHandler(t, &fakeAuthService{})
+	health := NewHealthHandler(func(context.Context) error { return nil }, time.Second, nil)
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	requireSession := middleware.RequireSession(fakeSessionAuthenticator{user: auth.AuthenticatedUser{User: auth.UserProfile{ID: "user-id"}}})
+	service := &developerDashboardServiceSpy{}
+	router, err := NewRouter(logger, health, authHandler, requireSession,
+		WithDeveloperDashboard(NewDeveloperDashboardHandler(service, logger)),
+	)
+	if err != nil {
+		t.Fatalf("NewRouter() error = %v", err)
+	}
+	routes := make(map[string]bool)
+	for _, route := range router.Routes() {
+		routes[route.Method+" "+route.Path] = true
+	}
+	for _, route := range []string{
+		"GET /v1/developer/overview",
+		"GET /v1/developer/analytics",
+		"GET /v1/developer/revenue/summary",
+		"GET /v1/developer/revenue/entries",
+		"GET /v1/developer/orders",
+	} {
+		if !routes[route] {
+			t.Errorf("missing route %s", route)
+		}
+	}
+}
+
 func TestRouterRegistersKYCRoutes(t *testing.T) {
 	authHandler := testAuthHandler(t, &fakeAuthService{})
 	health := NewHealthHandler(func(context.Context) error { return nil }, time.Second, nil)
