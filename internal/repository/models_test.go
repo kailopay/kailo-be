@@ -36,6 +36,9 @@ func TestMigrationModelsAreExplicitlyRegistered(t *testing.T) {
 		"treasury_accounts",
 		"treasury_reservations",
 		"sep24_transactions",
+		"sep10_challenges",
+		"sep24_interactive_sessions",
+		"sep38_quotes",
 	} {
 		if _, ok := registeredTables[table]; !ok {
 			t.Errorf("MigrationModels() is missing %q", table)
@@ -46,6 +49,75 @@ func TestMigrationModelsAreExplicitlyRegistered(t *testing.T) {
 		if _, ok := registeredTables[table]; ok {
 			t.Errorf("MigrationModels() must not register obsolete table %q", table)
 		}
+	}
+}
+
+func TestSEPWalletModelsExposeStableCorrelationFields(t *testing.T) {
+	tests := []struct {
+		name   string
+		model  any
+		table  string
+		fields []string
+	}{
+		{name: "sep10 challenge", model: entity.SEP10Challenge{}, table: "sep10_challenges", fields: []string{"ID", "ChallengeHash", "Account", "HomeDomain", "Network", "ExpiresAt", "ConsumedAt"}},
+		{name: "sep24 interactive session", model: entity.SEP24InteractiveSession{}, table: "sep24_interactive_sessions", fields: []string{"ID", "TransactionID", "Kind", "WalletAccount", "RequestHash", "RequestPayload", "KYCStatus", "OrderID"}},
+		{name: "sep38 quote", model: entity.SEP38Quote{}, table: "sep38_quotes", fields: []string{"ID", "QuoteID", "WalletAccount", "SellAsset", "BuyAsset", "SellAmount", "BuyAmount", "ExpiresAt", "ConsumedAt"}},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			typeOf := reflect.TypeOf(testCase.model)
+			for _, field := range testCase.fields {
+				if _, ok := typeOf.FieldByName(field); !ok {
+					t.Errorf("model %T is missing %q", testCase.model, field)
+				}
+			}
+			tableNamer, ok := testCase.model.(interface{ TableName() string })
+			if !ok {
+				t.Fatalf("model %T does not expose TableName", testCase.model)
+			}
+			if got := tableNamer.TableName(); got != testCase.table {
+				t.Fatalf("TableName() = %q, want %q", got, testCase.table)
+			}
+		})
+	}
+}
+
+func TestProtocolCorrelationFieldsAreNullableAndUnique(t *testing.T) {
+	sep24Type := reflect.TypeOf(entity.SEP24Transaction{})
+	for _, field := range []string{"WalletAccount", "QuoteID", "StellarTransactionID", "ExternalTransactionID"} {
+		if _, ok := sep24Type.FieldByName(field); !ok {
+			t.Errorf("entity.SEP24Transaction is missing %q", field)
+		}
+	}
+	orderType := reflect.TypeOf(entity.OrderRecord{})
+	for _, field := range []string{"WalletAccount", "QuoteID"} {
+		if _, ok := orderType.FieldByName(field); !ok {
+			t.Errorf("entity.OrderRecord is missing %q", field)
+		}
+	}
+
+	for _, testCase := range []struct {
+		name  string
+		model any
+		field string
+	}{
+		{name: "sep10 challenge hash", model: &entity.SEP10Challenge{}, field: "ChallengeHash"},
+		{name: "sep24 interactive transaction id", model: &entity.SEP24InteractiveSession{}, field: "TransactionID"},
+		{name: "sep38 quote id", model: &entity.SEP38Quote{}, field: "QuoteID"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			modelSchema, err := schema.Parse(testCase.model, &sync.Map{}, schema.NamingStrategy{})
+			if err != nil {
+				t.Fatalf("schema.Parse() error = %v", err)
+			}
+			field := modelSchema.LookUpField(testCase.field)
+			if field == nil {
+				t.Fatalf("field %q not found", testCase.field)
+			}
+			if !field.Unique {
+				t.Fatalf("field %q must use a unique constraint", testCase.field)
+			}
+		})
 	}
 }
 

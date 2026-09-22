@@ -93,6 +93,92 @@ func setValidWeek1Env(t *testing.T) {
 	t.Setenv("OFFRAMP_DEPOSIT_ACCOUNT", "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF")
 }
 
+func TestLoadReadsSEPWalletSettings(t *testing.T) {
+	setValidAuthEnv(t)
+	t.Setenv("APP_ENV", "test")
+	t.Setenv("DATABASE_DSN", "host=test-db user=tester password=secret dbname=test port=5432")
+	t.Setenv("OFFRAMP_PAYOUT_MODE", "simulated")
+	t.Setenv("SEP10_SIGNING_SECRET", "SXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX")
+	t.Setenv("SEP24_TEST_AUTO_APPROVE_KYC", "true")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Week1.Offramp.PayoutMode != "simulated" {
+		t.Fatalf("payout mode = %q, want simulated", cfg.Week1.Offramp.PayoutMode)
+	}
+	if cfg.Anchor.SEP10.SigningSecret == "" {
+		t.Fatal("SEP-10 signing secret was not loaded")
+	}
+	if !cfg.Anchor.TestAutoApproveKYC {
+		t.Fatal("test KYC auto-approval flag = false, want true")
+	}
+}
+
+func TestLoadRejectsTestOnlyKYCApprovalOutsideTestnetTestEnvironment(t *testing.T) {
+	tests := []struct {
+		name        string
+		environment string
+		passphrase  string
+	}{
+		{name: "local environment", environment: "local", passphrase: StellarTestnetPassphrase},
+		{name: "production environment", environment: "production", passphrase: StellarTestnetPassphrase},
+		{name: "non-testnet network", environment: "test", passphrase: "Public Global Stellar Network ; September 2015"},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			setValidAuthEnv(t)
+			t.Setenv("APP_ENV", testCase.environment)
+			t.Setenv("DATABASE_DSN", "host=test-db user=tester password=secret dbname=test port=5432")
+			t.Setenv("SEP24_TEST_AUTO_APPROVE_KYC", "true")
+			t.Setenv("STELLAR_NETWORK_PASSPHRASE", testCase.passphrase)
+
+			if _, err := Load(); err == nil {
+				t.Fatal("Load() error = nil")
+			}
+		})
+	}
+}
+
+func TestLoadKeepsPersonaApprovalFlagDisabledByDefault(t *testing.T) {
+	setValidAuthEnv(t)
+	t.Setenv("APP_ENV", "test")
+	t.Setenv("DATABASE_DSN", "host=test-db user=tester password=secret dbname=test port=5432")
+	t.Setenv("SEP24_TEST_AUTO_APPROVE_KYC", "false")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Anchor.TestAutoApproveKYC {
+		t.Fatal("test KYC auto-approval flag = true, want false")
+	}
+}
+
+func TestLoadRejectsUnknownOfframpPayoutMode(t *testing.T) {
+	setValidAuthEnv(t)
+	t.Setenv("APP_ENV", "test")
+	t.Setenv("DATABASE_DSN", "host=test-db user=tester password=secret dbname=test port=5432")
+	t.Setenv("OFFRAMP_PAYOUT_MODE", "always-success")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() error = nil")
+	}
+}
+
+func TestLoadRejectsSimulatedOfframpPayoutOnNonTestnet(t *testing.T) {
+	setValidAuthEnv(t)
+	t.Setenv("APP_ENV", "test")
+	t.Setenv("DATABASE_DSN", "host=test-db user=tester password=secret dbname=test port=5432")
+	t.Setenv("OFFRAMP_PAYOUT_MODE", "simulated")
+	t.Setenv("STELLAR_NETWORK_PASSPHRASE", "Public Global Stellar Network ; September 2015")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() error = nil")
+	}
+}
+
 func TestLoadUsesEnvironmentOverrides(t *testing.T) {
 	setValidAuthEnv(t)
 	t.Setenv("APP_ENV", "test")

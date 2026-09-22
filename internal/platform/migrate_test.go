@@ -1,9 +1,27 @@
 package platform
 
 import (
+	"os"
 	"testing"
 	"testing/fstest"
 )
+
+func TestRepositoryMigrationsIncludeSEPWalletVersion(t *testing.T) {
+	migrations, err := DiscoverMigrations(os.DirFS("../../migrations"))
+	if err != nil {
+		t.Fatalf("DiscoverMigrations() error = %v", err)
+	}
+	if len(migrations) != 11 {
+		t.Fatalf("migration count = %d, want 11", len(migrations))
+	}
+	last := migrations[len(migrations)-1]
+	if last.Version != 11 || last.Name != "sep_wallet_interoperability" {
+		t.Fatalf("last migration = %#v", last)
+	}
+	if last.UpSQL == "" || last.DownSQL == "" {
+		t.Fatal("SEP wallet migration must have both up and down SQL")
+	}
+}
 
 func TestDiscoverMigrationsRequiresOrderedPairs(t *testing.T) {
 	migrationFS := fstest.MapFS{

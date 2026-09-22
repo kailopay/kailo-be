@@ -9,6 +9,11 @@ import (
 
 const StellarTestnetPassphrase = "Test SDF Network ; September 2015"
 
+const (
+	OfframpPayoutModeDisabled  = "disabled"
+	OfframpPayoutModeSimulated = "simulated"
+)
+
 type Week1Config struct {
 	APIKeyPepper  string
 	Onramp        OnrampConfig
@@ -24,6 +29,7 @@ type Week1Config struct {
 type OfframpConfig struct {
 	DepositAccount string
 	DepositExpiry  time.Duration
+	PayoutMode     string
 }
 
 type OnrampConfig struct {
@@ -105,6 +111,13 @@ func (cfg Week1Config) Validate() error {
 	if strings.TrimSpace(cfg.Stellar.TreasuryAccount) == "" ||
 		cfg.Stellar.OperatingBufferStroops < 0 || cfg.Stellar.Timeout <= 0 {
 		return errors.New("Stellar treasury configuration is invalid")
+	}
+	payoutMode := strings.TrimSpace(cfg.Offramp.PayoutMode)
+	if payoutMode == "" {
+		payoutMode = OfframpPayoutModeDisabled
+	}
+	if payoutMode != OfframpPayoutModeDisabled && payoutMode != OfframpPayoutModeSimulated {
+		return errors.New("off-ramp payout mode is invalid")
 	}
 	if strings.TrimSpace(cfg.Offramp.DepositAccount) == "" || cfg.Offramp.DepositExpiry <= 0 {
 		return errors.New("off-ramp deposit configuration is invalid")

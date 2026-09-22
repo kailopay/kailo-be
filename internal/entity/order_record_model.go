@@ -7,6 +7,8 @@ type OrderRecord struct {
 	ClientID              *string   `gorm:"type:uuid;index"`
 	CreatedByUserID       *string   `gorm:"type:uuid;index"`
 	RetailSessionID       *string   `gorm:"type:uuid;index"`
+	WalletAccount         *string   `gorm:"type:text;index"`
+	QuoteID               *string   `gorm:"type:text;index"`
 	Direction             string    `gorm:"type:text;not null"`
 	Status                string    `gorm:"type:text;not null;index"`
 	Version               int       `gorm:"not null"`

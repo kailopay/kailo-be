@@ -88,7 +88,13 @@ type AuthConfig struct {
 // It is separate from AuthConfig because the authentication email links point
 // to the frontend, while SEP-24 and federation must point to this API.
 type AnchorConfig struct {
-	BaseURL string
+	BaseURL            string
+	SEP10              SEP10Config
+	TestAutoApproveKYC bool
+}
+
+type SEP10Config struct {
+	SigningSecret string
 }
 
 type PersonaConfig struct {
@@ -180,6 +186,10 @@ func Load() (Config, error) {
 		},
 		Anchor: AnchorConfig{
 			BaseURL: strings.TrimRight(strings.TrimSpace(v.GetString("anchor.base_url")), "/"),
+			SEP10: SEP10Config{
+				SigningSecret: strings.TrimSpace(v.GetString("anchor.sep10.signing_secret")),
+			},
+			TestAutoApproveKYC: v.GetBool("anchor.test_auto_approve_kyc"),
 		},
 		Persona: PersonaConfig{
 			BaseURL:            strings.TrimRight(strings.TrimSpace(v.GetString("persona.base_url")), "/"),
@@ -214,6 +224,7 @@ func Load() (Config, error) {
 			Offramp: OfframpConfig{
 				DepositAccount: strings.TrimSpace(v.GetString("offramp.deposit_account")),
 				DepositExpiry:  v.GetDuration("offramp.deposit_expiry"),
+				PayoutMode:     strings.ToLower(strings.TrimSpace(v.GetString("offramp.payout_mode"))),
 			},
 			Onramp: OnrampConfig{
 				QuoteTTL:       v.GetDuration("onramp.quote_ttl"),
@@ -361,6 +372,10 @@ func (c Config) Validate() error {
 	}
 	if err := c.Week1.Validate(); err != nil {
 		return err
+	}
+	if c.Anchor.TestAutoApproveKYC &&
+		(c.App.Environment != "test" || c.Week1.Stellar.NetworkPassphrase != StellarTestnetPassphrase) {
+		return errors.New("test KYC auto-approval requires APP_ENV=test and Stellar testnet")
 	}
 	return nil
 }
@@ -626,6 +641,8 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("auth.avatar_max_bytes", int64(5<<20))
 	v.SetDefault("auth.email_link_base_url", "http://localhost:3001")
 	v.SetDefault("anchor.base_url", "http://localhost:8080")
+	v.SetDefault("anchor.sep10.signing_secret", "")
+	v.SetDefault("anchor.test_auto_approve_kyc", false)
 	v.SetDefault("persona.base_url", "https://api.withpersona.com")
 	v.SetDefault("persona.hosted_flow_url", "https://inquiry.withpersona.com/verify")
 	v.SetDefault("persona.timeout", 10*time.Second)
@@ -638,6 +655,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("minio.region", "us-east-1")
 	v.SetDefault("minio.use_ssl", false)
 	v.SetDefault("offramp.deposit_expiry", 24*time.Hour)
+	v.SetDefault("offramp.payout_mode", OfframpPayoutModeDisabled)
 	v.SetDefault("onramp.quote_ttl", 5*time.Minute)
 	v.SetDefault("onramp.quote_max_age", 2*time.Minute)
 	v.SetDefault("onramp.quote_spread_bps", 0)
@@ -701,6 +719,8 @@ func environmentBindings() map[string]string {
 		"auth.cookie_secure":               "AUTH_COOKIE_SECURE",
 		"auth.avatar_max_bytes":            "PROFILE_AVATAR_MAX_BYTES",
 		"anchor.base_url":                  "ANCHOR_BASE_URL",
+		"anchor.sep10.signing_secret":      "SEP10_SIGNING_SECRET",
+		"anchor.test_auto_approve_kyc":     "SEP24_TEST_AUTO_APPROVE_KYC",
 		"google.client_id":                 "GOOGLE_CLIENT_ID",
 		"google.client_secret":             "GOOGLE_CLIENT_SECRET",
 		"google.redirect_url":              "GOOGLE_REDIRECT_URL",
@@ -727,6 +747,7 @@ func environmentBindings() map[string]string {
 		"api_key.pepper":                   "API_KEY_PEPPER",
 		"offramp.deposit_account":          "OFFRAMP_DEPOSIT_ACCOUNT",
 		"offramp.deposit_expiry":           "OFFRAMP_DEPOSIT_EXPIRY",
+		"offramp.payout_mode":              "OFFRAMP_PAYOUT_MODE",
 		"offramp.deposit_secret":           "OFFRAMP_DEPOSIT_SECRET",
 		"onramp.quote_ttl":                 "QUOTE_TTL",
 		"onramp.quote_max_age":             "QUOTE_MAX_AGE",
