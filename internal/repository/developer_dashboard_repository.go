@@ -575,7 +575,7 @@ func (r *DeveloperDashboardRepository) ListOrders(ctx context.Context, query use
 		COALESCE(f.platform_revenue_minor, 0)::bigint AS platform_revenue_minor,
 		COALESCE(f.developer_revenue_minor, 0)::bigint AS developer_revenue_minor,
 		COALESCE(f.net_amount_minor, 0)::bigint AS net_idr_minor,
-		COALESCE(f.asset_amount, '') AS financial_asset_amount,
+		COALESCE(f.asset_amount::text, '') AS financial_asset_amount,
 		COALESCE(f.asset_amount_stroops, 0)::bigint AS financial_asset_stroops,
 		COALESCE(f.fee_currency, '') AS fee_currency,
 		COALESCE(f.fee_policy_version, '') AS fee_policy_version,

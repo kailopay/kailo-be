@@ -22,7 +22,7 @@ import (
 
 // outboxTopics are drained in order each tick; a topic with work keeps the
 // loop running before other topics are polled.
-var outboxTopics = []string{"stellar.settle_onramp", "stellar.retire_offramp", usecase.SandboxPayoutTopic}
+var outboxTopics = []string{"stellar.settle_onramp", "stellar.retire_offramp", usecase.SandboxPayoutTopic, "webhook.deliver"}
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -121,6 +121,18 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("creating sandbox payout worker: %w", err)
 	}
+	webhookSecretBox, err := usecase.NewWebhookSecretBox([]byte(cfg.Week1.APIKeyPepper))
+	if err != nil {
+		return fmt.Errorf("creating webhook secret protector: %w", err)
+	}
+	webhookDeliveryService, err := usecase.NewWebhookDeliveryUsecase(repository.NewWebhookRepository(db), webhookSecretBox, usecase.WebhookDeliveryConfig{
+		Timeout: cfg.Week1.Worker.WebhookTimeout, LeaseDuration: cfg.Week1.Worker.LeaseDuration,
+		RetryDelay: cfg.Week1.Worker.RetryDelay, MaxAttempts: cfg.Week1.Worker.MaxAttempts,
+		Now: time.Now, Client: usecase.NewSafeWebhookHTTPClient(cfg.Week1.Worker.WebhookTimeout, nil),
+	})
+	if err != nil {
+		return fmt.Errorf("creating webhook delivery service: %w", err)
+	}
 	paymentWatcher := depositWatcherFunc(func(ctx context.Context, account string, limit int) ([]usecase.ObservedPayment, error) {
 		observed, err := network.RecentPayments(ctx, account, limit)
 		if err != nil {
@@ -166,10 +178,24 @@ func run(ctx context.Context) error {
 		}
 		return true, payoutWorker.RunOnce(ctx, job)
 	}
+	runWebhook := func() (bool, error) {
+		job, err := settlementStore.LeaseOutbox(ctx, "webhook.deliver", workerID, time.Now().UTC(),
+			cfg.Week1.Worker.LeaseDuration, webhookPayloadDecoder)
+		if errors.Is(err, usecase.ErrNoJob) {
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		return true, webhookDeliveryService.RunOnce(ctx, usecase.WebhookDeliveryJob{
+			OutboxID: job.OutboxID, EventID: job.IntentID, WorkerID: workerID,
+		})
+	}
 	drain := map[string]func() (bool, error){
 		"stellar.settle_onramp":    runSettlement,
 		"stellar.retire_offramp":   runRetirement,
 		usecase.SandboxPayoutTopic: runPayout,
+		"webhook.deliver":          runWebhook,
 	}
 
 	depositPollInterval := cfg.Week1.Worker.PollInterval * 10
@@ -252,6 +278,16 @@ func payoutPayloadDecoder(payload []byte) (usecase.Job, error) {
 		return usecase.Job{}, errors.New("invalid payout payload")
 	}
 	return usecase.Job{IntentID: decoded.OrderID}, nil
+}
+
+func webhookPayloadDecoder(payload []byte) (usecase.Job, error) {
+	var decoded struct {
+		EventID string `json:"event_id"`
+	}
+	if json.Unmarshal(payload, &decoded) != nil || decoded.EventID == "" {
+		return usecase.Job{}, errors.New("invalid webhook payload")
+	}
+	return usecase.Job{IntentID: decoded.EventID}, nil
 }
 
 // depositWatcherFunc adapts the stellar adapter's observation type to the

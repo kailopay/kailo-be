@@ -69,6 +69,7 @@ type WorkerConfig struct {
 	LeaseDuration     time.Duration
 	RetryDelay        time.Duration
 	SubmissionTimeout time.Duration
+	WebhookTimeout    time.Duration
 	MaxAttempts       int
 }
 
@@ -123,7 +124,7 @@ func (cfg Week1Config) Validate() error {
 		return errors.New("off-ramp deposit configuration is invalid")
 	}
 	if cfg.Worker.PollInterval <= 0 || cfg.Worker.LeaseDuration <= 0 ||
-		cfg.Worker.RetryDelay <= 0 || cfg.Worker.SubmissionTimeout <= 0 || cfg.Worker.MaxAttempts <= 0 {
+		cfg.Worker.RetryDelay <= 0 || cfg.Worker.SubmissionTimeout <= 0 || cfg.Worker.WebhookTimeout <= 0 || cfg.Worker.MaxAttempts <= 0 {
 		return errors.New("worker configuration is invalid")
 	}
 	return nil

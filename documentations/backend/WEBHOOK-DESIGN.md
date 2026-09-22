@@ -52,10 +52,10 @@ Payloads contain the public order representation or a documented stable subset, 
 Registration requirements:
 
 - HTTPS URL for hosted review; local development may use explicitly allowed tunnel tooling.
-- Resolve and validate URL against SSRF rules before activation.
+- Resolve and validate URL against SSRF rules before activation and again immediately before delivery.
 - Reject loopback, link-local, private network, metadata-service, embedded-credential, and unsupported-port destinations unless an explicit safe local-development mode is active.
 - Re-resolve and revalidate at delivery time to reduce DNS rebinding risk.
-- Issue/show signing secret once; store encrypted or by secret reference.
+- Issue/show signing secret once; store authenticated-encrypted bytes in the existing secret reference column.
 - Support disable/revoke without deleting delivery history.
 
 ## 5. Signing
@@ -66,6 +66,8 @@ Recommended request headers:
 KailoPay-Event-Id: evt_...
 KailoPay-Timestamp: 1787055000
 KailoPay-Signature: v1=<hex_hmac_sha256>
+KailoPay-Event-Type: order.completed
+KailoPay-Api-Version: 2026-08-01
 Content-Type: application/json
 ```
 
@@ -105,7 +107,7 @@ Suggested sandbox schedule: immediate, 1 minute, 5 minutes, 30 minutes, and 2 ho
 Retry:
 
 - Network errors/timeouts.
-- `408`, `409` only if documented as retryable by the consumer contract, `425`, `429`, and `5xx`.
+- `408`, `409`, `425`, `429`, and `5xx`.
 
 Do not retry automatically:
 
@@ -141,6 +143,12 @@ The developer UI/API should allow a controlled test event or use a real sandbox 
 - Retry after an intentional temporary failure.
 - Duplicate delivery using the same event ID.
 - Sanitized attempt logs mapped to an order.
+
+The backend exposes `GET /v1/webhook-deliveries`,
+`POST /v1/webhook-endpoints/{id}/test`, and
+`POST /v1/webhook-deliveries/{id}/replay`. The test event has no order or
+payment effect; replay reuses the exhausted event ID and is idempotent while a
+replay outbox is pending.
 
 ## 11. Acceptance checks
 

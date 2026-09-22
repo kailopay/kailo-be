@@ -338,11 +338,21 @@ func run(ctx context.Context) error {
 	}
 	sep24Handler.ConfigureInteractive(sep24InteractiveService, authService, sep10Service, cfg.Auth.CookieName)
 	webhookRepository := repository.NewWebhookRepository(db)
-	webhookService, err := usecase.NewWebhookUsecase(webhookRepository, platform.NewID, time.Now)
+	webhookSecretBox, err := usecase.NewWebhookSecretBox([]byte(cfg.Week1.APIKeyPepper))
+	if err != nil {
+		return fmt.Errorf("creating webhook secret protector: %w", err)
+	}
+	webhookService, err := usecase.NewWebhookUsecaseWithSecretAndResolver(webhookRepository, platform.NewID, time.Now,
+		webhookSecretBox, usecase.NewWebhookDNSResolver())
 	if err != nil {
 		return fmt.Errorf("creating webhook service: %w", err)
 	}
+	webhookControlService, err := usecase.NewWebhookControlUsecase(webhookRepository, time.Now)
+	if err != nil {
+		return fmt.Errorf("creating webhook control service: %w", err)
+	}
 	webhookHandler := httpapi.NewWebhookHandler(webhookService, appLogger)
+	webhookHandler.ConfigureControl(webhookControlService)
 	developerDashboardRepository := repository.NewDeveloperDashboardRepository(db)
 	developerDashboardService, err := usecase.NewDeveloperDashboardUsecase(developerDashboardRepository, time.Now)
 	if err != nil {

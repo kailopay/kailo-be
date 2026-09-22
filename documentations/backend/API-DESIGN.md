@@ -140,7 +140,42 @@ and `retail_session_id`.
 | `DELETE` | `/v1/api-keys/{key_id}` | Developer session | Revoke key |
 | `POST` | `/v1/webhook-endpoints` | Developer session | Register endpoint and issue/show signing secret once |
 | `GET` | `/v1/webhook-endpoints` | Developer session | List endpoint metadata |
+| `GET` | `/v1/webhook-endpoints/{id}` | Developer session | Read one owned endpoint |
+| `POST` | `/v1/webhook-endpoints/{id}/test` | Developer session | Queue a synthetic signed sandbox event |
 | `DELETE` | `/v1/webhook-endpoints/{id}` | Developer session | Disable endpoint |
+| `GET` | `/v1/webhook-deliveries` | Developer session | Inspect safe delivery attempts with filters/cursors |
+| `POST` | `/v1/webhook-deliveries/{id}/replay` | Developer session | Replay one exhausted delivery with the same event ID |
+| `GET` | `/v1/developer/overview` | Developer session | Account-scoped usage and exchange health |
+| `GET` | `/v1/developer/analytics` | Developer session | Bounded hour/day/week usage analytics |
+| `GET` | `/v1/developer/revenue/summary` | Developer session | Sandbox fee/revenue totals |
+| `GET` | `/v1/developer/revenue/entries` | Developer session | Cursor-paginated immutable financial snapshots |
+| `GET` | `/v1/developer/orders` | Developer session | Account-wide order and provider correlation |
+| `GET`/`POST` | `/v1/developer/wallets` | Developer session | List/register SEP-10-verified wallet profile hints |
+| `PATCH`/`DELETE` | `/v1/developer/wallets/{id}` | Developer session | Update or revoke a wallet profile hint |
+
+Developer dashboard routes derive ownership from the session user and may only
+narrow results with a client owned by that user. Exact IDR and XLM quantities
+are serialized as strings. The default immutable financial policy is
+`sandbox-zero-fee-v1`; its revenue figures are estimates and do not represent
+real fiat earnings.
+
+Webhook consumers receive the canonical raw JSON body with these headers:
+
+```text
+KailoPay-Event-Id: evt_...
+KailoPay-Timestamp: 1787055000
+KailoPay-Signature: v1=<hex HMAC-SHA256>
+KailoPay-Event-Type: order.completed
+KailoPay-Api-Version: 2026-08-01
+```
+
+The signature input is `<timestamp>.<exact_raw_request_body>` and is signed
+with the endpoint secret. Delivery is at-least-once; consumers must verify the
+timestamp, compare the HMAC in constant time, return `2xx` quickly, and
+deduplicate by `KailoPay-Event-Id`. Network errors, `408`, `409`, `425`, `429`,
+and `5xx` are retried within the configured attempt limit. Other `4xx` and
+redirect responses are terminal. A manual replay reuses the immutable event
+ID and creates a durable delivery attempt, not a new order event.
 
 ### Identity verification
 

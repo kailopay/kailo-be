@@ -111,8 +111,11 @@ Build off-ramp and anchor capabilities on the Week 1 native-XLM settlement found
 As of 2026-09-16, the Week 1 and Week 2 implementation scope is closed as a
 sandbox/testnet checkpoint with documented limitations. Formal acceptance is
 still open for provider and Stellar evidence, unknown-outcome reconciliation,
-the off-ramp response mapping, webhook delivery controls, remaining tests, and
-public HTTPS deployment. See [Weeks 1 and 2 backend checkpoint](WEEK1-2-CHECKPOINT.md).
+the off-ramp response mapping, remaining tests, and public HTTPS deployment.
+The backend-only Week 3 developer-experience slice is now implemented: dashboard
+read models, immutable fee/revenue snapshots, wallet profile settings, API-key
+metadata, durable signed webhook delivery, delivery controls, and OpenAPI/docs
+are available. See [Weeks 1 and 2 backend checkpoint](WEEK1-2-CHECKPOINT.md).
 
 ## 5. Week 3: Public integration, webhooks, deployment, formal tests
 
@@ -122,9 +125,12 @@ The backend is publicly reachable and independently integrable by the web app an
 
 ### Build order
 
-1. Complete developer API-key/webhook endpoint management.
-2. Implement webhook signing, SSRF policy, bounded retry, attempt history, and documentation vectors.
-3. Finalize public order representations, pagination, error catalog, and OpenAPI.
+1. Complete developer API-key/webhook endpoint management, dashboard reads,
+   wallet profile settings, and immutable fee/revenue reporting.
+2. Implement webhook signing, SSRF policy, bounded retry, attempt history,
+   test delivery, replay controls, and documentation vectors.
+3. Finalize public order representations, pagination, error catalog, and OpenAPI
+   for the backend developer surface.
 4. Implement the thin TypeScript SDK, webhook verifier, package docs, and SDK-to-Go-API contract tests.
 5. Add health/readiness, metrics, reconciliation queries/jobs, and safe diagnostic views/queries.
 6. Deploy migration, API, worker, PostgreSQL, discovery endpoints, and docs through HTTPS.
@@ -133,12 +139,20 @@ The backend is publicly reachable and independently integrable by the web app an
 
 ### Week 3 gate
 
+- Backend developers can inspect overview/analytics, orders, revenue, wallet
+  profile, API-key metadata, webhook endpoints, and delivery attempts through
+  owner-scoped API routes without database access.
+- Financial dashboard values come from immutable order snapshots; sandbox
+  policy is explicit and does not silently report simulated fees as collected
+  revenue.
 - Web frontend can use the deployed backend without private/manual database changes.
 - Consumer buy/sell requests use the session cookie and configured origin
   policy; Developer Mode continues to use API keys.
 - OpenAPI examples pass against the release candidate.
 - TypeScript SDK contract tests pass against the same Go release candidate, and no browser example embeds a `pk_test_` key.
-- Outgoing webhook signature verifies and retry is observable.
+- Outgoing webhook signature verifies, retry/lease state is observable, test
+  delivery and replay preserve the event ID, and the receiver can verify the
+  documented HMAC vector.
 - Public endpoints use HTTPS and leak no configuration/secrets.
 - Required testnet hashes and provider sandbox references are recorded.
 

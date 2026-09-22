@@ -267,6 +267,24 @@ Use explicit check constraints for positive amounts, supported directions, netwo
 
 The application may retain `created_by_user_id` for an API order initiated from a developer session, but public API authorization is based on the API client. Retail creation validates that the supplied session row belongs to the authenticated user before inserting the order. Public order projections never expose these ownership columns.
 
+### `order_financials`
+
+This immutable one-to-one snapshot is created in the same transaction as an
+on-ramp or off-ramp order. It stores exact gross/fee/platform-revenue/
+developer-revenue/net IDR minor units, exact asset quantity, fee currency,
+direction, client/environment/network context, policy version, source, and a
+`simulated` marker. `order_id` is unique; corrections require a new adjustment
+model rather than updating the original row. The sandbox default is
+`sandbox-zero-fee-v1` with zero fee and zero revenue.
+
+### `developer_wallets`
+
+Stores a user's verified public wallet account, testnet network, optional owned
+client, label, primary flag, SEP-10 verification method/time, active/revoked
+status, and timestamps. A composite uniqueness rule prevents duplicate active
+user/network/account records, while a partial unique index allows only one
+active primary wallet per user and network. No seed or SEP-10 token is stored.
+
 ### `sep24_transactions`
 
 This table is the durable correlation boundary between a SEP-24 protocol
@@ -405,13 +423,20 @@ URLs must pass SSRF policy validation before activation.
 
 ### `webhook_events`
 
-Columns include ID, order ID, event type, API version, canonical payload JSON, creation timestamp, and optional source order-event ID.
+Columns include ID, nullable order ID, optional API-client ID, event type, API
+version, canonical payload JSON, synthetic-test marker, creation timestamp, and
+optional source order-event ID. Synthetic endpoint tests intentionally have no
+order or payment effect.
 
 ### `webhook_attempts`
 
-Columns include ID, event ID, endpoint ID, attempt number, status, scheduled/started/completed timestamps, HTTP status, duration, response-body hash/truncated safe diagnostic, safe error, and next-attempt time.
+Columns include ID, event ID, endpoint ID, attempt number, status, scheduled/
+started/completed timestamps, HTTP status, duration, response-body hash,
+truncated safe diagnostic, safe error, next-attempt time, and lease owner/expiry.
 
-Unique: `(event_id, endpoint_id, attempt_number)`.
+Unique: `(event_id, endpoint_id, attempt_number)`. A worker must hold the
+attempt lease before making an external request; transactions never remain open
+while the request is in flight.
 
 ### `idempotency_records`
 
@@ -471,7 +496,7 @@ Minimum indexes:
 - `sep24_interactive_sessions(transaction_id)`, browser-token hash, wallet/expiry, and unique order mapping; implemented in migrations 000011–000012.
 - `offramp_payouts(order_id)` and payout reference unique; implemented in migration 000011.
 - `orders(wallet_account, created_at desc, id desc)` and `sep24_transactions(wallet_account, created_at desc, id desc)` for wallet history; implemented in migration 000011.
-- `webhook_attempts(status, scheduled_at)` for delivery worker; deferred with the webhook pipeline.
+- `webhook_attempts(status, scheduled_at)` and `webhook_attempts(lease_until)` for delivery worker; implemented in migrations 000014–000015.
 - `outbox_messages(available_at) where processed_at is null` partial; implemented.
 - `idempotency_records(expires_at)` for retention cleanup; deferred until the cleanup job ships.
 

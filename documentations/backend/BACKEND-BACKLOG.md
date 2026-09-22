@@ -145,15 +145,27 @@ separate future work.
 
 | ID | Story | Pri | SP | Target | Dependency | Status |
 |---|---|---:|---:|---|---|---|
-| BE-060 | Implement webhook endpoint registration/list/disable with one-time signing secret. | P0 | 5 | Week 2-3 | BE-004, BE-020 | Implemented (delivery pending Week 3) |
-| BE-061 | Implement SSRF URL policy, DNS/IP revalidation, timeout, and redirect controls. | P0 | 5 | Week 2-3 | BE-060 | Blocked |
+| BE-060 | Implement webhook endpoint registration/list/disable with one-time signing secret. | P0 | 5 | Week 2-3 | BE-004, BE-020 | Implemented |
+| BE-061 | Implement SSRF URL policy, DNS/IP revalidation, timeout, and redirect controls. | P0 | 5 | Week 2-3 | BE-060 | Implemented |
 | BE-062 | Define/version public event catalog and canonical payloads. | P0 | 3 | Week 2 | BE-021 | Implemented |
 | BE-063 | Persist public events transactionally from order events/outbox. | P0 | 3 | Week 2 | BE-015, BE-062 | Implemented; mapped lifecycle events create sanitized webhook events and delivery intents |
-| BE-064 | Implement HMAC signing and delivery worker with attempt logs. | P0 | 5 | Week 2-3 | BE-061, BE-063 | Blocked |
-| BE-065 | Implement bounded retry, exhaustion, and manual sandbox replay using the same event ID. | P1 | 3 | Week 3 | BE-064 | Blocked |
-| BE-066 | Publish signature verification sample/vector and at-least-once guidance. | P0 | 2 | Week 3 | BE-064 | Blocked |
+| BE-064 | Implement HMAC signing and delivery worker with attempt logs. | P0 | 5 | Week 2-3 | BE-061, BE-063 | Implemented |
+| BE-065 | Implement bounded retry, exhaustion, and manual sandbox replay using the same event ID. | P1 | 3 | Week 3 | BE-064 | Implemented |
+| BE-066 | Publish signature verification sample/vector and at-least-once guidance. | P0 | 2 | Week 3 | BE-064 | Implemented |
 
 Acceptance: event is durable with state transition; SSRF cases fail; signature vector verifies; duplicate attempts preserve event ID; payload contains no secrets.
+
+### BE6A: Developer integration surface
+
+| ID | Story | Pri | SP | Target | Dependency | Status |
+|---|---|---:|---:|---|---|---|
+| BE-067 | Provide owner-scoped developer overview, analytics, order search, and exact amount serialization. | P1 | 5 | Week 3 | BE-027, BE-063 | Implemented |
+| BE-068 | Persist immutable order financial snapshots and expose sandbox fee/revenue summaries and entries. | P1 | 5 | Week 3 | BE-021, BE-067 | Implemented; zero-fee sandbox policy is explicit |
+| BE-069 | Expose safe API-key metadata and SEP-10-verified developer wallet profile settings. | P1 | 3 | Week 3 | BE-020, BE-056 | Implemented |
+
+Acceptance: dashboard reads are account-scoped; historical financial values are
+auditable from immutable snapshots; API-key and wallet responses disclose no
+secrets; wallet profile writes require proof of account ownership.
 
 ### BE7: Observability, security, and operations
 
@@ -178,7 +190,7 @@ Acceptance: an order is traceable across all systems; secrets are absent from lo
 | BE-082 | Build API auth, ownership, validation, idempotency, error, and OpenAPI contract tests. | P0 | 5 | Week 1-3 | BE-020, BE-024-BE-028 | In progress; principal precedence, session origin, and trackable unknown-outcome coverage added |
 | BE-083 | Build gateway callback replay/mismatch/timeout/reconciliation tests. | P0 | 5 | Week 1-2 | BE-033-BE-036 | Blocked |
 | BE-084 | Build Stellar success/failure/unknown/deposit-validation tests and testnet harness. | P0 | 5 | Week 2 | BE-041-BE-046 | Blocked |
-| BE-085 | Build webhook signing/retry/SSRF test suite. | P0 | 5 | Week 3 | BE-061-BE-065 | Blocked |
+| BE-085 | Build webhook signing/retry/SSRF test suite. | P0 | 5 | Week 3 | BE-061-BE-065 | Implemented for unit and repository integration coverage; external HTTPS receiver evidence pending |
 | BE-086 | Deploy migration, API, worker, database, discovery, and docs through public HTTPS URLs. | P0 | 5 | Week 3 | BE-005, core flows | Blocked |
 | BE-087 | Run/capture formal QRIS buy, bank-transfer buy, and sell E2E evidence. | P0 | 5 | Week 3 | BE-086 | Blocked |
 | BE-088 | Finalize OpenAPI, backend docs, test results, limitations, and Completion Report inputs. | P0 | 3 | Week 4 | BE-087 | Blocked |

@@ -38,10 +38,12 @@ func validWeek1Config() Week1Config {
 			Timeout:                10 * time.Second,
 		},
 		Worker: WorkerConfig{
-			PollInterval:  time.Second,
-			LeaseDuration: 30 * time.Second,
-			RetryDelay:    5 * time.Second,
-			MaxAttempts:   5,
+			PollInterval:      time.Second,
+			LeaseDuration:     30 * time.Second,
+			RetryDelay:        5 * time.Second,
+			SubmissionTimeout: time.Minute,
+			WebhookTimeout:    10 * time.Second,
+			MaxAttempts:       5,
 		},
 	}
 }

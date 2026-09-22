@@ -10,7 +10,7 @@
 | Logging | Standard-library `log/slog` |
 | External environments | Optional Google sign-in, one payment gateway sandbox, and Stellar testnet |
 | Architecture | Modular monolith with asynchronous workers and transactional outbox |
-| Status | Weeks 1 and 2 implementation checkpoint complete with documented limitations; formal evidence, reconciliation, webhook delivery, and release gates remain open |
+| Status | Week 3 backend developer-experience slice implemented on sandbox/testnet; deployment evidence, reconciliation hardening, and release gates remain open |
 
 ## Purpose
 
@@ -76,7 +76,10 @@ integration client for the public API, not a second backend runtime.
 - SEP-10 classic-wallet authentication, wallet-owned SEP-24 interactive deposit
   and withdrawal linking, Persona-backed sandbox KYC status gate, firm SEP-38
   quotes, public `stellar.toml`, and federation configuration.
-- Developer webhook endpoint registration and transactional delivery intents. Outbound delivery, signing, and retry processing remain staged.
+- Backend-only Week 3 developer experience: account-scoped overview, analytics,
+  immutable fee/revenue snapshots, order correlation views, safe API-key
+  metadata, verified SEP-10 wallet profile settings, webhook delivery history,
+  signed test delivery, bounded retries, and same-event replay controls.
 - Separate TypeScript SDK for server-side Node.js integrations; it consumes the Go backend's public API and OpenAPI contract.
 - Structured logging, metrics, health/readiness checks, safe recovery procedures, and release evidence.
 
@@ -89,6 +92,29 @@ integration client for the public API, not a second backend runtime.
 - Regulatory licensing implementation.
 - Multi-gateway routing, merchant gateway, white-label, and mobile-specific backend features.
 - Production SLA, 24/7 on-call, or high-availability commitments.
+
+## Week 3 developer integration surface
+
+An integrating developer uses a session-authenticated dashboard surface to
+operate applications that exchange IDR and Stellar testnet XLM through the
+existing API-key-authenticated order routes. The Week 3 backend routes are:
+
+- `GET /v1/developer/overview`, `/analytics`, `/revenue/summary`,
+  `/revenue/entries`, and `/orders` for usage, health, exact amount totals,
+  immutable fee snapshots, and order/provider/Stellar correlation.
+- `GET/POST/PATCH/DELETE /v1/developer/wallets` for verified profile wallet
+  hints. `POST` requires a matching SEP-10 testnet proof; no seed is stored.
+- `GET /v1/api-keys` exposes safe client/environment/prefix metadata. The
+  plaintext `pk_test_` value is returned only by key creation.
+- `POST/GET/DELETE /v1/webhook-endpoints` plus endpoint detail/test routes and
+  `GET /v1/webhook-deliveries` with replay for exhausted attempts.
+
+All dashboard figures are sandbox estimates. The default policy is
+`sandbox-zero-fee-v1`, so revenue values are recorded as zero unless a future
+fee policy explicitly changes them; simulated payouts never represent a bank
+settlement. Webhook consumers must verify the raw request body using
+`KailoPay-Timestamp`, `KailoPay-Event-Id`, and the `v1=` HMAC-SHA256 value in
+`KailoPay-Signature`, then deduplicate by event ID.
 
 ## Design invariants
 

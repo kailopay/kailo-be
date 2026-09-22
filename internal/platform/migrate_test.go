@@ -6,20 +6,20 @@ import (
 	"testing/fstest"
 )
 
-func TestRepositoryMigrationsIncludeSEPWalletVersion(t *testing.T) {
+func TestRepositoryMigrationsIncludeWebhookDeliveryVersion(t *testing.T) {
 	migrations, err := DiscoverMigrations(os.DirFS("../../migrations"))
 	if err != nil {
 		t.Fatalf("DiscoverMigrations() error = %v", err)
 	}
-	if len(migrations) != 13 {
-		t.Fatalf("migration count = %d, want 13", len(migrations))
+	if len(migrations) != 15 {
+		t.Fatalf("migration count = %d, want 15", len(migrations))
 	}
 	last := migrations[len(migrations)-1]
-	if last.Version != 13 || last.Name != "developer_experience_week3" {
+	if last.Version != 15 || last.Name != "webhook_test_events" {
 		t.Fatalf("last migration = %#v", last)
 	}
 	if last.UpSQL == "" || last.DownSQL == "" {
-		t.Fatal("SEP wallet migration must have both up and down SQL")
+		t.Fatal("webhook delivery migration must have both up and down SQL")
 	}
 }
 

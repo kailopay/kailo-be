@@ -555,6 +555,195 @@ paths:
           description: API key revoked
         '404':
           description: Key not found for this user
+  /v1/developer/overview:
+    get:
+      tags: [Developer]
+      operationId: getDeveloperOverview
+      summary: Read the authenticated developer account overview
+      description: Account-scoped sandbox usage, exchange health, revenue totals, and recent orders. Amounts are exact strings and sandbox figures are not real fiat revenue.
+      security:
+        - kailoSession: []
+      parameters:
+        - {$ref: '#/components/parameters/DeveloperClientID'}
+        - {$ref: '#/components/parameters/DeveloperFrom'}
+        - {$ref: '#/components/parameters/DeveloperTo'}
+        - {$ref: '#/components/parameters/DeveloperCurrency'}
+      responses:
+        '200':
+          description: Developer overview
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DeveloperOverviewResponse'}
+        '401': {description: Missing or invalid local session}
+        '400': {description: 'Invalid date, currency, or ownership filter'}
+  /v1/developer/analytics:
+    get:
+      tags: [Developer]
+      operationId: getDeveloperAnalytics
+      summary: Read bounded developer usage analytics
+      security:
+        - kailoSession: []
+      parameters:
+        - {$ref: '#/components/parameters/DeveloperClientID'}
+        - {$ref: '#/components/parameters/DeveloperFrom'}
+        - {$ref: '#/components/parameters/DeveloperTo'}
+        - name: bucket
+          in: query
+          schema: {type: string, enum: [hour, day, week], default: day}
+        - {$ref: '#/components/parameters/DeveloperCurrency'}
+        - {$ref: '#/components/parameters/DeveloperDirection'}
+        - {$ref: '#/components/parameters/DeveloperStatus'}
+        - {$ref: '#/components/parameters/DeveloperPaymentMethod'}
+      responses:
+        '200':
+          description: Time-bucketed developer analytics
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DeveloperAnalyticsResponse'}
+        '401': {description: Missing or invalid local session}
+        '400': {description: Invalid analytics filter or range}
+  /v1/developer/revenue/summary:
+    get:
+      tags: [Developer]
+      operationId: getDeveloperRevenueSummary
+      summary: Read sandbox fee and revenue totals
+      description: Totals come from immutable order financial snapshots. In the current zero-fee sandbox, revenue is simulated and normally zero.
+      security:
+        - kailoSession: []
+      parameters:
+        - {$ref: '#/components/parameters/DeveloperClientID'}
+        - {$ref: '#/components/parameters/DeveloperFrom'}
+        - {$ref: '#/components/parameters/DeveloperTo'}
+        - {$ref: '#/components/parameters/DeveloperCurrency'}
+      responses:
+        '200':
+          description: Sandbox revenue summary
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DeveloperRevenueSummaryResponse'}
+        '401': {description: Missing or invalid local session}
+        '400': {description: Invalid revenue filter or range}
+  /v1/developer/revenue/entries:
+    get:
+      tags: [Developer]
+      operationId: listDeveloperRevenueEntries
+      summary: List immutable sandbox revenue entries
+      security:
+        - kailoSession: []
+      parameters:
+        - {$ref: '#/components/parameters/DeveloperClientID'}
+        - {$ref: '#/components/parameters/DeveloperFrom'}
+        - {$ref: '#/components/parameters/DeveloperTo'}
+        - {$ref: '#/components/parameters/DeveloperCurrency'}
+        - {$ref: '#/components/parameters/DeveloperLimit'}
+        - {$ref: '#/components/parameters/DeveloperPagingID'}
+      responses:
+        '200':
+          description: Cursor-paginated immutable financial entries
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DeveloperRevenueEntriesResponse'}
+        '401': {description: Missing or invalid local session}
+        '400': {description: Invalid revenue filter or cursor}
+  /v1/developer/orders:
+    get:
+      tags: [Developer]
+      operationId: listDeveloperOrders
+      summary: List account-owned orders with integration correlations
+      security:
+        - kailoSession: []
+      parameters:
+        - {$ref: '#/components/parameters/DeveloperClientID'}
+        - {$ref: '#/components/parameters/DeveloperFrom'}
+        - {$ref: '#/components/parameters/DeveloperTo'}
+        - {$ref: '#/components/parameters/DeveloperCurrency'}
+        - {$ref: '#/components/parameters/DeveloperDirection'}
+        - {$ref: '#/components/parameters/DeveloperStatus'}
+        - {$ref: '#/components/parameters/DeveloperPaymentMethod'}
+        - {$ref: '#/components/parameters/DeveloperLimit'}
+        - {$ref: '#/components/parameters/DeveloperPagingID'}
+      responses:
+        '200':
+          description: Cursor-paginated account-owned orders
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DeveloperOrdersResponse'}
+        '401': {description: Missing or invalid local session}
+        '400': {description: Invalid order filter or cursor}
+  /v1/developer/wallets:
+    get:
+      tags: [Developer]
+      operationId: listDeveloperWallets
+      summary: List verified developer wallets
+      security:
+        - kailoSession: []
+      responses:
+        '200':
+          description: Verified wallet metadata without secret seeds
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DeveloperWalletListResponse'}
+        '401': {description: Missing or invalid local session}
+    post:
+      tags: [Developer]
+      operationId: registerDeveloperWallet
+      summary: Register a wallet after SEP-10 verification
+      description: The SEP-10 bearer proof must bind the submitted account and Stellar testnet. The server stores only the public account.
+      security:
+        - kailoSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RegisterDeveloperWalletRequest'}
+      responses:
+        '201':
+          description: Verified wallet registered
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DeveloperWalletResponse'}
+        '400': {description: Invalid wallet or proof/account mismatch}
+        '401': {description: Missing or invalid local session or SEP-10 proof}
+  /v1/developer/wallets/{id}:
+    patch:
+      tags: [Developer]
+      operationId: updateDeveloperWallet
+      summary: Update a verified wallet label or primary flag
+      security:
+        - kailoSession: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: string, format: uuid}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/UpdateDeveloperWalletRequest'}
+      responses:
+        '200':
+          description: Updated wallet
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DeveloperWalletResponse'}
+        '401': {description: Missing or invalid local session}
+        '404': {description: Wallet not found for this user}
+    delete:
+      tags: [Developer]
+      operationId: revokeDeveloperWallet
+      summary: Revoke a verified developer wallet
+      security:
+        - kailoSession: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        '204': {description: Wallet revoked}
+        '401': {description: Missing or invalid local session}
+        '404': {description: Wallet not found for this user}
   /v1/webhook-endpoints:
     post:
       tags: [Developer webhooks]
@@ -563,8 +752,8 @@ paths:
       description: |
         Registers an HTTPS endpoint for sandbox order-lifecycle events. The
         endpoint must use a public host without embedded credentials. The
-        signing secret is returned only once. Outbound delivery is staged for
-        the next worker slice in the current release.
+        signing secret is returned only once. Delivery is at-least-once and
+        can be inspected or replayed through the delivery routes.
       security:
         - kailoSession: []
       requestBody:
@@ -625,6 +814,45 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
   /v1/webhook-endpoints/{id}:
+    get:
+      tags: [Developer webhooks]
+      operationId: getWebhookEndpoint
+      summary: Read one owned webhook endpoint
+      security:
+        - kailoSession: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: Webhook endpoint metadata
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/WebhookEndpointResponse'}
+        '401': {description: Missing or invalid local session}
+        '404': {description: Endpoint not found for this user}
+    post:
+      tags: [Developer webhooks]
+      operationId: testWebhookEndpoint
+      summary: Queue a signed webhook test event
+      description: Queues a synthetic sandbox event for the endpoint. The test has no order or payment effect.
+      security:
+        - kailoSession: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        '202':
+          description: Signed test delivery queued
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/WebhookQueuedResponse'}
+        '401': {description: Missing or invalid local session}
+        '404': {description: Endpoint not found for this user}
     delete:
       tags: [Developer webhooks]
       operationId: disableWebhookEndpoint
@@ -660,6 +888,57 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /v1/webhook-deliveries:
+    get:
+      tags: [Developer webhooks]
+      operationId: listWebhookDeliveries
+      summary: List owned webhook delivery attempts
+      security:
+        - kailoSession: []
+      parameters:
+        - name: endpoint_id
+          in: query
+          schema: {type: string, format: uuid}
+        - name: event_id
+          in: query
+          schema: {type: string, format: uuid}
+        - name: status
+          in: query
+          schema: {type: string, enum: [in_flight, delivered, retry_scheduled, failed, exhausted, superseded]}
+        - name: from
+          in: query
+          schema: {type: string, format: date-time}
+        - name: to
+          in: query
+          schema: {type: string, format: date-time}
+        - {$ref: '#/components/parameters/DeveloperLimit'}
+        - {$ref: '#/components/parameters/DeveloperPagingID'}
+      responses:
+        '200':
+          description: Cursor-paginated safe delivery metadata
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/WebhookDeliveriesResponse'}
+        '401': {description: Missing or invalid local session}
+        '400': {description: Invalid delivery filter or cursor}
+  /v1/webhook-deliveries/{id}/replay:
+    post:
+      tags: [Developer webhooks]
+      operationId: replayWebhookDelivery
+      summary: Queue one safe replay of an exhausted delivery
+      description: Replays the same immutable event ID. It does not create a new order or business event.
+      security:
+        - kailoSession: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        '202': {description: Replay queued}
+        '401': {description: Missing or invalid local session}
+        '404': {description: Delivery not found for this user}
+        '409': {description: Delivery is not exhausted and cannot be replayed}
   /v1/quotes:
     post:
       tags: [Orders]
@@ -1570,6 +1849,56 @@ components:
       in: header
       name: Persona-Signature
       description: Timestamped HMAC signature calculated by Persona over the exact callback body.
+  parameters:
+    DeveloperClientID:
+      name: client_id
+      in: query
+      required: false
+      schema: {type: string, format: uuid}
+      description: Optional client filter. The session owner must own the client.
+    DeveloperFrom:
+      name: from
+      in: query
+      required: false
+      schema: {type: string, format: date-time}
+      description: Inclusive UTC RFC3339 start time.
+    DeveloperTo:
+      name: to
+      in: query
+      required: false
+      schema: {type: string, format: date-time}
+      description: Exclusive UTC RFC3339 end time.
+    DeveloperCurrency:
+      name: currency
+      in: query
+      required: false
+      schema: {type: string, enum: [IDR, XLM]}
+    DeveloperDirection:
+      name: direction
+      in: query
+      required: false
+      schema: {type: string, enum: [onramp, offramp]}
+    DeveloperStatus:
+      name: status
+      in: query
+      required: false
+      schema: {type: string}
+    DeveloperPaymentMethod:
+      name: payment_method
+      in: query
+      required: false
+      schema: {type: string, enum: [xendit, qris, bri_va]}
+    DeveloperLimit:
+      name: limit
+      in: query
+      required: false
+      schema: {type: integer, minimum: 1, maximum: 100, default: 20}
+    DeveloperPagingID:
+      name: paging_id
+      in: query
+      required: false
+      schema: {type: string}
+      description: Opaque cursor returned by the previous page.
   schemas:
     SEP10ChallengeResponse:
       type: object
@@ -2159,6 +2488,231 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/WebhookEndpoint'
+    DeveloperOverviewResponse:
+      type: object
+      required: [environment, network, from, to, total_orders, active_orders, completed_orders, failed_orders, buy_orders, sell_orders, gross_idr_minor, asset_volume, fee_idr_minor, net_idr_minor, success_rate, average_completion_seconds, pending_webhook_deliveries, exhausted_webhook_deliveries, recent_orders]
+      properties:
+        environment: {type: string, enum: [sandbox]}
+        network: {type: string, enum: [stellar_testnet]}
+        from: {type: string, format: date-time}
+        to: {type: string, format: date-time}
+        total_orders: {type: integer, format: int64}
+        active_orders: {type: integer, format: int64}
+        completed_orders: {type: integer, format: int64}
+        failed_orders: {type: integer, format: int64}
+        buy_orders: {type: integer, format: int64}
+        sell_orders: {type: integer, format: int64}
+        gross_idr_minor: {type: string}
+        asset_volume: {type: string}
+        fee_idr_minor: {type: string}
+        net_idr_minor: {type: string}
+        success_rate: {type: number, format: double}
+        average_completion_seconds: {type: number, format: double}
+        pending_webhook_deliveries: {type: integer, format: int64}
+        exhausted_webhook_deliveries: {type: integer, format: int64}
+        recent_orders:
+          type: array
+          items: {$ref: '#/components/schemas/DeveloperOrder'}
+    DeveloperAnalyticsResponse:
+      type: object
+      required: [environment, network, from, to, bucket, buckets]
+      properties:
+        environment: {type: string, enum: [sandbox]}
+        network: {type: string, enum: [stellar_testnet]}
+        from: {type: string, format: date-time}
+        to: {type: string, format: date-time}
+        bucket: {type: string, enum: [hour, day, week]}
+        buckets:
+          type: array
+          items: {$ref: '#/components/schemas/DeveloperAnalyticsBucket'}
+    DeveloperAnalyticsBucket:
+      type: object
+      required: [start, end, orders, buy_orders, sell_orders, gross_idr_minor, asset_volume, fee_idr_minor, net_idr_minor, completed_orders, failed_orders, average_completion_seconds, payment_methods, webhook_delivered, webhook_retried, webhook_exhausted]
+      properties:
+        start: {type: string, format: date-time}
+        end: {type: string, format: date-time}
+        orders: {type: integer, format: int64}
+        buy_orders: {type: integer, format: int64}
+        sell_orders: {type: integer, format: int64}
+        gross_idr_minor: {type: string}
+        asset_volume: {type: string}
+        fee_idr_minor: {type: string}
+        net_idr_minor: {type: string}
+        completed_orders: {type: integer, format: int64}
+        failed_orders: {type: integer, format: int64}
+        average_completion_seconds: {type: number, format: double}
+        payment_methods: {type: object, additionalProperties: {type: integer, format: int64}}
+        webhook_delivered: {type: integer, format: int64}
+        webhook_retried: {type: integer, format: int64}
+        webhook_exhausted: {type: integer, format: int64}
+    DeveloperRevenueSummaryResponse:
+      type: object
+      required: [environment, network, from, to, gross_idr_minor, fee_idr_minor, platform_revenue_minor, developer_revenue_minor, net_idr_minor, entry_count, simulated, disclosure]
+      properties:
+        environment: {type: string, enum: [sandbox]}
+        network: {type: string, enum: [stellar_testnet]}
+        from: {type: string, format: date-time}
+        to: {type: string, format: date-time}
+        gross_idr_minor: {type: string}
+        fee_idr_minor: {type: string}
+        platform_revenue_minor: {type: string}
+        developer_revenue_minor: {type: string}
+        net_idr_minor: {type: string}
+        entry_count: {type: integer, format: int64}
+        simulated: {type: boolean}
+        disclosure: {type: string}
+    DeveloperRevenueEntriesResponse:
+      type: object
+      required: [entries, paging_id]
+      properties:
+        entries:
+          type: array
+          items: {$ref: '#/components/schemas/DeveloperRevenueEntry'}
+        paging_id: {type: string, nullable: true}
+    DeveloperRevenueEntry:
+      type: object
+      required: [order_id, client_id, direction, created_at, gross_idr_minor, fee_idr_minor, platform_revenue_minor, developer_revenue_minor, net_idr_minor, asset_amount, asset_amount_stroops, fee_currency, fee_policy_version, source, simulated]
+      properties:
+        order_id: {type: string, format: uuid}
+        client_id: {type: string, format: uuid}
+        direction: {type: string, enum: [onramp, offramp]}
+        created_at: {type: string, format: date-time}
+        gross_idr_minor: {type: string}
+        fee_idr_minor: {type: string}
+        platform_revenue_minor: {type: string}
+        developer_revenue_minor: {type: string}
+        net_idr_minor: {type: string}
+        asset_amount: {type: string}
+        asset_amount_stroops: {type: string}
+        fee_currency: {type: string, enum: [IDR]}
+        fee_policy_version: {type: string}
+        source: {type: string}
+        simulated: {type: boolean}
+    DeveloperOrder:
+      type: object
+      required: [id, client_id, client_name, environment, direction, status, currency, fiat_amount_minor, asset_amount, asset_amount_stroops, payment_method, gateway_provider, gateway_reference, stellar_intent_id, stellar_transaction_hash, sep24_transaction_id, quote_id, wallet_account, payout_reference, payout_simulated, latest_event_type, latest_transition_at, created_at, updated_at]
+      properties:
+        id: {type: string, format: uuid}
+        client_id: {type: string, format: uuid}
+        client_name: {type: string}
+        environment: {type: string, enum: [sandbox]}
+        direction: {type: string, enum: [onramp, offramp]}
+        status: {type: string}
+        currency: {type: string, enum: [IDR]}
+        fiat_amount_minor: {type: string}
+        asset_amount: {type: string}
+        asset_amount_stroops: {type: string}
+        payment_method: {type: string}
+        gateway_provider: {type: string}
+        gateway_reference: {type: string}
+        stellar_intent_id: {type: string}
+        stellar_transaction_hash: {type: string}
+        sep24_transaction_id: {type: string}
+        quote_id: {type: string}
+        wallet_account: {type: string}
+        payout_reference: {type: string}
+        payout_simulated: {type: boolean}
+        payout_disclosure: {type: string}
+        latest_event_type: {type: string}
+        latest_transition_at: {type: string, format: date-time}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        completed_at: {type: string, format: date-time, nullable: true}
+        failure_code: {type: string}
+        financial: {$ref: '#/components/schemas/DeveloperRevenueEntry'}
+    DeveloperOrdersResponse:
+      type: object
+      required: [orders, paging_id]
+      properties:
+        orders:
+          type: array
+          items: {$ref: '#/components/schemas/DeveloperOrder'}
+        paging_id: {type: string, nullable: true}
+    RegisterDeveloperWalletRequest:
+      type: object
+      additionalProperties: false
+      required: [network, wallet_account, label, sep10_token]
+      properties:
+        client_id: {type: string, format: uuid}
+        network: {type: string, enum: [stellar_testnet]}
+        wallet_account: {type: string, minLength: 56, maxLength: 56}
+        label: {type: string, minLength: 1, maxLength: 100}
+        is_primary: {type: boolean}
+        sep10_token: {type: string, minLength: 1, writeOnly: true}
+    UpdateDeveloperWalletRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        label: {type: string, minLength: 1, maxLength: 100}
+        is_primary: {type: boolean}
+    DeveloperWallet:
+      type: object
+      required: [id, user_id, network, wallet_account, label, is_primary, verification_method, verified_at, status, created_at, updated_at]
+      properties:
+        id: {type: string, format: uuid}
+        user_id: {type: string, format: uuid}
+        client_id: {type: string, format: uuid}
+        network: {type: string, enum: [stellar_testnet]}
+        wallet_account: {type: string}
+        label: {type: string}
+        is_primary: {type: boolean}
+        verification_method: {type: string, enum: [sep10]}
+        verified_at: {type: string, format: date-time}
+        status: {type: string, enum: [active, revoked]}
+        revoked_at: {type: string, format: date-time, nullable: true}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    DeveloperWalletResponse:
+      type: object
+      required: [wallet]
+      properties:
+        wallet: {$ref: '#/components/schemas/DeveloperWallet'}
+    DeveloperWalletListResponse:
+      type: object
+      required: [wallets]
+      properties:
+        wallets:
+          type: array
+          items: {$ref: '#/components/schemas/DeveloperWallet'}
+    WebhookEndpointResponse:
+      type: object
+      required: [endpoint]
+      properties:
+        endpoint: {$ref: '#/components/schemas/WebhookEndpoint'}
+    WebhookQueuedResponse:
+      type: object
+      required: [status, event_id, outbox_id]
+      properties:
+        status: {type: string, enum: [queued]}
+        event_id: {type: string, format: uuid}
+        outbox_id: {type: string, format: uuid}
+    WebhookDelivery:
+      type: object
+      required: [id, event_id, endpoint_id, event_type, attempt_number, status, scheduled_at, created_at]
+      properties:
+        id: {type: string, format: uuid}
+        event_id: {type: string, format: uuid}
+        endpoint_id: {type: string, format: uuid}
+        event_type: {$ref: '#/components/schemas/WebhookEventType'}
+        attempt_number: {type: integer, minimum: 1}
+        status: {type: string, enum: [in_flight, delivered, retry_scheduled, failed, exhausted, superseded]}
+        scheduled_at: {type: string, format: date-time}
+        started_at: {type: string, format: date-time, nullable: true}
+        completed_at: {type: string, format: date-time, nullable: true}
+        http_status: {type: integer, nullable: true}
+        duration_millis: {type: integer, format: int64, nullable: true}
+        safe_error: {type: string, nullable: true}
+        next_attempt_at: {type: string, format: date-time, nullable: true}
+        created_at: {type: string, format: date-time}
+    WebhookDeliveriesResponse:
+      type: object
+      required: [deliveries, paging_id]
+      properties:
+        deliveries:
+          type: array
+          items: {$ref: '#/components/schemas/WebhookDelivery'}
+        paging_id: {type: string, nullable: true}
     SEP24AssetInfoMap:
       type: object
       required: [XLM]

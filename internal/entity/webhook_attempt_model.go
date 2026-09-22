@@ -16,6 +16,8 @@ type WebhookAttempt struct {
 	ResponseBodyHash *string    `gorm:"type:text"`
 	SafeError        *string    `gorm:"type:text"`
 	NextAttemptAt    *time.Time `gorm:"index"`
+	LeaseOwner       *string    `gorm:"type:text"`
+	LeaseUntil       *time.Time `gorm:"index"`
 }
 
 func (WebhookAttempt) TableName() string { return "webhook_attempts" }

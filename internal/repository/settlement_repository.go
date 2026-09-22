@@ -48,13 +48,20 @@ func (r *SettlementRepository) LeaseOutbox(ctx context.Context, topic, workerID 
 			return fmt.Errorf("leasing outbox message: %w", err)
 		}
 		decoded, decodeErr := decode(row.Payload)
-		if decodeErr != nil || decoded.OutboxID == "" {
+		if decodeErr != nil {
 			return fmt.Errorf("invalid %s outbox payload", topic)
 		}
-		job = decoded
+		job = normalizeOutboxJob(row.ID, decoded)
 		return nil
 	})
 	return job, err
+}
+
+func normalizeOutboxJob(rowID string, job usecase.Job) usecase.Job {
+	if job.OutboxID == "" {
+		job.OutboxID = rowID
+	}
+	return job
 }
 
 func (r *SettlementRepository) Lease(ctx context.Context, workerID string, now time.Time, duration time.Duration) (usecase.Job, error) {

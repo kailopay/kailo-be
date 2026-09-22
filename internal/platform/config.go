@@ -259,6 +259,7 @@ func Load() (Config, error) {
 				LeaseDuration:     v.GetDuration("worker.lease_duration"),
 				RetryDelay:        v.GetDuration("worker.retry_delay"),
 				SubmissionTimeout: v.GetDuration("worker.submission_timeout"),
+				WebhookTimeout:    v.GetDuration("worker.webhook_timeout"),
 				MaxAttempts:       v.GetInt("worker.max_attempts"),
 			},
 		},
@@ -676,6 +677,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("worker.lease_duration", 30*time.Second)
 	v.SetDefault("worker.retry_delay", 5*time.Second)
 	v.SetDefault("worker.submission_timeout", time.Minute)
+	v.SetDefault("worker.webhook_timeout", 10*time.Second)
 	v.SetDefault("worker.max_attempts", 5)
 }
 
@@ -774,6 +776,7 @@ func environmentBindings() map[string]string {
 		"worker.lease_duration":            "WORKER_LEASE_DURATION",
 		"worker.retry_delay":               "WORKER_RETRY_DELAY",
 		"worker.submission_timeout":        "WORKER_SUBMISSION_TIMEOUT",
+		"worker.webhook_timeout":           "WORKER_WEBHOOK_TIMEOUT",
 		"worker.max_attempts":              "WORKER_MAX_ATTEMPTS",
 	}
 }

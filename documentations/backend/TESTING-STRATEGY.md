@@ -151,7 +151,24 @@ Tests must not assume instant ledger availability; use bounded polling with mean
 - SSRF rejection for loopback, private, link-local, IPv6 local, metadata-service, alternate encoding, and DNS-rebinding scenarios.
 - Payload contains no secret or private provider data.
 
-## 10. SEP-24 and federation tests
+## 10. Developer experience API tests
+
+- Dashboard overview and analytics use owner-scoped data, explicit UTC date
+  ranges, stable cursors, initialized empty arrays, and exact integer/string
+  amount serialization.
+- Revenue summaries and entries read immutable order financial snapshots and
+  do not recompute historical fees from mutable order state.
+- API-key list responses expose safe metadata only; hashes, plaintext keys,
+  signing secrets, and protected secret references never cross the handler
+  boundary.
+- Wallet profile create/update/delete requires a valid SEP-10 proof, preserves
+  one primary wallet per developer, and rejects cross-owner access.
+- Webhook endpoint detail, test delivery, delivery history, and replay are
+  owner-scoped; replay is limited to exhausted attempts and is idempotent.
+- Existing `/v1/onramps`, `/v1/offramps`, and `/v1/orders` route contracts and
+  handler behavior remain unchanged while the developer routes are additive.
+
+## 11. SEP-24 and federation tests
 
 - `stellar.toml` syntax, HTTPS location, advertised URLs, asset, and testnet context.
 - SEP-10 challenge construction, signature/account/network checks, one-time
@@ -169,7 +186,7 @@ Tests must not assume instant ledger availability; use bounded polling with mean
 - Federation valid lookup, unknown name, malformed query, and safe output.
 - Contract behavior checked against the selected Stellar specification/tooling.
 
-## 11. Security and negative tests
+## 12. Security and negative tests
 
 - Secret scanner against repository and release artifacts.
 - Dependency vulnerability scan with recorded disposition.
@@ -183,7 +200,7 @@ Tests must not assume instant ledger availability; use bounded polling with mean
 - Webhook SSRF cases.
 - Startup fails if environment is configured for mainnet/production in the Instaward deployment.
 
-## 12. Required end-to-end evidence cases
+## 13. Required end-to-end evidence cases
 
 ### E2E-BUY-QRIS
 

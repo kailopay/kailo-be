@@ -509,7 +509,7 @@ func appendPublicWebhookEvent(tx *gorm.DB, sourceOrderEventID, orderID, eventTyp
 		return fmt.Errorf("building webhook event payload: %w", err)
 	}
 	sourceID := sourceOrderEventID
-	webhookEvent := entity.WebhookEvent{ID: publicID, OrderID: orderID, EventType: eventType,
+	webhookEvent := entity.WebhookEvent{ID: publicID, OrderID: &orderID, ClientID: order.ClientID, EventType: eventType,
 		APIVersion: usecase.WebhookAPIVersion, CanonicalPayload: payload, SourceOrderEventID: &sourceID, CreatedAt: now}
 	if err := tx.Create(&webhookEvent).Error; err != nil {
 		return fmt.Errorf("creating webhook event: %w", err)

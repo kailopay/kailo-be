@@ -161,8 +161,18 @@ The transaction hash is unique when known. An intent ID remains stable across re
 ### 3.7 Developer webhook endpoint, event, and attempt
 
 - Endpoint: owner client, URL, encrypted signing secret or derived key reference, subscribed types, status.
-- Event: stable event ID/type/version, order reference, canonical payload, creation time.
-- Attempt: endpoint, attempt number, scheduled/start/finish time, response code, duration, safe error, next retry.
+- Event: stable event ID/type/version, optional order reference, optional client reference for synthetic tests, canonical payload, test marker, creation time.
+- Attempt: endpoint, attempt number, scheduled/start/finish time, response code, duration, safe error, next retry, and database lease owner/expiry.
+
+Week 3 adds an immutable `order_financials` snapshot to each on-ramp and
+off-ramp order. It records the exact IDR/XLM context, fee split, policy
+version, source, and simulated marker. The default `sandbox-zero-fee-v1`
+policy records zero fee and revenue without rewriting history later.
+
+`developer_wallets` stores only a SEP-10-verified public Stellar account,
+network, label, primary flag, verification time, and active/revoked status.
+It is a profile hint; it does not override the wallet account in a canonical
+SEP-24 request and never stores a seed.
 
 ## 4. Domain services
 
@@ -193,6 +203,8 @@ Primary commands:
 - `StartKYCInquiry` / `ProcessPersonaWebhook`
 - `RegisterWebhookEndpoint`
 - `DeliverDeveloperWebhook`
+- `ReplayDeveloperWebhook`
+- `RegisterDeveloperWallet`
 
 Every command has an explicit authentication/actor context, correlation ID,
 input validation, transaction boundary, and idempotency rule. Order commands

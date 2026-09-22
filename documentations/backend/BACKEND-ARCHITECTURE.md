@@ -51,7 +51,7 @@ The web frontend is a separate deliverable and communicates only through public/
 | `payments` | Gateway checkout, callback normalization/verification, payout request and reconciliation | Selected provider adapter, orders port |
 | `stellar` | Testnet accounts, asset transfer/issuance, deposit verification, retirement, transaction reconciliation | Stellar SDK adapter, orders port |
 | `anchor` | SEP-24 interactive deposit/withdrawal/history, SEP-38 quote server, `stellar.toml`, federation | Orders, shared quote policy, and KYC application usecases |
-| `developer_webhooks` | Endpoint registration, event envelope, signing, attempts, retries | Outbox, orders event feed |
+| `developer_webhooks` | Endpoint registration, encrypted signing secrets, event envelope, SSRF-safe delivery, attempts, retries, test/replay controls | Outbox, orders event feed |
 | `evidence` | Test/evidence references and sanitized export helpers | Read-only access to order/integration metadata |
 | `platform` | Configuration, database, logging, metrics, clock, IDs, and crypto plumbing | External libraries only |
 

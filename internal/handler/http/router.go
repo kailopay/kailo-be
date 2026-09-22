@@ -262,7 +262,13 @@ func NewRouter(logger *slog.Logger, health *HealthHandler, authHandler *AuthHand
 		webhookRoutes.Use(requireSession)
 		webhookRoutes.POST("", configured.webhooks.Create)
 		webhookRoutes.GET("", configured.webhooks.List)
+		webhookRoutes.GET("/:id", configured.webhooks.Get)
+		webhookRoutes.POST("/:id/test", configured.webhooks.Test)
 		webhookRoutes.DELETE("/:id", configured.webhooks.Disable)
+		deliveryRoutes := router.Group("/v1/webhook-deliveries")
+		deliveryRoutes.Use(requireSession)
+		deliveryRoutes.GET("", configured.webhooks.Deliveries)
+		deliveryRoutes.POST("/:id/replay", configured.webhooks.Replay)
 	}
 	if configured.developerDashboard != nil {
 		developerRoutes := router.Group("/v1/developer")

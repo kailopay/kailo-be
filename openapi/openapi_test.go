@@ -34,8 +34,17 @@ func TestDocumentValidatesAuthContract(t *testing.T) {
 		"/v1/kyc/inquiry",
 		"/v1/api-keys",
 		"/v1/api-keys/{id}",
+		"/v1/developer/overview",
+		"/v1/developer/analytics",
+		"/v1/developer/revenue/summary",
+		"/v1/developer/revenue/entries",
+		"/v1/developer/orders",
+		"/v1/developer/wallets",
+		"/v1/developer/wallets/{id}",
 		"/v1/webhook-endpoints",
 		"/v1/webhook-endpoints/{id}",
+		"/v1/webhook-deliveries",
+		"/v1/webhook-deliveries/{id}/replay",
 		"/v1/onramps",
 		"/v1/offramps",
 		"/v1/orders",
@@ -125,8 +134,12 @@ func TestDocumentValidatesAuthContract(t *testing.T) {
 	if webhookEndpoints.Post.RequestBody == nil || webhookEndpoints.Post.Responses.Value("201") == nil {
 		t.Fatal("POST /v1/webhook-endpoints must document its request and creation response")
 	}
-	if document.Paths.Find("/v1/webhook-endpoints/{id}").Delete == nil {
-		t.Fatal("DELETE /v1/webhook-endpoints/{id} must be documented")
+	webhookEndpointDetail := document.Paths.Find("/v1/webhook-endpoints/{id}")
+	if webhookEndpointDetail.Delete == nil || webhookEndpointDetail.Get == nil || webhookEndpointDetail.Post == nil {
+		t.Fatal("GET, POST, and DELETE /v1/webhook-endpoints/{id} must be documented")
+	}
+	if document.Paths.Find("/v1/webhook-deliveries").Get == nil || document.Paths.Find("/v1/webhook-deliveries/{id}/replay").Post == nil {
+		t.Fatal("webhook delivery listing and replay must be documented")
 	}
 	for _, schema := range []string{
 		"CreateWebhookEndpointRequest",
@@ -134,6 +147,13 @@ func TestDocumentValidatesAuthContract(t *testing.T) {
 		"WebhookEndpoint",
 		"WebhookEndpointListResponse",
 		"WebhookEventType",
+		"DeveloperOverviewResponse",
+		"DeveloperAnalyticsResponse",
+		"DeveloperRevenueSummaryResponse",
+		"DeveloperRevenueEntriesResponse",
+		"DeveloperOrdersResponse",
+		"DeveloperWallet",
+		"WebhookDelivery",
 	} {
 		if document.Components.Schemas[schema] == nil {
 			t.Errorf("missing webhook schema %q", schema)

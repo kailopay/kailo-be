@@ -60,7 +60,7 @@ var ErrInvalidWebhookURL = errors.New("webhook URL must be https with a public h
 // WebhookEndpointRepository is the persistence port for developer endpoint
 // management.
 type WebhookEndpointRepository interface {
-	CreateEndpoint(ctx context.Context, record WebhookEndpointRecord, secretHash []byte) (string, error)
+	CreateEndpoint(ctx context.Context, record WebhookEndpointRecord, secretReference []byte) (string, error)
 	ListEndpoints(ctx context.Context, clientID string) ([]WebhookEndpointView, error)
 	DisableEndpoint(ctx context.Context, clientID, endpointID string) error
 }
@@ -84,16 +84,34 @@ type WebhookEndpointView struct {
 
 // WebhookUsecase manages developer webhook endpoints.
 type WebhookUsecase struct {
-	repository WebhookEndpointRepository
-	newID      func() (string, error)
-	now        func() time.Time
+	repository      WebhookEndpointRepository
+	newID           func() (string, error)
+	now             func() time.Time
+	secretProtector WebhookSecretProtector
+	resolver        WebhookDNSResolver
 }
 
 func NewWebhookUsecase(repository WebhookEndpointRepository, newID func() (string, error), now func() time.Time) (*WebhookUsecase, error) {
+	return newWebhookUsecase(repository, newID, now, nil, nil)
+}
+
+// NewWebhookUsecaseWithSecret stores an encrypted signing secret so the
+// delivery worker can sign future requests without persisting plaintext.
+func NewWebhookUsecaseWithSecret(repository WebhookEndpointRepository, newID func() (string, error), now func() time.Time, protector WebhookSecretProtector) (*WebhookUsecase, error) {
+	return newWebhookUsecase(repository, newID, now, protector, nil)
+}
+
+// NewWebhookUsecaseWithSecretAndResolver enables registration-time DNS/IP
+// validation in addition to the delivery-time validation.
+func NewWebhookUsecaseWithSecretAndResolver(repository WebhookEndpointRepository, newID func() (string, error), now func() time.Time, protector WebhookSecretProtector, resolver WebhookDNSResolver) (*WebhookUsecase, error) {
+	return newWebhookUsecase(repository, newID, now, protector, resolver)
+}
+
+func newWebhookUsecase(repository WebhookEndpointRepository, newID func() (string, error), now func() time.Time, protector WebhookSecretProtector, resolver WebhookDNSResolver) (*WebhookUsecase, error) {
 	if repository == nil || newID == nil || now == nil {
 		return nil, errors.New("valid webhook dependencies are required")
 	}
-	return &WebhookUsecase{repository: repository, newID: newID, now: now}, nil
+	return &WebhookUsecase{repository: repository, newID: newID, now: now, secretProtector: protector, resolver: resolver}, nil
 }
 
 // Register validates the URL against the activation policy, stores the
@@ -101,6 +119,11 @@ func NewWebhookUsecase(repository WebhookEndpointRepository, newID func() (strin
 func (s *WebhookUsecase) Register(ctx context.Context, clientID, rawURL string, eventTypes []string) (string, string, error) {
 	if clientID == "" || len(rawURL) > 2048 || !isDeliverableWebhookURL(rawURL) {
 		return "", "", ErrInvalidWebhookURL
+	}
+	if s.resolver != nil {
+		if err := ValidateWebhookDestination(ctx, rawURL, s.resolver); err != nil {
+			return "", "", ErrInvalidWebhookURL
+		}
 	}
 	if len(eventTypes) == 0 {
 		eventTypes = []string{
@@ -123,8 +146,15 @@ func (s *WebhookUsecase) Register(ctx context.Context, clientID, rawURL string, 
 	if err != nil {
 		return "", "", fmt.Errorf("generating endpoint id: %w", err)
 	}
+	secretReference := hashValue([]byte("kailopay-webhooks"), secret)
+	if s.secretProtector != nil {
+		secretReference, err = s.secretProtector.Protect(secret)
+		if err != nil {
+			return "", "", fmt.Errorf("protecting webhook secret: %w", err)
+		}
+	}
 	storedID, err := s.repository.CreateEndpoint(ctx, WebhookEndpointRecord{
-		ClientID: clientID, URL: rawURL, EventTypes: eventTypes}, hashValue([]byte("kailopay-webhooks"), secret))
+		ClientID: clientID, URL: rawURL, EventTypes: eventTypes}, secretReference)
 	if err != nil {
 		return "", "", err
 	}
@@ -205,6 +235,27 @@ func BuildEventEnvelope(eventID, eventType, environment string, createdAt time.T
 		"environment": environment,
 		"data": map[string]any{
 			"object": order,
+		},
+	}
+	return json.Marshal(envelope)
+}
+
+// BuildTestWebhookEnvelope creates a deterministic-shaped payload without
+// pretending that a test delivery represents an order or a payment.
+func BuildTestWebhookEnvelope(eventID, eventType, environment, endpointID string, createdAt time.Time) ([]byte, error) {
+	envelope := map[string]any{
+		"id":          "evt_" + eventID,
+		"object":      "event",
+		"type":        eventType,
+		"api_version": WebhookAPIVersion,
+		"created_at":  createdAt.UTC().Format(time.RFC3339),
+		"environment": environment,
+		"data": map[string]any{
+			"object": map[string]any{
+				"object":      "webhook_test",
+				"endpoint_id": endpointID,
+				"message":     "This is a signed KailoPay webhook test delivery.",
+			},
 		},
 	}
 	return json.Marshal(envelope)
