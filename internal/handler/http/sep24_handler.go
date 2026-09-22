@@ -23,6 +23,8 @@ type Sep24Config struct {
 	TransferServerURL     string
 	QuoteServerURL        string
 	FederationURL         string
+	WebAuthEndpoint       string
+	SigningKey            string
 	DepositMinAmountMinor int64
 	DepositMaxAmountMinor int64
 }
@@ -68,6 +70,8 @@ VERSION = "0.1.0"
 TRANSFER_SERVER_SEP24 = "%s"
 ANCHOR_QUOTE_SERVER = "%s"
 FEDERATION_SERVER = "%s"
+WEB_AUTH_ENDPOINT = "%s"
+SIGNING_KEY = "%s"
 DOCUMENTATION = "https://github.com/febry3/kailopay-be"
 [[CURRENCIES]]
 code = "XLM"
@@ -75,7 +79,8 @@ issuer = ""
 status = "test"
 desc = "Native XLM on Stellar testnet (sandbox corridor)."
 `, h.config.NetworkPassphrase, h.config.DepositAccount,
-		h.config.TransferServerURL, h.config.QuoteServerURL, h.config.FederationURL)
+		h.config.TransferServerURL, h.config.QuoteServerURL, h.config.FederationURL,
+		h.config.WebAuthEndpoint, h.config.SigningKey)
 }
 
 // Federation resolves synthetic demo names to the deposit account with the

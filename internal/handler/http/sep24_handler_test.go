@@ -54,6 +54,35 @@ type sep24HandlerAPIAuthenticatorFake struct {
 	principal usecase.Principal
 }
 
+func TestStellarTomlAdvertisesSEP10WithoutSEP45(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler := NewSep24Handler(nil, Sep24Config{
+		NetworkPassphrase: "Test SDF Network ; September 2015",
+		DepositAccount:    "G" + strings.Repeat("A", 55),
+		WebAuthEndpoint:   "https://anchor.example/auth",
+		SigningKey:        "G" + strings.Repeat("B", 55),
+	}, nil)
+	router := gin.New()
+	router.GET("/.well-known/stellar.toml", handler.StellarToml)
+
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/.well-known/stellar.toml", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %q", response.Code, response.Body.String())
+	}
+	for _, expected := range []string{
+		`WEB_AUTH_ENDPOINT = "https://anchor.example/auth"`,
+		`SIGNING_KEY = "G` + strings.Repeat("B", 55) + `"`,
+	} {
+		if !strings.Contains(response.Body.String(), expected) {
+			t.Errorf("stellar.toml missing %q: %s", expected, response.Body.String())
+		}
+	}
+	if strings.Contains(response.Body.String(), "WEB_AUTH_FOR_CONTRACTS_ENDPOINT") {
+		t.Fatal("stellar.toml must not advertise SEP-45")
+	}
+}
+
 func (f sep24HandlerAPIAuthenticatorFake) Authenticate(context.Context, string) (usecase.Principal, error) {
 	return f.principal, nil
 }

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strings"
@@ -245,12 +246,50 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("creating SEP-24 service: %w", err)
 	}
 	publicBaseURL := strings.TrimRight(cfg.Anchor.BaseURL, "/")
+	anchorURL, err := url.Parse(publicBaseURL)
+	if err != nil {
+		return fmt.Errorf("parsing anchor base URL: %w", err)
+	}
+	if anchorURL.Host == "" {
+		return errors.New("anchor base URL has no host")
+	}
+	sep10Signer, err := stellaradapter.NewSEP10Signer(stellaradapter.SEP10SignerConfig{
+		ServerSecret:  cfg.Anchor.SEP10.SigningSecret,
+		Network:       cfg.Week1.Stellar.NetworkPassphrase,
+		WebAuthDomain: anchorURL.Host,
+		HomeDomain:    anchorURL.Host,
+		Timebound:     5 * time.Minute,
+	})
+	if err != nil {
+		return fmt.Errorf("creating SEP-10 signer: %w", err)
+	}
+	sep10Repository := repository.NewSEP10Repository(db)
+	sep10Service, err := usecase.NewSEP10Usecase(usecase.SEP10Dependencies{
+		Challenges: sep10Repository,
+		Signer:     sep10Signer,
+	}, usecase.SEP10ServiceConfig{
+		Network:       cfg.Week1.Stellar.NetworkPassphrase,
+		HomeDomain:    anchorURL.Host,
+		ChallengeTTL:  5 * time.Minute,
+		TokenTTL:      15 * time.Minute,
+		TokenIssuer:   "kailopay",
+		TokenAudience: "kailopay-sep10",
+		TokenSecret:   cfg.Anchor.SEP10.SigningSecret,
+		Now:           time.Now,
+		NewID:         platform.NewID,
+	})
+	if err != nil {
+		return fmt.Errorf("creating SEP-10 service: %w", err)
+	}
+	sep10Handler := httpapi.NewSEP10Handler(sep10Service, appLogger)
 	sep24Config := httpapi.Sep24Config{
 		DepositAccount:        cfg.Week1.Offramp.DepositAccount,
 		NetworkPassphrase:     cfg.Week1.Stellar.NetworkPassphrase,
 		TransferServerURL:     publicBaseURL + "/sep24",
 		QuoteServerURL:        publicBaseURL + "/sep38",
 		FederationURL:         publicBaseURL + "/federation",
+		WebAuthEndpoint:       publicBaseURL + "/auth",
+		SigningKey:            sep10Signer.ServerAccount(),
 		DepositMinAmountMinor: cfg.Week1.Onramp.MinIDR,
 		DepositMaxAmountMinor: cfg.Week1.Onramp.MaxIDR,
 	}
@@ -267,6 +306,7 @@ func run(ctx context.Context) error {
 		httpapi.WithAPIKeys(apiKeyHandler), httpapi.WithKYC(kycHandler),
 		httpapi.WithOnramp(onrampHandler, orderPrincipalMiddleware),
 		httpapi.WithOfframp(offrampHandler), httpapi.WithQuote(quoteHandler, orderPrincipalMiddleware),
+		httpapi.WithSEP10(sep10Handler),
 		httpapi.WithSep38(sep38Handler),
 		httpapi.WithSep24(sep24Handler, orderPrincipalMiddleware),
 		httpapi.WithWebhooks(webhookHandler), httpapi.WithXenditCallback(callbackHandler))

@@ -15,6 +15,7 @@ type routerOptions struct {
 	kyc                   *KYCHandler
 	quote                 *QuoteHandler
 	sep38                 *Sep38Handler
+	sep10                 *SEP10Handler
 	onramp                *OnrampHandler
 	offramp               *OfframpHandler
 	sep24                 *Sep24Handler
@@ -106,6 +107,16 @@ func WithSep38(handler *Sep38Handler) RouterOption {
 	}
 }
 
+func WithSEP10(handler *SEP10Handler) RouterOption {
+	return func(options *routerOptions) error {
+		if handler == nil {
+			return errors.New("SEP-10 handler is required")
+		}
+		options.sep10 = handler
+		return nil
+	}
+}
+
 type RouterOption func(*routerOptions) error
 
 func WithAPIKeys(handler *APIKeyHandler) RouterOption {
@@ -159,6 +170,10 @@ func NewRouter(logger *slog.Logger, health *HealthHandler, authHandler *AuthHand
 	router.GET("/docs/*path", gin.WrapH(http.StripPrefix("/docs", documentationHandler)))
 	router.POST("/auth/register", authHandler.Register)
 	router.POST("/auth/login", authHandler.Login)
+	if configured.sep10 != nil {
+		router.GET("/auth", configured.sep10.Challenge)
+		router.POST("/auth", configured.sep10.Exchange)
+	}
 	router.GET("/auth/google/login", authHandler.GoogleLogin)
 	router.GET("/auth/google/callback", authHandler.GoogleCallback)
 	router.POST("/auth/logout", authHandler.Logout)

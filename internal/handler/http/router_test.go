@@ -74,6 +74,27 @@ func TestRouterRegistersExpandedAuthEndpoints(t *testing.T) {
 	}
 }
 
+func TestRouterRegistersSEP10AuthEndpoints(t *testing.T) {
+	authHandler := testAuthHandler(t, &fakeAuthService{})
+	health := NewHealthHandler(func(context.Context) error { return nil }, time.Second, nil)
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	requireSession := middleware.RequireSession(fakeSessionAuthenticator{user: auth.AuthenticatedUser{User: auth.UserProfile{ID: "user-id"}}})
+	sep10Handler := NewSEP10Handler(sep10HandlerServiceFake{}, logger)
+	router, err := NewRouter(logger, health, authHandler, requireSession, WithSEP10(sep10Handler))
+	if err != nil {
+		t.Fatalf("NewRouter() error = %v", err)
+	}
+	routes := make(map[string]bool)
+	for _, route := range router.Routes() {
+		routes[route.Method+" "+route.Path] = true
+	}
+	for _, route := range []string{"GET /auth", "POST /auth"} {
+		if !routes[route] {
+			t.Errorf("missing route %s", route)
+		}
+	}
+}
+
 func TestRouterRegistersWeek1Routes(t *testing.T) {
 	authHandler := testAuthHandler(t, &fakeAuthService{})
 	health := NewHealthHandler(func(context.Context) error { return nil }, time.Second, nil)
