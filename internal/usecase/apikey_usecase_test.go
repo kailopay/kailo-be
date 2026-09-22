@@ -62,6 +62,16 @@ func TestCreateRequiresDeveloperMode(t *testing.T) {
 	}
 }
 
+func TestDeveloperModeEnabledReadsOwnerState(t *testing.T) {
+	store := &fakeStore{developerEnabled: true}
+	service := newTestService(t, store)
+
+	enabled, err := service.DeveloperModeEnabled(context.Background(), "user-1")
+	if err != nil || !enabled {
+		t.Fatalf("DeveloperModeEnabled() = %t, %v, want true and nil", enabled, err)
+	}
+}
+
 func TestCreateReturnsSecretOnceAndStoresOnlyHash(t *testing.T) {
 	store := &fakeStore{developerEnabled: true}
 	service := newTestService(t, store)

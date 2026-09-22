@@ -32,7 +32,7 @@ Authorization: Bearer pk_test_<public_id>_<secret>
 
 Invalid, revoked, or malformed keys return `401`. An authenticated client accessing another client's resource returns `404` or `403` according to the selected enumeration policy; use one policy consistently.
 
-API-key creation/revocation requires an authenticated user session with Developer Mode enabled. Creating a new API key also requires an approved Persona sandbox KYC status. The session is not replaced by passing arbitrary user or client IDs.
+Developer management routes require an authenticated user session with Developer Mode enabled. This includes the dashboard, wallet profile, API-key, and webhook routes. Creating a new API key also requires an approved Persona sandbox KYC status. The session is not replaced by passing arbitrary user or client IDs.
 
 Developer configuration is user-owned. A developer session may manage only API clients whose `owner_user_id` matches the authenticated user. API keys authenticate an API client; they do not authenticate the owning browser user. Disabling Developer Mode hides/blocks developer-management actions but does not silently revoke existing clients or keys.
 

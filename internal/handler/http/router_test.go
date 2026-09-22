@@ -142,6 +142,7 @@ func TestRouterRegistersDeveloperDashboardRoutes(t *testing.T) {
 	requireSession := middleware.RequireSession(fakeSessionAuthenticator{user: auth.AuthenticatedUser{User: auth.UserProfile{ID: "user-id"}}})
 	service := &developerDashboardServiceSpy{}
 	router, err := NewRouter(logger, health, authHandler, requireSession,
+		WithDeveloperMode(developerModeReaderRouterFake{enabled: true}),
 		WithDeveloperDashboard(NewDeveloperDashboardHandler(service, logger)),
 		WithDeveloperWallet(NewDeveloperWalletHandler(&developerWalletServiceSpy{}, logger)),
 	)
@@ -166,6 +167,46 @@ func TestRouterRegistersDeveloperDashboardRoutes(t *testing.T) {
 		if !routes[route] {
 			t.Errorf("missing route %s", route)
 		}
+	}
+}
+
+type developerModeReaderRouterFake struct {
+	enabled bool
+	err     error
+}
+
+func (f developerModeReaderRouterFake) DeveloperModeEnabled(context.Context, string) (bool, error) {
+	return f.enabled, f.err
+}
+
+func TestRouterBlocksDeveloperRoutesWhenDeveloperModeIsDisabled(t *testing.T) {
+	authHandler := testAuthHandler(t, &fakeAuthService{})
+	health := NewHealthHandler(func(context.Context) error { return nil }, time.Second, nil)
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	requireSession := middleware.RequireSession(fakeSessionAuthenticator{user: auth.AuthenticatedUser{
+		User: auth.UserProfile{ID: "user-id"},
+	}})
+	router, err := NewRouter(logger, health, authHandler, requireSession,
+		WithDeveloperMode(developerModeReaderRouterFake{}),
+		WithDeveloperDashboard(NewDeveloperDashboardHandler(&developerDashboardServiceSpy{}, logger)),
+		WithDeveloperWallet(NewDeveloperWalletHandler(&developerWalletServiceSpy{}, logger)),
+		WithWebhooks(NewWebhookHandler(webhookServiceSpy{}, logger)),
+	)
+	if err != nil {
+		t.Fatalf("NewRouter() error = %v", err)
+	}
+
+	for _, path := range []string{"/v1/developer/overview", "/v1/developer/wallets", "/v1/webhook-endpoints", "/v1/webhook-deliveries"} {
+		t.Run(path, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, path, nil)
+			request.AddCookie(&http.Cookie{Name: middleware.DefaultSessionCookieName, Value: "session-token"})
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, request)
+
+			if response.Code != http.StatusForbidden {
+				t.Fatalf("status = %d, want 403; body = %q", response.Code, response.Body.String())
+			}
+		})
 	}
 }
 

@@ -83,6 +83,20 @@ type APIKeyUsecase struct {
 	config       APIKeyConfig
 }
 
+// DeveloperModeEnabled reports the owner's current Developer Mode state for
+// session-authenticated developer route middleware.
+func (s *APIKeyUsecase) DeveloperModeEnabled(ctx context.Context, ownerUserID string) (bool, error) {
+	ownerUserID = strings.TrimSpace(ownerUserID)
+	if ownerUserID == "" {
+		return false, ErrDeveloperModeRequired
+	}
+	enabled, err := s.dependencies.Repository.DeveloperModeEnabled(ctx, ownerUserID)
+	if err != nil {
+		return false, fmt.Errorf("checking developer mode: %w", err)
+	}
+	return enabled, nil
+}
+
 func NewAPIKeyUsecase(dependencies APIKeyDependencies, config APIKeyConfig) (*APIKeyUsecase, error) {
 	if dependencies.Repository == nil || dependencies.KYC == nil {
 		return nil, errors.New("api key dependencies are required")

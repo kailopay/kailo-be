@@ -16,7 +16,9 @@ The API uses one base URL. The local default is `http://localhost:8080`. Use the
 | Profile | `GET /auth/me`, `PATCH /auth/me`, `GET /auth/me/avatar`, `PUT /auth/me/avatar`, `DELETE /auth/me/avatar` | Account settings and profile image. |
 | KYC | `GET /v1/kyc`, `POST /v1/kyc/inquiry` | Verification status and Persona flow. |
 | Developer keys | `POST /v1/api-keys`, `GET /v1/api-keys`, `DELETE /v1/api-keys/{id}` | Server-integration setup. Keep keys out of browser code. |
-| Developer webhooks | `POST /v1/webhook-endpoints`, `GET /v1/webhook-endpoints`, `DELETE /v1/webhook-endpoints/{id}` | Configuration UI only. Delivery is not active yet. |
+| Developer dashboard | `GET /v1/developer/overview`, `/analytics`, `/revenue/summary`, `/revenue/entries`, `/orders` | Usage, exchange analytics, revenue snapshots, and account-wide order history. |
+| Developer wallets | `GET/POST/PATCH/DELETE /v1/developer/wallets` | Store verified Stellar testnet wallet profile hints. |
+| Developer webhooks | `POST/GET/DELETE /v1/webhook-endpoints`, endpoint detail/test routes, and `GET /v1/webhook-deliveries` with replay | Configure signed delivery, inspect attempts, and replay exhausted deliveries. |
 | Orders | `POST /v1/quotes`, `POST /v1/onramps`, `POST /v1/offramps`, `GET /v1/orders`, `GET /v1/orders/{id}` | Quote preview, buy, sell, order history, and order tracking. |
 | Anchor discovery | `GET /.well-known/stellar.toml`, `GET /federation?q=...`, `GET /sep24/info`, `GET /sep38/info`, `GET /sep38/prices`, `GET /sep38/price`, `POST /sep38/quote`, `GET /sep38/quote/{id}` | Stellar integration, sandbox metadata, indicative prices, and wallet-owned firm quotes. |
 | SEP-10 | `GET /auth?account=...`, `POST /auth` | Sign a classic Stellar challenge and retain the short-lived bearer JWT in the wallet integration layer. |
@@ -48,7 +50,7 @@ Use the following matrix when deciding which client can call an endpoint:
 |---|---|---|
 | Public browser request | Health, API docs, `/.well-known/stellar.toml`, `/federation`, `/sep24/info`, `/sep38/*`, `POST /v1/quotes` | No login is required. The TOML route returns text, not JSON. |
 | Browser navigation | `/auth/google/login`, `/auth/google/callback` | Navigate to the URL with `location.assign`; do not call these routes through `fetch`. |
-| Session cookie | `/auth/me`, password change, avatar, KYC, API keys, webhook management | Send `credentials: "include"`. The cookie is HttpOnly, so the frontend reads the returned user or status rather than the cookie value. |
+| Session cookie | `/auth/me`, password change, avatar, KYC, API keys, Developer Mode dashboard, wallet profiles, and webhook management | Send `credentials: "include"`. The cookie is HttpOnly, so the frontend reads the returned user or status rather than the cookie value. Developer Mode is required for developer-management routes. |
 | Session or server API key | On-ramp, off-ramp, order reads, and the legacy SEP-24 aliases | Use the session for the consumer web app. Use `Authorization: Bearer pk_test_...` only in a trusted server integration. |
 | SEP-10 bearer JWT | Canonical SEP-24 initiation/history/lookup and SEP-38 firm quotes | Obtain it by signing the `/auth` challenge for the classic Stellar account. The browser page still requires a KailoPay retail session to create the order. |
 | Provider callback | `/callbacks/kyc/persona`, `/callbacks/payments/xendit` | Never call these from the frontend. Persona and Xendit call them directly. |
@@ -381,8 +383,13 @@ The shared order response includes `payment_method`, but that field is meaningfu
 
 ### Developer portal
 
-After the user enables Developer Mode and passes KYC, the frontend can provide:
+After the user enables Developer Mode, the frontend can provide the developer
+dashboard, wallet profile, and webhook management screens. The API-key create
+screen also requires approved sandbox KYC. The frontend can then:
 
+- Read the overview, analytics, revenue, and account-wide order routes.
+- Register and manage a SEP-10-verified wallet profile.
+- Register, test, disable, and inspect webhook endpoints and deliveries.
 - Create a sandbox API key with `POST /v1/api-keys`.
 - List key metadata with `GET /v1/api-keys`.
 - Revoke a key with `DELETE /v1/api-keys/{id}`.
@@ -390,7 +397,7 @@ After the user enables Developer Mode and passes KYC, the frontend can provide:
 
 The complete `pk_test_` API key is returned only when it is created. Never put it in browser JavaScript, local storage, a frontend bundle, or a public repository. Use it from a server-side integration.
 
-Webhook endpoint management is described by `POST /v1/webhook-endpoints`, `GET /v1/webhook-endpoints`, and `DELETE /v1/webhook-endpoints/{id}`. The endpoint contract exists, but outbound webhook delivery is not active in the current worker. Treat webhook configuration as unavailable until the backend delivery worker is released.
+Webhook endpoint management is available after the user enables Developer Mode. The backend signs order events, queues delivery through the worker, records each attempt, retries retryable failures, and exposes exhausted deliveries for replay.
 
 #### API key request details
 
@@ -435,7 +442,7 @@ The request accepts an HTTPS URL with a public host and no embedded credentials:
 
 Omit `event_types`, or send an empty array, to subscribe to every supported order event. The supported event types are `order.created`, `order.payment_pending`, `order.payment_confirmed`, `order.asset_received`, `order.processing`, `order.completed`, `order.failed`, and `order.expired`.
 
-The create response returns `{ "endpoint": { "id": "..." }, "secret": "whsec_..." }`. Store the secret when it is returned. The backend does not return it again. The current backend has a known ownership mismatch in this endpoint path, so the frontend should show webhook configuration as disabled until that backend defect is fixed.
+The create response returns `{ "endpoint": { "id": "..." }, "secret": "whsec_..." }`. Store the secret when it is returned. The backend does not return it again. Use `POST /v1/webhook-endpoints/{id}/test` to queue a signed test event. Use `GET /v1/webhook-deliveries` to show attempts and `POST /v1/webhook-deliveries/{id}/replay` to replay an exhausted delivery.
 
 ### SEP-24 deposit and withdrawal screens
 
@@ -663,14 +670,14 @@ Order errors use this shape:
 - Do not show the off-ramp as a completed bank payout. Simulator completion means only that a deterministic sandbox record was written; keep the explicit no-real-IDR disclosure visible.
 - Do not assume a successful checkout redirect means the payment was confirmed.
 - Do not call Xendit, Persona, Horizon, or federation signing flows directly from the browser. The backend owns those integrations.
-- Do not depend on outbound developer webhooks until the backend adds delivery, signing, retries, and attempt records.
+- Treat developer webhooks as at-least-once delivery. Verify the signature and deduplicate by event ID before applying an event.
 
 ## Backend gaps the frontend should surface explicitly
 
 These items are important when turning the endpoint map into production-ready screens:
 
 - **Off-ramp deposit instructions:** use the configured `order.stellar_destination.account` and memo exactly as returned. Never invent an account or derive one from `destination_token`; the latter is only a synthetic payout reference.
-- **Developer webhooks:** endpoint registration has a client-ownership mismatch in the current handler/repository path, and the worker does not deliver outbound events. Keep the settings page disabled or label it unavailable; do not promise that a registered URL will receive events.
+- **Developer webhooks:** delivery requires the backend worker to run. Show the endpoint status and delivery history. Do not promise exactly-once delivery.
 - **Order direction:** the public order object does not include a stable `direction` field. For now, infer the view from the fields returned by the order and retain the original flow in local UI state. A permanent buy/sell filter needs a backend contract addition.
 - **Unknown checkout outcomes:** a `202 CHECKOUT_PENDING_RECONCILIATION` response means the provider result is unknown. Keep the original order and idempotency key visible, and do not create a duplicate checkout. The reconciliation worker is not complete in this release.
 
@@ -772,7 +779,7 @@ Build the frontend in this order:
 7. Add profile, password, and avatar settings.
 8. Add Developer Mode and API-key management. Keep the full key out of browser storage.
 9. Add the SEP-10 wallet challenge/exchange and the SEP-24 interactive linking flow if the product needs an anchor-facing wallet integration.
-10. Keep webhook configuration hidden or marked unavailable until outbound delivery is implemented.
+10. Add webhook configuration after Developer Mode is enabled. Show the signing-secret handoff, test delivery, delivery history, and exhausted-delivery replay.
 
 For every order screen, show the environment and network labels. Show the quote expiry, payment or deposit instructions, the current status, and the failure code when the backend returns one.
 

@@ -363,6 +363,7 @@ func run(ctx context.Context) error {
 	orderPrincipalMiddleware := middleware.RequireOrderPrincipal(apiKeyService, authService, cfg.Auth.CookieName, cfg.HTTP.AllowedOrigins)
 	router, err := httpapi.NewRouter(appLogger, health, authHandler, sessionMiddleware,
 		httpapi.WithAPIKeys(apiKeyHandler), httpapi.WithKYC(kycHandler),
+		httpapi.WithDeveloperMode(apiKeyService),
 		httpapi.WithOnramp(onrampHandler, orderPrincipalMiddleware),
 		httpapi.WithOfframp(offrampHandler), httpapi.WithQuote(quoteHandler, orderPrincipalMiddleware),
 		httpapi.WithSEP10(sep10Handler),

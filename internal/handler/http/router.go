@@ -25,6 +25,7 @@ type routerOptions struct {
 	webhooks              *WebhookHandler
 	developerDashboard    *DeveloperDashboardHandler
 	developerWallet       *DeveloperWalletHandler
+	developerMode         middleware.DeveloperModeReader
 	requireOrderPrincipal gin.HandlerFunc
 	requireSEP10          gin.HandlerFunc
 	xenditCallback        *XenditCallbackHandler
@@ -56,6 +57,16 @@ func WithDeveloperWallet(handler *DeveloperWalletHandler) RouterOption {
 			return errors.New("developer wallet handler is required")
 		}
 		options.developerWallet = handler
+		return nil
+	}
+}
+
+func WithDeveloperMode(reader middleware.DeveloperModeReader) RouterOption {
+	return func(options *routerOptions) error {
+		if reader == nil {
+			return errors.New("developer mode reader is required")
+		}
+		options.developerMode = reader
 		return nil
 	}
 }
@@ -258,8 +269,12 @@ func NewRouter(logger *slog.Logger, health *HealthHandler, authHandler *AuthHand
 		router.POST("/callbacks/kyc/persona", gin.WrapH(configured.kyc))
 	}
 	if configured.webhooks != nil {
+		if configured.developerMode == nil {
+			return nil, errors.New("developer mode reader is required for webhooks")
+		}
 		webhookRoutes := router.Group("/v1/webhook-endpoints")
 		webhookRoutes.Use(requireSession)
+		webhookRoutes.Use(middleware.RequireDeveloperMode(configured.developerMode, logger))
 		webhookRoutes.POST("", configured.webhooks.Create)
 		webhookRoutes.GET("", configured.webhooks.List)
 		webhookRoutes.GET("/:id", configured.webhooks.Get)
@@ -267,12 +282,17 @@ func NewRouter(logger *slog.Logger, health *HealthHandler, authHandler *AuthHand
 		webhookRoutes.DELETE("/:id", configured.webhooks.Disable)
 		deliveryRoutes := router.Group("/v1/webhook-deliveries")
 		deliveryRoutes.Use(requireSession)
+		deliveryRoutes.Use(middleware.RequireDeveloperMode(configured.developerMode, logger))
 		deliveryRoutes.GET("", configured.webhooks.Deliveries)
 		deliveryRoutes.POST("/:id/replay", configured.webhooks.Replay)
 	}
 	if configured.developerDashboard != nil {
+		if configured.developerMode == nil {
+			return nil, errors.New("developer mode reader is required for developer dashboard")
+		}
 		developerRoutes := router.Group("/v1/developer")
 		developerRoutes.Use(requireSession)
+		developerRoutes.Use(middleware.RequireDeveloperMode(configured.developerMode, logger))
 		developerRoutes.GET("/overview", configured.developerDashboard.Overview)
 		developerRoutes.GET("/analytics", configured.developerDashboard.Analytics)
 		developerRoutes.GET("/revenue/summary", configured.developerDashboard.RevenueSummary)
@@ -280,8 +300,12 @@ func NewRouter(logger *slog.Logger, health *HealthHandler, authHandler *AuthHand
 		developerRoutes.GET("/orders", configured.developerDashboard.Orders)
 	}
 	if configured.developerWallet != nil {
+		if configured.developerMode == nil {
+			return nil, errors.New("developer mode reader is required for developer wallets")
+		}
 		developerWalletRoutes := router.Group("/v1/developer/wallets")
 		developerWalletRoutes.Use(requireSession)
+		developerWalletRoutes.Use(middleware.RequireDeveloperMode(configured.developerMode, logger))
 		developerWalletRoutes.GET("", configured.developerWallet.List)
 		developerWalletRoutes.POST("", configured.developerWallet.Create)
 		developerWalletRoutes.PATCH("/:id", configured.developerWallet.Update)

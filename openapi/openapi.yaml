@@ -536,6 +536,7 @@ paths:
                     type: array
                     items:
                       $ref: '#/components/schemas/APIKeyMetadata'
+        '403': {description: Developer Mode is disabled}
   /v1/api-keys/{id}:
     delete:
       tags: [Developer]
@@ -553,6 +554,7 @@ paths:
       responses:
         '204':
           description: API key revoked
+        '403': {description: Developer Mode is disabled}
         '404':
           description: Key not found for this user
   /v1/developer/overview:
@@ -576,6 +578,7 @@ paths:
               schema: {$ref: '#/components/schemas/DeveloperOverviewResponse'}
         '401': {description: Missing or invalid local session}
         '400': {description: 'Invalid date, currency, or ownership filter'}
+        '403': {description: Developer Mode is disabled}
   /v1/developer/analytics:
     get:
       tags: [Developer]
@@ -602,6 +605,7 @@ paths:
               schema: {$ref: '#/components/schemas/DeveloperAnalyticsResponse'}
         '401': {description: Missing or invalid local session}
         '400': {description: Invalid analytics filter or range}
+        '403': {description: Developer Mode is disabled}
   /v1/developer/revenue/summary:
     get:
       tags: [Developer]
@@ -623,6 +627,7 @@ paths:
               schema: {$ref: '#/components/schemas/DeveloperRevenueSummaryResponse'}
         '401': {description: Missing or invalid local session}
         '400': {description: Invalid revenue filter or range}
+        '403': {description: Developer Mode is disabled}
   /v1/developer/revenue/entries:
     get:
       tags: [Developer]
@@ -645,6 +650,7 @@ paths:
               schema: {$ref: '#/components/schemas/DeveloperRevenueEntriesResponse'}
         '401': {description: Missing or invalid local session}
         '400': {description: Invalid revenue filter or cursor}
+        '403': {description: Developer Mode is disabled}
   /v1/developer/orders:
     get:
       tags: [Developer]
@@ -670,6 +676,7 @@ paths:
               schema: {$ref: '#/components/schemas/DeveloperOrdersResponse'}
         '401': {description: Missing or invalid local session}
         '400': {description: Invalid order filter or cursor}
+        '403': {description: Developer Mode is disabled}
   /v1/developer/wallets:
     get:
       tags: [Developer]
@@ -684,6 +691,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/DeveloperWalletListResponse'}
         '401': {description: Missing or invalid local session}
+        '403': {description: Developer Mode is disabled}
     post:
       tags: [Developer]
       operationId: registerDeveloperWallet
@@ -704,6 +712,7 @@ paths:
               schema: {$ref: '#/components/schemas/DeveloperWalletResponse'}
         '400': {description: Invalid wallet or proof/account mismatch}
         '401': {description: Missing or invalid local session or SEP-10 proof}
+        '403': {description: Developer Mode is disabled}
   /v1/developer/wallets/{id}:
     patch:
       tags: [Developer]
@@ -728,6 +737,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/DeveloperWalletResponse'}
         '401': {description: Missing or invalid local session}
+        '403': {description: Developer Mode is disabled}
         '404': {description: Wallet not found for this user}
     delete:
       tags: [Developer]
@@ -743,6 +753,7 @@ paths:
       responses:
         '204': {description: Wallet revoked}
         '401': {description: Missing or invalid local session}
+        '403': {description: Developer Mode is disabled}
         '404': {description: Wallet not found for this user}
   /v1/webhook-endpoints:
     post:
@@ -781,6 +792,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Developer Mode is disabled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '500':
           description: Endpoint could not be stored
           content:
@@ -803,6 +820,12 @@ paths:
                 $ref: '#/components/schemas/WebhookEndpointListResponse'
         '401':
           description: Missing or invalid local session
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Developer Mode is disabled
           content:
             application/json:
               schema:
@@ -832,6 +855,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/WebhookEndpointResponse'}
         '401': {description: Missing or invalid local session}
+        '403': {description: Developer Mode is disabled}
         '404': {description: Endpoint not found for this user}
     post:
       tags: [Developer webhooks]
@@ -852,6 +876,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/WebhookQueuedResponse'}
         '401': {description: Missing or invalid local session}
+        '403': {description: Developer Mode is disabled}
         '404': {description: Endpoint not found for this user}
     delete:
       tags: [Developer webhooks]
@@ -872,6 +897,12 @@ paths:
           description: Endpoint disabled
         '401':
           description: Missing or invalid local session
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Developer Mode is disabled
           content:
             application/json:
               schema:
@@ -920,6 +951,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/WebhookDeliveriesResponse'}
         '401': {description: Missing or invalid local session}
+        '403': {description: Developer Mode is disabled}
         '400': {description: Invalid delivery filter or cursor}
   /v1/webhook-deliveries/{id}/replay:
     post:
@@ -937,6 +969,7 @@ paths:
       responses:
         '202': {description: Replay queued}
         '401': {description: Missing or invalid local session}
+        '403': {description: Developer Mode is disabled}
         '404': {description: Delivery not found for this user}
         '409': {description: Delivery is not exhausted and cannot be replayed}
   /v1/quotes:

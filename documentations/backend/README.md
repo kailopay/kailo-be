@@ -41,18 +41,20 @@ integration client for the public API, not a second backend runtime.
 4. [Database Design](DATABASE-DESIGN.md)
 5. [API Design](API-DESIGN.md)
 6. [Frontend Capabilities and Backend Integration](FRONTEND-CAPABILITIES.md)
-7. [Weeks 1 and 2 backend checkpoint](WEEK1-2-CHECKPOINT.md)
-8. [Consumer Session Order Flow](CONSUMER-SESSION-ORDER-FLOW.md)
-9. [Payment Gateway Integration](PAYMENT-GATEWAY-INTEGRATION.md)
-10. [Stellar Anchor Integration](STELLAR-ANCHOR-INTEGRATION.md)
-11. [Persona KYC Runbook](PERSONA-KYC-RUNBOOK.md)
-12. [Webhook Design](WEBHOOK-DESIGN.md)
-13. [TypeScript SDK Design](TYPESCRIPT-SDK-DESIGN.md)
-14. [Security](SECURITY.md)
-15. [Observability and Runbook](OBSERVABILITY-AND-RUNBOOK.md)
-16. [Testing Strategy](TESTING-STRATEGY.md)
-17. [Implementation Phases](IMPLEMENTATION-PHASES.md)
-18. [Backend Backlog](BACKEND-BACKLOG.md)
+7. [Frontend AI dashboard implementation](FE-AI-DASHBOARD-IMPLEMENTATION.md)
+8. [Frontend AI developer dashboard plan](plans/2026-09-22-developer-dashboard-frontend.md)
+9. [Weeks 1 and 2 backend checkpoint](WEEK1-2-CHECKPOINT.md)
+10. [Consumer Session Order Flow](CONSUMER-SESSION-ORDER-FLOW.md)
+11. [Payment Gateway Integration](PAYMENT-GATEWAY-INTEGRATION.md)
+12. [Stellar Anchor Integration](STELLAR-ANCHOR-INTEGRATION.md)
+13. [Persona KYC Runbook](PERSONA-KYC-RUNBOOK.md)
+14. [Webhook Design](WEBHOOK-DESIGN.md)
+15. [TypeScript SDK Design](TYPESCRIPT-SDK-DESIGN.md)
+16. [Security](SECURITY.md)
+17. [Observability and Runbook](OBSERVABILITY-AND-RUNBOOK.md)
+18. [Testing Strategy](TESTING-STRATEGY.md)
+19. [Implementation Phases](IMPLEMENTATION-PHASES.md)
+20. [Backend Backlog](BACKEND-BACKLOG.md)
 
 ## Parent documents
 
@@ -108,6 +110,11 @@ existing API-key-authenticated order routes. The Week 3 backend routes are:
   plaintext `pk_test_` value is returned only by key creation.
 - `POST/GET/DELETE /v1/webhook-endpoints` plus endpoint detail/test routes and
   `GET /v1/webhook-deliveries` with replay for exhausted attempts.
+
+All developer management routes require an authenticated session with Developer
+Mode enabled. API-key creation also requires approved sandbox KYC. The backend
+does not collect API request telemetry. Dashboard analytics describe orders,
+exchange activity, and webhook delivery health.
 
 All dashboard figures are sandbox estimates. The default policy is
 `sandbox-zero-fee-v1`, so revenue values are recorded as zero unless a future
