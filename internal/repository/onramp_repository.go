@@ -500,6 +500,22 @@ func appendPublicWebhookEvent(tx *gorm.DB, sourceOrderEventID, orderID, eventTyp
 	if next != "" {
 		view.Status = entity.OrderStatus(next)
 	}
+	if order.Direction == "offramp" && eventType == usecase.EventOrderCompleted {
+		var payout entity.OfframpPayout
+		if err := tx.Where("order_id = ?", orderID).First(&payout).Error; err != nil {
+			return fmt.Errorf("finding completed off-ramp payout for webhook: %w", err)
+		}
+		simulated := true
+		view.Payout = &usecase.PayoutView{
+			Reference: payout.ReferenceID, Method: payout.Method, AmountMinor: payout.AmountMinor,
+			State: payout.State, Simulated: &simulated,
+		}
+		var retirement entity.StellarTransaction
+		if err := tx.Where("order_id = ? AND purpose = ?", orderID, "retirement").First(&retirement).Error; err != nil {
+			return fmt.Errorf("finding completed off-ramp retirement for webhook: %w", err)
+		}
+		applyOfframpRetirementEvidence(&view, retirement)
+	}
 	publicID, err := platform.NewID()
 	if err != nil {
 		return err
@@ -576,7 +592,8 @@ func (r *OnrampRepository) orderView(ctx context.Context, order entity.OrderReco
 		if err := r.db.WithContext(ctx).Where("order_id = ?", order.ID).First(&payout).Error; err == nil {
 			simulation := true
 			view.Payout = &usecase.PayoutView{Reference: payout.ReferenceID, Method: payout.Method,
-				AmountMinor: payout.AmountMinor, State: payout.State, Simulated: &simulation, Disclosure: usecase.SandboxPayoutDisclosure}
+				AmountMinor: payout.AmountMinor, State: payout.State, Simulated: &simulation,
+				Disclosure: usecase.SandboxPayoutDisclosureForRetirementStatus("")}
 		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return usecase.OrderView{}, fmt.Errorf("finding payout: %w", err)
 		}
@@ -584,6 +601,12 @@ func (r *OnrampRepository) orderView(ctx context.Context, order entity.OrderReco
 			view.DepositTransactionHash = *stellar.TransactionHash
 		} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 			return usecase.OrderView{}, fmt.Errorf("finding deposit transaction: %w", err)
+		}
+		var retirement entity.StellarTransaction
+		if err := r.db.WithContext(ctx).Where("order_id = ? AND purpose = ?", order.ID, "retirement").First(&retirement).Error; err == nil {
+			applyOfframpRetirementEvidence(&view, retirement)
+		} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return usecase.OrderView{}, fmt.Errorf("finding retirement transaction: %w", err)
 		}
 	}
 	return view, nil

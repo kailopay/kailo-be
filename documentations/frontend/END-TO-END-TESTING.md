@@ -700,19 +700,22 @@ instructions. It does not move real IDR.
 6. Send the exact XLM amount to the deposit account on Stellar testnet.
 7. Include the required memo.
 8. Keep the worker running while it scans the deposit account.
-9. Refresh the order until the XLM retirement is confirmed and the order reaches
-   `withdrawal_processing`. Do not expect a payout or success message yet.
+9. Refresh the order until the deposit is accepted, retirement is recorded as
+   simulated, and the payout simulator advances it to `completed`.
 
 The expected path is:
 
 ~~~text
 asset_pending -> asset_received -> retirement_processing
-  -> withdrawal_processing
+  -> withdrawal_processing -> completed
 ~~~
 
-The order should expose the deposit transaction and retirement evidence. The
-current release does not return a payout object and does not perform a bank
-transfer.
+The order should expose the verified deposit transaction hash and, after
+completion, a deterministic simulated payout reference. New simulated
+retirements have no retirement hash or ledger time. The payout disclosure must
+say the XLM was not retired on-chain and no real IDR moved. This is not a bank
+transfer. If a previously submitted retirement hash is being reconciled, show
+the confirmed hash and matching disclosure instead.
 
 ### Postman API-key flow
 
@@ -935,8 +938,9 @@ Mark the frontend test complete only when these checks pass:
 - Order detail and activity pages poll backend status instead of guessing state
   from browser navigation.
 - Completed on-ramp orders show a Stellar testnet transaction link.
-- Off-ramp orders stop at `withdrawal_processing` after retirement because the
-  payout rail is deferred.
+- Off-ramp orders complete after exact deposit verification and simulated
+  retirement/payout; show the payout reference and disclosure, not a retirement
+  transaction link for simulated records.
 - SEP-24 discovery, deposit, withdrawal, and status polling work.
 - API errors show stable messages and preserve the request_id.
 - Sandbox and Stellar testnet labels appear on every value-movement screen.

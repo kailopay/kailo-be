@@ -86,10 +86,6 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("loading treasury secret: %w", err)
 	}
-	depositSecret, err := platform.LoadWorkerDepositSecret()
-	if err != nil {
-		return fmt.Errorf("loading deposit secret: %w", err)
-	}
 	httpClient := &http.Client{Timeout: cfg.Week1.Stellar.Timeout}
 	network, err := stellaradapter.New(stellaradapter.Config{HorizonURL: cfg.Week1.Stellar.HorizonURL,
 		NetworkPassphrase: cfg.Week1.Stellar.NetworkPassphrase, TreasurySecret: treasurySecret,
@@ -97,13 +93,20 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("creating Stellar client: %w", err)
 	}
-	// The deposit signer submits burn-address retirements from the deposit
-	// account; it is a separate client so the treasury key never signs them.
-	depositSigner, err := stellaradapter.New(stellaradapter.Config{HorizonURL: cfg.Week1.Stellar.HorizonURL,
-		NetworkPassphrase: cfg.Week1.Stellar.NetworkPassphrase, TreasurySecret: depositSecret,
-		HTTPClient: httpClient, TransactionTimeout: cfg.Week1.Worker.SubmissionTimeout})
-	if err != nil {
-		return fmt.Errorf("creating deposit signer client: %w", err)
+	simulateRetirement := cfg.Week1.Offramp.PayoutMode == platform.OfframpPayoutModeSimulated
+	var retirementNetwork usecase.Network = network
+	if !simulateRetirement {
+		depositSecret, err := platform.LoadWorkerDepositSecret()
+		if err != nil {
+			return fmt.Errorf("loading deposit secret: %w", err)
+		}
+		depositSigner, err := stellaradapter.New(stellaradapter.Config{HorizonURL: cfg.Week1.Stellar.HorizonURL,
+			NetworkPassphrase: cfg.Week1.Stellar.NetworkPassphrase, TreasurySecret: depositSecret,
+			HTTPClient: httpClient, TransactionTimeout: cfg.Week1.Worker.SubmissionTimeout})
+		if err != nil {
+			return fmt.Errorf("creating deposit signer client: %w", err)
+		}
+		retirementNetwork = depositSigner
 	}
 
 	settlementStore := repository.NewSettlementRepository(db, cfg.Week1.Worker.MaxAttempts)
@@ -113,8 +116,17 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("creating settlement service: %w", err)
 	}
 	offrampRepo := repository.NewOfframpRepository(db, cfg.Week1.Offramp.DepositAccount, usecase.StellarTestnetNetwork)
+	if simulateRetirement {
+		requeued, err := offrampRepo.RequeueUnsubmittedRetirements(ctx, time.Now().UTC(), cfg.Week1.Worker.MaxAttempts)
+		if err != nil {
+			return fmt.Errorf("requeueing unsubmitted off-ramp retirements: %w", err)
+		}
+		if requeued > 0 {
+			logger.InfoContext(ctx, "requeued unsubmitted off-ramp retirements for sandbox simulation", slog.Int64("count", requeued))
+		}
+	}
 	retireWorker := usecase.RetireWorker{Repository: offrampRepo, Intents: offrampRepo,
-		Network: depositSigner, Config: usecase.SettlementConfig{
+		Network: retirementNetwork, Simulate: simulateRetirement, Config: usecase.SettlementConfig{
 			LeaseDuration: cfg.Week1.Worker.LeaseDuration, RetryDelay: cfg.Week1.Worker.RetryDelay, Now: time.Now}}
 	payoutWorker, err := usecase.NewSandboxPayoutWorker(offrampRepo,
 		usecase.SandboxPayoutMode(cfg.Week1.Offramp.PayoutMode), time.Now)

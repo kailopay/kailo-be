@@ -501,6 +501,9 @@ type developerOrderRow struct {
 	GatewayReference       string     `gorm:"column:gateway_reference"`
 	StellarIntentID        string     `gorm:"column:stellar_intent_id"`
 	StellarTransactionHash string     `gorm:"column:stellar_transaction_hash"`
+	RetirementHash         string     `gorm:"column:retirement_hash"`
+	RetirementStatus       string     `gorm:"column:retirement_status"`
+	RetirementLedgerAt     *time.Time `gorm:"column:retirement_ledger_at"`
 	SEP24TransactionID     string     `gorm:"column:sep24_transaction_id"`
 	QuoteID                string     `gorm:"column:quote_id"`
 	WalletAccount          string     `gorm:"column:wallet_account"`
@@ -558,6 +561,9 @@ func (r *DeveloperDashboardRepository) ListOrders(ctx context.Context, query use
 		COALESCE((SELECT pc.provider_checkout_id FROM payment_checkouts pc WHERE pc.order_id = o.id ORDER BY pc.created_at DESC LIMIT 1), '') AS gateway_reference,
 		COALESCE((SELECT st.intent_id FROM stellar_transactions st WHERE st.order_id = o.id ORDER BY st.created_at DESC LIMIT 1), '') AS stellar_intent_id,
 		COALESCE((SELECT st.transaction_hash FROM stellar_transactions st WHERE st.order_id = o.id AND st.transaction_hash IS NOT NULL ORDER BY st.created_at DESC LIMIT 1), '') AS stellar_transaction_hash,
+		COALESCE((SELECT st.transaction_hash FROM stellar_transactions st WHERE st.order_id = o.id AND st.purpose = 'retirement'), '') AS retirement_hash,
+		COALESCE((SELECT st.status FROM stellar_transactions st WHERE st.order_id = o.id AND st.purpose = 'retirement' LIMIT 1), '') AS retirement_status,
+		(SELECT st.ledger_at FROM stellar_transactions st WHERE st.order_id = o.id AND st.purpose = 'retirement' LIMIT 1) AS retirement_ledger_at,
 		COALESCE((SELECT s24.transaction_id FROM sep24_transactions s24 WHERE s24.order_id = o.id ORDER BY s24.created_at DESC LIMIT 1), '') AS sep24_transaction_id,
 		COALESCE(o.quote_id, '') AS quote_id,
 		COALESCE(o.wallet_account, '') AS wallet_account,
@@ -632,7 +638,15 @@ func developerOrderFromRow(row developerOrderRow) usecase.DeveloperOrder {
 		order.LatestTransitionAt = row.LatestTransitionAt.UTC()
 	}
 	if row.PayoutReference != "" {
-		order.PayoutDisclosure = usecase.SandboxPayoutDisclosure
+		retirementStatus := row.RetirementStatus
+		if retirementStatus == "confirmed" {
+			if row.RetirementHash == "" || row.RetirementLedgerAt == nil {
+				retirementStatus = ""
+			} else {
+				order.StellarTransactionHash = row.RetirementHash
+			}
+		}
+		order.PayoutDisclosure = usecase.SandboxPayoutDisclosureForRetirementStatus(retirementStatus)
 	}
 	if row.FinancialOrderID != "" {
 		order.Financial = &usecase.DeveloperRevenueEntry{

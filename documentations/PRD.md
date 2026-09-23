@@ -49,7 +49,7 @@ KailoPay addresses the first infrastructure gap by proving the technical and pro
 | ID | Goal | Success indicator |
 |---|---|---|
 | G-01 | Demonstrate a complete IDR-to-Stellar sandbox on-ramp | A reviewer can create an order, complete a sandbox QRIS or bank-transfer payment, and inspect the resulting Stellar testnet transaction hash. |
-| G-02 | Demonstrate a complete Stellar-to-IDR sandbox off-ramp | A reviewer can initiate a sell order, submit the configured test asset, and observe the burn/retirement and withdrawal state progression. |
+| G-02 | Demonstrate a complete Stellar-to-IDR sandbox off-ramp | A reviewer can initiate a sell order, make an exact Stellar testnet XLM deposit, and observe simulated retirement and payout completion with clear no-on-chain-retirement/no-real-IDR disclosure. |
 | G-03 | Provide reusable developer infrastructure | Public REST API, `pk_test_` API key authentication, OpenAPI specification, TypeScript SDK, webhook delivery, and integration documentation are publicly reviewable. |
 | G-04 | Prove the anchor architecture | Authenticated SEP-24 deposit and withdrawal order flows, a Persona-backed sandbox KYC status gate, `stellar.toml`, and federation configuration are available on Stellar testnet. |
 | G-05 | Make completion independently verifiable | Public repository, live sandbox URLs, transaction hashes, webhook logs, test results, demo recording, and Completion Report are supplied. |
@@ -130,11 +130,16 @@ Needs: structured logs, searchable order identifiers, safe replay procedures, en
 2. System creates an off-ramp order and displays the asset deposit instructions.
 3. User transfers the test asset to the configured KailoPay testnet account or follows the SEP-24 withdrawal flow.
 4. KailoPay detects or verifies the asset transfer.
-5. KailoPay burns or retires the test asset according to the configured issuance model.
-6. KailoPay records the sandbox withdrawal instruction after retirement. The
-   provider payout step is deferred when no supported payout rail is available.
-7. User sees the retirement status, transaction hash, and the selected sandbox
-   withdrawal destination reference.
+5. After exact amount, destination, network, and memo verification, KailoPay
+   records retirement as simulated without sending a burn transaction or
+   inventing a retirement hash/ledger time. A previously submitted retirement
+   hash is reconciled normally.
+6. The sandbox payout simulator records a deterministic withdrawal reference and
+   completes the order; no real IDR is transferred.
+7. User sees the verified deposit transaction hash, completed simulated payout
+   reference, and disclosure that no real IDR moved. For a new simulated
+   retirement, the disclosure also says XLM was not retired on-chain; a prior
+   confirmed retirement is shown with its actual hash.
 
 ### 7.3 Developer API journey
 
@@ -202,7 +207,7 @@ Needs: structured logs, searchable order identifiers, safe replay procedures, en
 |---|---|---|
 | FR-030 | Committed | Stellar accounts required for issuance/distribution and processing shall be configured and funded on testnet. |
 | FR-031 | Committed | A confirmed and reconciled sandbox payment shall trigger exactly one testnet asset issuance or transfer. |
-| FR-032 | Committed | A valid off-ramp request and received asset shall trigger the configured burn or retirement transaction before completion. |
+| FR-032 | Committed | A valid off-ramp request shall require exact verified XLM deposit evidence, then record simulated retirement and payout in the current sandbox release without claiming an on-chain retirement or real IDR transfer. |
 | FR-033 | Derived | Stellar submissions shall use a unique order reference in the transaction memo or another documented correlation mechanism. |
 | FR-034 | Derived | The order shall store transaction hash, ledger/network, source, destination, asset, amount, and submission result. |
 | FR-035 | Derived | A failed or uncertain Stellar submission shall enter a recoverable state and shall not be blindly resubmitted in a way that can duplicate settlement. |
@@ -278,15 +283,15 @@ Rules:
 
 ### 9.2 Off-ramp states
 
-`created -> asset_pending -> asset_received -> burn_processing -> withdrawal_processing -> completed`
+`created -> asset_pending -> asset_received -> retirement_processing -> withdrawal_processing -> completed`
 
-Terminal or exceptional states: `expired`, `asset_invalid`, `burn_failed`, `withdrawal_failed`, `cancelled`.
+Terminal or exceptional states: `expired`, `asset_invalid`, `retirement_failed`, `withdrawal_failed`, `cancelled`.
 
 Rules:
 
-- The received asset, amount, network, and order reference must match the order.
-- Withdrawal processing cannot begin until the asset is accepted and the configured burn/retirement step succeeds.
-- `completed` requires both a Stellar transaction hash and a sandbox withdrawal/payout reference or an explicitly documented sandbox simulation result.
+- The received asset, exact amount, testnet network, destination, and order memo must match the order.
+- The current hard-coded sandbox path records retirement as simulated after exact deposit verification; it sends no burn transfer and creates no retirement hash or ledger time. A retirement hash already submitted by an earlier release must be reconciled against Stellar.
+- `completed` requires verified deposit evidence, a durable retirement outcome, and a sandbox withdrawal/payout reference. The public response must disclose that no real IDR moved and distinguish simulated retirement from any previously confirmed on-chain retirement.
 
 ## 10. Public API surface
 
@@ -373,7 +378,7 @@ Given an already processed payment callback, when the same gateway event is deli
 
 ### AC-04: Successful off-ramp
 
-Given a valid off-ramp order, when the expected test asset is received, then the asset is burned or retired, the sandbox withdrawal is initiated or demonstrably simulated, and the final order contains both on-chain and withdrawal evidence.
+Given a valid off-ramp order, when the exact expected test asset is received, then the deposit hash is retained, retirement and payout are demonstrably simulated, and the final order includes the deterministic payout reference plus explicit disclosure that the XLM was not retired on-chain and no real IDR moved.
 
 ### AC-05: Invalid Stellar account
 
@@ -404,8 +409,8 @@ sandbox flow.
 | ID | Topic | Current assumption | Required decision |
 |---|---|---|---|
 | DEC-01 | Payment gateway | Exactly one of Xendit or Midtrans is integrated for `v0.1.0`. | Select provider before gateway implementation begins. |
-| DEC-02 | Stellar asset | A non-production test asset will demonstrate issuance and burn/retirement. | Confirm asset code, issuer model, decimals, and explorer representation. |
-| DEC-03 | Off-ramp payout | Provider sandbox capability may differ from production payout behavior. | Define the acceptable evidence when a true sandbox payout is unavailable. |
+| DEC-02 | Stellar asset | Native XLM on Stellar testnet demonstrates issuance/transfer and exact off-ramp deposit verification; retirement is simulated in the current release. | Resolved by ADR-001 and ADR-006; the simulator sends no off-ramp burn transfer. |
+| DEC-03 | Off-ramp payout | The current release requires an exact deposit, then records simulated retirement and payout evidence without moving IDR. | Resolved by ADR-006; future real retirement and payout require separate reviewed implementations. |
 | DEC-04 | Application authentication | Use one unified user identity model. Retail uses a lightweight guest session; an authenticated user may opt into Developer Mode and directly own API clients; API calls use client-owned `pk_test_` keys. | Approved for `v0.1.0`: team workspaces and member-role administration are deferred. Developer Mode controls dashboard access, while explicit client/key status controls machine access. |
 | DEC-05 | Hosting | Public API, web, and anchor discovery require stable review URLs. | Select hosts and domain/subdomain layout. |
 | DEC-06 | Repository license | SOW requires a public repository with a license. | Select the open-source license before publication. |

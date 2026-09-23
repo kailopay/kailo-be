@@ -63,7 +63,7 @@ This repository package supplies the first four planning documents. The implemen
 | Architecture overview | P0 | Tech Lead | Week 1, update Week 4 | Developers, reviewers | Context and container diagrams, components, trust boundaries, payment/Stellar/webhook flows, and external dependencies match the release. |
 | Data model and state-machine reference | P0 | Backend Developer | Week 1-2 | Developers, QA, operators | Entities, relationships, precision rules, on/off-ramp states, allowed transitions, and invariants are documented. |
 | Payment gateway integration guide | P0 | Backend Developer | Week 2 | Developers, operators | Selected provider setup, sandbox methods, callback verification, reconciliation, idempotency, error mapping, and known sandbox limitations are covered. |
-| Stellar asset and settlement guide | P0 | Stellar Developer | Week 2 | Developers, reviewers | Network, accounts/roles, asset code/issuer, issuance, burn/retirement, correlation, retry safety, and explorer verification are documented without secret keys. |
+| Stellar asset and settlement guide | P0 | Stellar Developer | Week 2 | Developers, reviewers | Network, accounts/roles, asset code/issuer, issuance, exact off-ramp deposit validation, simulated-retirement evidence, hash reconciliation, retry safety, and explorer verification are documented without secret keys. |
 | SEP-24 and anchor discovery guide | P0 | Stellar Developer | Week 2-3 | Wallet developers, reviewers | `stellar.toml`, federation, deposit/withdraw endpoints, Persona sandbox KYC status gate, status mapping, and manual verification steps are documented. |
 | ADRs | P0 | Decision owner | As decisions occur | Maintainers | Each material decision records context, chosen option, alternatives, rationale, consequences, and supersession status. |
 
@@ -71,8 +71,9 @@ Recommended ADRs for `v0.1.0`:
 
 - ADR-001: Xendit and native-XLM sandbox settlement selection.
 - ADR-002: Self-hosted authentication and identity linking.
-- ADR-003: Off-ramp retirement and payout sandbox evidence model.
+- ADR-003: Historical off-ramp burn-address design; superseded for the current sandbox path by ADR-006.
 - ADR-004: Persona sandbox KYC status gate.
+- ADR-006: Hard-coded testnet simulated retirement and payout after exact deposit verification.
 - Hosting/public URL topology and any remaining material decisions are recorded
   when their options are resolved.
 
@@ -95,7 +96,7 @@ Recommended ADRs for `v0.1.0`:
 | Sandbox user guide | P0 | Product/Developer | Week 4 | Users, Ambassador reviewer | Buy, sell, status, history, and explorer-verification steps include screenshots and prominent sandbox/testnet warnings. |
 | Reviewer verification guide | P0 | Project Owner | Week 4 | Ambassador reviewer | Each SOW deliverable has a short verification procedure, expected result, and evidence link requiring minimal technical knowledge. |
 | Demo script and recording | P0 | Project Owner | Week 4 | Sponsor, public | Recording shows environment warning, QRIS/bank-transfer context, buy flow, sell flow, API/docs, testnet hashes, and known limitations. |
-| FAQ and known limitations | P1 | Product Owner | Week 4 | All users | Clearly distinguishes testnet assets, sandbox payment behavior, Persona sandbox status gating, deferred off-ramp payout, and excluded production capabilities. |
+| FAQ and known limitations | P1 | Product Owner | Week 4 | All users | Clearly distinguishes testnet assets, sandbox payment behavior, Persona sandbox status gating, simulated off-ramp retirement/payout (no on-chain retirement or real IDR), and excluded production capabilities. |
 
 ### 4.6 Quality, security, and operations documentation
 

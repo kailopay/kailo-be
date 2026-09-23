@@ -1102,9 +1102,13 @@ paths:
         Prices the sell order against current market data, then returns
         deterministic deposit instructions: send exactly the quoted XLM amount
         to the deposit account using the returned memo before expiry. After
-        verification and on-chain retirement, the order remains in
-        `withdrawal_processing` because the IDR payout rail is deferred in the
-        current release. No real IDR moves in the sandbox release. Accepts
+        verification, the worker records a simulated retirement and payout and
+        advances the order through `withdrawal_processing` to `completed`. The
+        simulator sends no burn transaction and creates no retirement hash or
+        ledger time; it discloses that XLM was not retired on-chain and no real
+        IDR moved. Any retirement hash already submitted is reconciled against
+        Stellar rather than replaced by simulated evidence; if confirmed, it is
+        returned as testnet retirement evidence with a matching disclosure. Accepts
         either an API-key principal or a verified retail session principal. A
         session-authenticated browser mutation requires an exact configured
         `Origin`, or a matching `Referer` origin when `Origin` is absent.
@@ -2355,8 +2359,12 @@ components:
             presentation_value: {type: string}
             payment_link_url: {type: string, format: uri}
             expires_at: {type: string, format: date-time, nullable: true}
-        stellar_transaction_hash: {type: string}
-        deposit_transaction_hash: {type: string}
+        stellar_transaction_hash:
+          type: string
+          description: On-chain settlement hash where one exists; simulated off-ramp retirement has no hash.
+        deposit_transaction_hash:
+          type: string
+          description: Verified off-ramp XLM deposit hash; present after the deposit is accepted.
         payout:
           type: object
           properties:
@@ -2365,7 +2373,9 @@ components:
             amount_minor: {type: string}
             state: {type: string, enum: [pending, completed, failed]}
             simulated: {type: boolean}
-            disclosure: {type: string}
+            disclosure:
+              type: string
+              description: States whether retirement was simulated or confirmed on Stellar testnet and that no real IDR moved.
         failure_code: {type: string}
         created_at: {type: string, format: date-time}
         updated_at: {type: string, format: date-time}
@@ -2821,6 +2831,9 @@ components:
         started_at: {type: string, format: date-time}
         updated_at: {type: string, format: date-time}
         stellar_transaction_id: {type: string}
+        stellar_retirement_transaction_id:
+          type: string
+          description: Confirmed off-ramp retirement hash when reconciling a previously submitted retirement; absent for simulated retirement.
         withdraw_anchor_account: {type: string}
         withdraw_memo: {type: string}
         withdraw_memo_type: {type: string, enum: [text]}
@@ -2830,7 +2843,7 @@ components:
         external_transaction_id: {type: string}
         sandbox_disclosure:
           type: string
-          description: Present for the simulated testnet payout and explicitly states that no real IDR moved.
+          description: Present for sandbox payout completion; distinguishes simulated retirement from a previously submitted retirement confirmed on Stellar testnet and states that no real IDR moved.
         more_info_url: {type: string, format: uri}
     SEP24TransactionResponse:
       type: object

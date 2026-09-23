@@ -93,11 +93,10 @@ func setValidWeek1Env(t *testing.T) {
 	t.Setenv("OFFRAMP_DEPOSIT_ACCOUNT", "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF")
 }
 
-func TestLoadReadsSEPWalletSettings(t *testing.T) {
+func TestLoadUsesHardCodedOfframpSimulationAndReadsSEPWalletSettings(t *testing.T) {
 	setValidAuthEnv(t)
 	t.Setenv("APP_ENV", "test")
 	t.Setenv("DATABASE_DSN", "host=test-db user=tester password=secret dbname=test port=5432")
-	t.Setenv("OFFRAMP_PAYOUT_MODE", "simulated")
 	t.Setenv("SEP10_SIGNING_SECRET", "SXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX")
 	t.Setenv("SEP24_TEST_AUTO_APPROVE_KYC", "true")
 
@@ -156,14 +155,18 @@ func TestLoadKeepsPersonaApprovalFlagDisabledByDefault(t *testing.T) {
 	}
 }
 
-func TestLoadRejectsUnknownOfframpPayoutMode(t *testing.T) {
+func TestLoadIgnoresOfframpPayoutModeEnvironmentOverride(t *testing.T) {
 	setValidAuthEnv(t)
 	t.Setenv("APP_ENV", "test")
 	t.Setenv("DATABASE_DSN", "host=test-db user=tester password=secret dbname=test port=5432")
-	t.Setenv("OFFRAMP_PAYOUT_MODE", "always-success")
+	t.Setenv("OFFRAMP_PAYOUT_MODE", "disabled")
 
-	if _, err := Load(); err == nil {
-		t.Fatal("Load() error = nil")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Week1.Offramp.PayoutMode != OfframpPayoutModeSimulated {
+		t.Fatalf("payout mode = %q, want hard-coded %q", cfg.Week1.Offramp.PayoutMode, OfframpPayoutModeSimulated)
 	}
 }
 
@@ -171,7 +174,6 @@ func TestLoadRejectsSimulatedOfframpPayoutOnNonTestnet(t *testing.T) {
 	setValidAuthEnv(t)
 	t.Setenv("APP_ENV", "test")
 	t.Setenv("DATABASE_DSN", "host=test-db user=tester password=secret dbname=test port=5432")
-	t.Setenv("OFFRAMP_PAYOUT_MODE", "simulated")
 	t.Setenv("STELLAR_NETWORK_PASSPHRASE", "Public Global Stellar Network ; September 2015")
 
 	if _, err := Load(); err == nil {

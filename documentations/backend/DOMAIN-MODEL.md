@@ -131,10 +131,11 @@ Invariants:
 - Creating an order requires an approved KYC inquiry for the owning user, regardless of whether the principal is an API client or a retail session.
 - State changes use optimistic versioning and a legal transition table.
 - A completed on-ramp has a reconciled payment and successful Stellar transaction.
-- A completed off-ramp has verified asset receipt, successful burn/retirement,
-  and durable payout evidence. In the testnet simulator mode, that evidence is
-  a deterministic sandbox payout record with an explicit no-real-IDR disclosure;
-  disabled mode leaves the order in `withdrawal_processing`.
+- A completed off-ramp has an exactly verified XLM deposit, a durable
+  simulated-retirement or reconciled prior-retirement record, and durable payout
+  evidence. The current sandbox simulator sends no burn transaction for new
+  orders, and discloses that no real IDR moved while accurately distinguishing
+  simulated retirement from previously confirmed on-chain retirement.
 - A failure never erases previously recorded external evidence.
 
 ### 3.4 Order event
@@ -270,7 +271,8 @@ Production PII, identity documents, AML records, and legal retention schedules a
 - No payment confirmation without a verified, matched callback.
 - No API key creation or order creation without an approved KYC inquiry.
 - No on-ramp asset movement before payment confirmation.
-- No off-ramp withdrawal before valid asset receipt and retirement.
+- No off-ramp withdrawal before exact deposit verification and durable simulated
+  retirement or reconciliation of a previously submitted retirement hash.
 - No terminal success without durable external evidence.
 - No transition from a terminal state except an explicitly modelled administrative correction in a future design.
 - No retry path can bypass reconciliation of an unknown external outcome.

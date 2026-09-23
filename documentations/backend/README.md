@@ -73,8 +73,8 @@ integration client for the public API, not a second backend runtime.
 - Verified retail sessions can create and read consumer orders on the same on-ramp/off-ramp/order-history paths; history is scoped to the user across valid sessions.
 - Hashed test API keys using the `pk_test_` prefix.
 - PostgreSQL persistence, migrations, order events, and external-reference correlation.
-- One payment gateway adapter for sandbox QRIS, bank transfer/virtual account, and callbacks. Off-ramp payout has an explicit testnet simulator selected by `OFFRAMP_PAYOUT_MODE=simulated`; it never moves real IDR.
-- Stellar testnet native-XLM transfer, deposit verification, burn/retirement, and transaction correlation.
+- One payment gateway adapter for sandbox QRIS, bank transfer/virtual account, and callbacks. Off-ramp payout is hard-coded to a testnet simulation and never moves real IDR.
+- Stellar testnet native-XLM transfer and exact off-ramp deposit verification; sandbox retirement and payout are recorded as simulated, without a burn transfer.
 - SEP-10 classic-wallet authentication, wallet-owned SEP-24 interactive deposit
   and withdrawal linking, Persona-backed sandbox KYC status gate, firm SEP-38
   quotes, public `stellar.toml`, and federation configuration.
@@ -150,8 +150,8 @@ Material design changes require an ADR and synchronized updates to affected docu
 ## Decisions required before implementation
 
 - ~~Select Xendit or Midtrans after confirming exact sandbox capabilities.~~ Resolved by ADR-001: use Xendit Payment Sessions.
-- ~~Confirm test asset code, precision, issuer/distributor accounts, and retirement method.~~ Resolved by ADR-001 and ADR-003: use native XLM on Stellar testnet and burn-address retirement.
-- ~~Agree acceptable off-ramp evidence when the selected gateway cannot execute a true sandbox payout.~~ Resolved for testnet by the simulator decision: `OFFRAMP_PAYOUT_MODE=simulated` records deterministic evidence after retirement and discloses that no real IDR moved; disabled mode remains pending.
+- ~~Confirm test asset code, precision, issuer/distributor accounts, and retirement method.~~ Native XLM and exact deposits are defined by ADR-001/003; ADR-006 supersedes on-chain burn submission for the current simulator, which records retirement as simulated.
+- ~~Agree acceptable off-ramp evidence when the selected gateway cannot execute a true sandbox payout.~~ Resolved by ADR-006: after an exact deposit, record simulated retirement and deterministic payout evidence, disclose that no real IDR moved, and accurately report any previously submitted retirement hash that reconciles as confirmed.
 - Select deployment topology, public hostnames, and managed-secret mechanism.
 - ~~Select a KYC provider and gate policy~~ Resolved by ADR-004: Persona sandbox
   status gate; only `approved` unlocks API-key and order creation.

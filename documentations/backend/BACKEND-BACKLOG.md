@@ -115,11 +115,11 @@ Acceptance: invalid/mismatched/replayed callback cannot duplicate state/settleme
 | BE-043 | Implement unknown submission reconciliation before retry. | P0 | 5 | Week 2 | BE-041 | Implemented |
 | BE-044 | Generate off-ramp deposit instructions with exact asset/amount/memo and expiry. | P0 | 3 | Week 2 | BE-025, BE-040 | Implemented (including expiry sweep) |
 | BE-045 | Detect/look up and validate off-ramp deposit transaction. | P0 | 5 | Week 2 | BE-044 | Implemented (Horizon payment-history scan) |
-| BE-046 | Implement burn/retirement worker and transaction correlation. | P0 | 5 | Week 2 | BE-045, BE-041 | Implemented as burn-address retirement (ADR-003) |
+| BE-046 | Implement off-ramp retirement handling and transaction correlation. | P0 | 5 | Week 2 | BE-045, BE-041 | Current sandbox path records simulated retirement after exact deposit; reconciles any previously submitted hash; sends no burn transfer (ADR-006) |
 | BE-047 | Link transaction hashes/explorer metadata to public order result. | P0 | 2 | Week 2-3 | BE-042, BE-046 | Blocked |
 | BE-048 | Correct public off-ramp deposit-account serialization. | P0 | 2 | Week 2 | BE-025, BE-044 | Implemented; existing `/v1/offramps` contract is covered by regression tests |
 
-Acceptance: one paid order creates one testnet settlement; wrong deposits are rejected; unknown result reconciles before retry; off-ramp payout cannot precede confirmed retirement.
+Acceptance: one paid on-ramp order creates one testnet settlement; wrong off-ramp deposits are rejected; exact deposits retain their hash evidence; unknown submitted retirement results reconcile before retry; a new sandbox retirement is explicitly simulated with no hash/ledger time before the disclosed deterministic payout completes.
 
 ### BE5: SEP-24 and discovery
 

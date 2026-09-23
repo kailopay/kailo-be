@@ -11,8 +11,10 @@ All `v0.1.0` operations use **Stellar testnet**. The release demonstrates:
 
 - A configured test asset and processing accounts.
 - On-ramp issuance or distribution after confirmed sandbox payment.
-- Off-ramp asset receipt, validation, and burn/retirement.
-- Testnet transaction hashes linked to orders.
+- Off-ramp asset receipt and exact validation; the current sandbox simulator
+  records retirement and payout as simulated and sends no burn transaction.
+- Testnet deposit/issuance transaction hashes linked to orders; simulated
+  retirements have no transaction hash.
 - Canonical SEP-10-authenticated SEP-24 deposit and withdrawal flows for classic
   Stellar wallets, including retail-session linking and Persona approval.
 - SEP-38 indicative and wallet-owned firm quotes for the supported testnet pair.
@@ -82,28 +84,35 @@ A deposit is accepted only when:
 - Transaction is successful on testnet.
 - Destination is the configured account.
 - Asset code and issuer match.
-- Amount matches the order's documented tolerance policy.
+- Amount matches the order exactly in stroops.
 - Memo/muxed/correlation identifies the order.
 - Transaction hash has not been assigned to another order.
 
-After acceptance, persist a retirement intent. Burn/retirement must be confirmed on testnet before sandbox payout begins.
+After acceptance, persist a retirement intent. In the current hard-coded
+sandbox path, if no retirement hash exists, record the intent as `simulated`
+without submitting a burn transfer or inventing a hash/ledger time, then queue
+the payout simulation. If a hash was already submitted by an earlier release,
+reconcile that exact transaction against Stellar instead.
 
 Unexpected/wrong deposits are not silently credited. Record safe evidence and follow the sandbox exception procedure.
 
 ## 5.1 Testnet payout simulator
 
-Set `OFFRAMP_PAYOUT_MODE=simulated` to enable the worker-owned sandbox payout
-adapter. It is accepted only with the Stellar testnet passphrase. After a
-confirmed retirement, the worker leases a `payout.simulate_offramp` outbox job,
-creates one deterministic `sandbox_bank_transfer` payout reference, records
-`payout.simulated`, and advances the order to `completed`.
+The current release hard-codes the worker-owned sandbox payout adapter. After
+exact deposit verification and simulated retirement (or reconciliation of a
+previously submitted retirement hash), the worker leases a
+`payout.simulate_offramp` outbox job, creates one deterministic
+`sandbox_bank_transfer` payout reference, records `payout.simulated`, and
+advances the order to `completed`.
 
 The simulator accepts any non-empty synthetic destination reference within the
 existing 200-character limit. It does not validate, contact, or transfer to a
-bank account, and every public payout/SEP-24 response says that no real IDR
-moved. If the mode is `disabled`, the order remains safely in
-`withdrawal_processing` with the payout intent pending; no false success is
-returned.
+bank account, and every public payout/SEP-24 response says no real IDR moved.
+For new simulated retirements, it also says the deposit was not retired
+on-chain; a previously submitted retirement hash that confirms is exposed as
+`stellar_retirement_transaction_id` alongside the deposit's
+`stellar_transaction_id`, with a matching disclosure. There is no runtime
+disabled mode.
 
 ## 6. Sequence numbers and concurrent submissions
 
@@ -275,7 +284,8 @@ Requirements:
 
 - Public testnet account and asset configuration.
 - Successful on-ramp transaction hash and explorer link.
-- Successful off-ramp receipt and burn/retirement transaction hashes.
+- Successful off-ramp deposit hash and corresponding simulated-retirement and
+  payout evidence; do not expect a retirement hash for new sandbox orders.
 - Order-to-transaction correlation visible in safe logs/database evidence.
 - Public valid `stellar.toml`.
 - Public federation test.

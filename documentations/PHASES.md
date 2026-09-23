@@ -38,9 +38,10 @@ Phase 0 is the opening mobilization segment inside the Phase 1 30-day window and
 
 - Confirm Xendit or Midtrans as the single sandbox provider.
 - Verify that the selected sandbox exposes QRIS, bank transfer/virtual account,
-  callbacks, and document whether a payout rail is available. The current
-  release defers off-ramp payout.
-- Choose the Stellar test asset code and issuer/distributor/burn model.
+  callbacks, and document the absence of a real payout rail; ADR-006 defines the
+  simulated payout evidence.
+- Choose the Stellar test asset code and issuer/distributor model; document exact
+  off-ramp deposit validation and simulated-retirement evidence.
 - Fund required Stellar testnet accounts and prove a small transfer.
 - Decide the repository license, hosting approach, domain/subdomain layout, and secret-management approach.
 - Establish the public repository, project structure, CI baseline, PostgreSQL, environment template, and decision log.
@@ -103,7 +104,8 @@ Week 1 gate:
 Planned work:
 
 - Connect confirmed on-ramp payment to exactly-once asset issuance/transfer.
-- Implement off-ramp asset deposit detection/verification, burn or retirement, and sandbox withdrawal processing.
+- Implement exact off-ramp asset deposit detection/verification, simulated
+  retirement evidence, and sandbox withdrawal processing without a burn transfer.
 - Persist payment, asset, and transaction correlation references.
 - Implement outgoing signed developer webhooks and retry logs.
 - Add authenticated SEP-24 interactive deposit/withdrawal order mapping and
@@ -114,7 +116,8 @@ Planned work:
 Expected evidence:
 
 - One internal on-ramp testnet transaction hash.
-- One internal off-ramp burn/retirement transaction hash.
+- One internal off-ramp deposit transaction hash plus simulated-retirement and
+  payout evidence; new simulated retirements have no on-chain retirement hash.
 - Webhook delivery log with signature metadata.
 - Public `stellar.toml` and federation URLs.
 - Basic web flow screenshots.

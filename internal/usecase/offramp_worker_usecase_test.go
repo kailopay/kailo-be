@@ -141,3 +141,102 @@ func TestDepositScannerUsesPersistedMemo(t *testing.T) {
 		t.Fatalf("matched=%d received=%v, want persisted memo to match", matched, sink.received)
 	}
 }
+
+type retirementWorkerRepositoryFake struct {
+	simulatedIntentID string
+	simulatedAt       time.Time
+}
+
+func (f *retirementWorkerRepositoryFake) SaveRetirementHash(context.Context, string, string, time.Time) error {
+	return nil
+}
+
+func (f *retirementWorkerRepositoryFake) SimulateRetirement(_ context.Context, intentID string, now time.Time) error {
+	f.simulatedIntentID = intentID
+	f.simulatedAt = now
+	return nil
+}
+
+func (f *retirementWorkerRepositoryFake) ConfirmRetirement(context.Context, string, string, time.Time) error {
+	return nil
+}
+
+func (f *retirementWorkerRepositoryFake) FailRetirement(context.Context, string, string) error {
+	return nil
+}
+
+type retirementIntentReaderFake struct {
+	intent RetirementIntent
+}
+
+func (f retirementIntentReaderFake) LoadRetirement(context.Context, string) (RetirementIntent, error) {
+	return f.intent, nil
+}
+
+type retirementNetworkFake struct {
+	buildCalls int
+	findCalls  int
+	findResult Submission
+}
+
+func (f *retirementNetworkFake) Build(context.Context, Transfer) (BuiltTransaction, error) {
+	f.buildCalls++
+	return BuiltTransaction{}, nil
+}
+
+func (*retirementNetworkFake) Submit(context.Context, BuiltTransaction) (Submission, error) {
+	return Submission{}, nil
+}
+
+func (f *retirementNetworkFake) FindByHash(context.Context, string) (Submission, error) {
+	f.findCalls++
+	return f.findResult, nil
+}
+
+func (*retirementNetworkFake) SpendableBalance(context.Context, string) (entity.Stroops, error) {
+	return 0, nil
+}
+
+func TestRetireWorkerSimulatesUnsubmittedRetirementWithoutNetwork(t *testing.T) {
+	now := time.Date(2026, 9, 22, 18, 0, 0, 0, time.UTC)
+	repository := &retirementWorkerRepositoryFake{}
+	worker := RetireWorker{
+		Repository: repository,
+		Intents: retirementIntentReaderFake{intent: RetirementIntent{
+			IntentID: "retirement-intent", OrderID: "order-id", Source: "GDEPOSIT",
+		}},
+		Config:   SettlementConfig{Now: func() time.Time { return now }},
+		Simulate: true,
+	}
+
+	if err := worker.RunOnce(context.Background(), "retirement-intent"); err != nil {
+		t.Fatalf("RunOnce() error = %v", err)
+	}
+	if repository.simulatedIntentID != "retirement-intent" || !repository.simulatedAt.Equal(now) {
+		t.Fatalf("simulated intent/time = %q/%v, want %q/%v", repository.simulatedIntentID, repository.simulatedAt, "retirement-intent", now)
+	}
+}
+
+func TestRetireWorkerReconcilesSubmittedHashBeforeSimulation(t *testing.T) {
+	repository := &retirementWorkerRepositoryFake{}
+	network := &retirementNetworkFake{findResult: Submission{Result: SubmissionPending}}
+	worker := RetireWorker{
+		Repository: repository,
+		Intents: retirementIntentReaderFake{intent: RetirementIntent{
+			IntentID: "retirement-intent", TransactionHash: "submitted-hash",
+		}},
+		Network:  network,
+		Config:   SettlementConfig{Now: time.Now},
+		Simulate: true,
+	}
+
+	if err := worker.RunOnce(context.Background(), "retirement-intent"); err != nil {
+		t.Fatalf("RunOnce() error = %v", err)
+	}
+	if network.findCalls != 1 || network.buildCalls != 0 {
+		t.Fatalf("network calls: find=%d build=%d, want find=1 build=0", network.findCalls, network.buildCalls)
+	}
+	if repository.simulatedIntentID != "" {
+		t.Fatalf("SimulateRetirement() called for submitted hash %q", repository.simulatedIntentID)
+	}
+}

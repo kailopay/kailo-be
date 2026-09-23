@@ -50,9 +50,10 @@ The Week 2 implementation includes:
 
 - Native XLM transfer on Stellar testnet from a pre-funded treasury account.
 - Off-ramp deposit instructions, exact amount and memo matching, Horizon
-  payment-history scanning, expiry handling, and burn-address retirement. The
-  payout step is intentionally deferred; new orders remain in
-  `withdrawal_processing` after retirement.
+  payment-history scanning, and expiry handling. The current sandbox path
+  records retirement and payout as simulated after exact deposit verification;
+  it sends no burn transfer and discloses that neither on-chain retirement nor
+  real IDR payout occurred.
 - Authenticated SEP-24 deposit and withdrawal initiation, transaction lookup,
   interactive transaction projection, and internal order-state mapping.
 - Persona inquiry creation or resumption, signed callback processing, durable
@@ -63,8 +64,8 @@ The Week 2 implementation includes:
 
 The Week 2 implementation uses the accepted sandbox decisions in
 `ADR-001-xendit-native-xlm.md`, `ADR-003-offramp-retirement-payout.md`,
-`ADR-004-persona-kyc-gate.md`, and the current payout deferral in
-`ADR-005-defer-offramp-payout.md`. It uses native XLM and does not claim
+`ADR-004-persona-kyc-gate.md`, and the current sandbox simulator in
+`ADR-006-testnet-simulated-offramp-payout.md`. It uses native XLM and does not claim
 production IDR movement, Stellar mainnet custody, SEP-10 wallet
 authentication, or a wallet-facing HTML SEP-24 page.
 
@@ -77,7 +78,7 @@ authentication, or a wallet-facing HTML SEP-24 page.
 | On-ramp API and order state | Implemented | Capture real QRIS and BRI Virtual Account sandbox evidence. |
 | Xendit callbacks and settlement intent | Implemented | Complete provider status reconciliation for unknown checkout outcomes. |
 | Native XLM testnet settlement | Implemented | Capture a real settlement hash and expose complete public order evidence. |
-| Off-ramp deposit and retirement | Implemented; payout deferred | Capture sell-flow evidence. A confirmed retirement leaves the order in `withdrawal_processing` until a payout rail is enabled. |
+| Off-ramp deposit and simulation | Implemented; exact deposit required | Capture sell-flow evidence, including the deposit hash, simulated retirement status (without retirement hash), deterministic payout reference, and disclosure. |
 | SEP-24 and discovery | Implemented for the authenticated sandbox flow | Keep wallet interoperability and production anchor behavior outside this checkpoint. |
 | Persona KYC gate | Implemented | Exercise signed, duplicate, invalid, and out-of-order callback cases in the release test suite. |
 | Developer webhook events | Event records and outbox intents implemented | Add SSRF policy, signing, delivery, retries, and delivery attempt history. |
@@ -97,8 +98,8 @@ implementation checkpoint:
 4. Complete webhook URL revalidation and SSRF controls, HMAC signing, the
    delivery worker, bounded retries, attempt records, and replay guidance.
 5. Complete the missing domain, gateway, Stellar, API, and concurrency tests.
-6. Enable and reconcile a real payout rail before allowing
-   `withdrawal_processing` to become `completed`.
+6. Keep simulation disclosures visible. A real payout rail and real retirement
+   operation require separate reviewed implementation before production use.
 7. Deploy the API, worker, database, discovery endpoints, and documentation
    through public HTTPS URLs, then run the formal buy and sell flows.
 
@@ -118,8 +119,9 @@ following now:
 - Public anchor discovery and authenticated JSON SEP-24 screens.
 
 The frontend must show sandbox and Stellar testnet labels, preserve
-idempotency keys across uncertain retries, and keep a sell order in a
-non-success state after retirement because the payout step is deferred.
+idempotency keys across uncertain retries, and display the completed sell
+order's payout reference with the disclosure that XLM was not retired on-chain
+and no real IDR moved.
 
 The frontend must not call provider callbacks, use a `pk_test_` key in browser
 code, treat a checkout redirect as payment confirmation, or present the

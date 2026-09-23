@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math/big"
@@ -121,8 +122,8 @@ type RetirementIntent struct {
 	TransactionHash string
 }
 
-// PayoutView is the public simulated-payout representation. Simulated is true
-// for the testnet payout mode and must surface with its disclosure in clients.
+// PayoutView is the public sandbox payout representation. Its disclosure must
+// describe the retirement evidence accurately and clarify that no real IDR moved.
 type PayoutView struct {
 	Reference   string
 	Method      string
@@ -132,7 +133,37 @@ type PayoutView struct {
 	Disclosure  string
 }
 
-const SandboxPayoutDisclosure = "No real IDR moved; this is a simulated testnet payout."
+func (view PayoutView) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Reference   string `json:"reference"`
+		Method      string `json:"method"`
+		AmountMinor string `json:"amount_minor"`
+		State       string `json:"state"`
+		Simulated   *bool  `json:"simulated,omitempty"`
+		Disclosure  string `json:"disclosure"`
+	}{
+		Reference: view.Reference, Method: view.Method,
+		AmountMinor: strconv.FormatInt(view.AmountMinor, 10), State: view.State,
+		Simulated: view.Simulated, Disclosure: view.Disclosure,
+	})
+}
+
+const (
+	SandboxPayoutDisclosure                         = "Sandbox simulation: your XLM deposit was received but not retired on-chain, and no real IDR moved."
+	SandboxPayoutAfterConfirmedRetirementDisclosure = "Sandbox simulation: the XLM retirement was confirmed on Stellar testnet, but no real IDR moved."
+	SandboxPayoutUnknownRetirementDisclosure        = "Sandbox payout simulation: no real IDR moved; check the retirement status and on-chain evidence separately."
+)
+
+func SandboxPayoutDisclosureForRetirementStatus(status string) string {
+	switch status {
+	case "simulated":
+		return SandboxPayoutDisclosure
+	case "confirmed":
+		return SandboxPayoutAfterConfirmedRetirementDisclosure
+	default:
+		return SandboxPayoutUnknownRetirementDisclosure
+	}
+}
 
 // OfframpDependencies bundles the ports the off-ramp create flow consumes.
 type OfframpDependencies struct {

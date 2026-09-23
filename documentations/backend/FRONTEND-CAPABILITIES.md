@@ -369,15 +369,18 @@ The `destination_token` is a synthetic sandbox reference. It is not a bank accou
 
 For an off-ramp, the relevant states are `asset_pending`, `asset_received`, `asset_invalid`, `retirement_processing`, `withdrawal_processing`, `completed`, `expired`, `retirement_failed`, `withdrawal_failed`, and `cancelled`.
 
-When `OFFRAMP_PAYOUT_MODE=simulated` is enabled on Stellar testnet, the worker
-records a deterministic sandbox payout after retirement and advances the order
-to `completed`. Show the payout reference together with the disclosure that no
-real IDR moved. With the mode disabled, the order remains in
-`withdrawal_processing`; do not show a completed payout message.
+The current release hard-codes a sandbox simulator. After the exact XLM deposit
+is verified, the worker records a simulated retirement without sending a burn
+transaction or creating a retirement hash, then records a deterministic payout
+and advances the order to `completed`. Show the payout reference and the
+disclosure that the XLM was not retired on-chain and no real IDR moved. Any
+retirement hash submitted by an earlier release is reconciled against Stellar,
+not replaced with simulated evidence; if confirmed, show its hash and use the
+matching disclosure that no real IDR moved.
 
 The backend records `asset_received` before it queues retirement. The stored order state can already be `retirement_processing` when the frontend polls it. Treat `asset_received` as a valid transitional state, not as a state that must appear.
 
-For an off-ramp, `order.stellar_destination` identifies the deposit account and memo. `order.deposit_transaction_hash` identifies the user's XLM deposit after the worker accepts it. A newly created order normally does not include `payout`; keep polling until the simulator either adds completed payout evidence or the disabled mode leaves the order pending.
+For an off-ramp, `order.stellar_destination` identifies the deposit account and memo. `order.deposit_transaction_hash` identifies the user's XLM deposit after the worker accepts it. A newly created order normally does not include `payout`; keep polling until the simulator adds completed payout evidence. Do not expect a retirement hash for newly simulated retirements.
 
 The shared order response includes `payment_method`, but that field is meaningful only for on-ramp orders. Use the off-ramp request's `withdrawal.method` for the selected payout destination; when present, `payout.disclosure` is authoritative and must remain visible.
 
@@ -672,7 +675,9 @@ Order errors use this shape:
 ## Do not build against these assumptions
 
 - Do not describe the on-ramp as issuing a custom token. The backend transfers pre-funded native XLM on Stellar testnet.
-- Do not show the off-ramp as a completed bank payout. Simulator completion means only that a deterministic sandbox record was written; keep the explicit no-real-IDR disclosure visible.
+- Do not show the off-ramp as an actual bank payout or on-chain retirement.
+  Simulator completion means a deterministic sandbox record was written; keep
+  the no-on-chain-retirement/no-real-IDR disclosure visible.
 - Do not assume a successful checkout redirect means the payment was confirmed.
 - Do not call Xendit, Persona, Horizon, or federation signing flows directly from the browser. The backend owns those integrations.
 - Treat developer webhooks as at-least-once delivery. Verify the signature and deduplicate by event ID before applying an event.

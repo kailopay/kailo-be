@@ -1,6 +1,6 @@
 # ADR-003: Off-Ramp Retirement and Payout Model
 
-- Status: accepted; payout-completion behavior superseded for the current release by ADR-005
+- Status: historical; current sandbox retirement and payout behavior is superseded by ADR-006
 - Date: 2026-08-24
 - Decision owners: KailoPay project owner and backend developer
 - Resolves: BE-002 (Stellar asset/retirement model) and BE-003 (off-ramp
@@ -17,7 +17,8 @@ payment gateway's sandbox offers no usable disbursement rail.
 
 ## Decision
 
-1. **Retirement by burn-address transfer.** After an off-ramp deposit is
+1. **Original retirement by burn-address transfer (not used by the current
+   sandbox path).** After an off-ramp deposit is
    verified (exact account, memo, amount match on Stellar testnet), the worker
    sends the deposited XLM from the deposit processing account to the standard
    unspendable burn address `GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWH4`.
@@ -28,7 +29,7 @@ payment gateway's sandbox offers no usable disbursement rail.
    secret key is loaded through the same dedicated loader pattern as the
    treasury secret (`LoadWorkerDepositSecret`). The API process never receives
    it.
-3. **Simulated payout with explicit reference.** After confirmed retirement,
+3. **Original simulated payout with explicit reference.** After confirmed retirement,
    the platform records a deterministic simulated payout —
    `reference_id = payout_<orderID>` in a new `offramp_payouts` table with
    state `completed` — and completes the order. Every public surface words
@@ -57,6 +58,12 @@ payment gateway's sandbox offers no usable disbursement rail.
   responses, and evidence records carry the disclosure.
 - If a real sandbox disbursement rail is enabled later, only the payout job
   changes; the retirement gate stays.
+
+ADR-006 supersedes the burn-address submission and retirement-hash requirement
+for the current hard-coded sandbox path. Exact deposit account, amount, and memo
+verification from this ADR remain required; the current flow records simulated
+retirement without a transaction hash or ledger time and discloses that XLM was
+not retired on-chain.
 
 ## Alternatives considered
 

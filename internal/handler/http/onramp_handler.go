@@ -210,10 +210,10 @@ func publicOrder(view usecase.OrderView) gin.H {
 		result["deposit_transaction_hash"] = view.DepositTransactionHash
 	}
 	if view.Payout != nil {
-		simulated := true
+		simulated := view.Payout.Simulated == nil || *view.Payout.Simulated
 		result["payout"] = gin.H{"reference": view.Payout.Reference, "method": view.Payout.Method,
 			"amount_minor": strconv.FormatInt(view.Payout.AmountMinor, 10), "state": view.Payout.State,
-			"simulated": simulated, "disclosure": "sandbox simulation; no IDR was transferred"}
+			"simulated": simulated, "disclosure": view.Payout.Disclosure}
 	}
 	if view.FailureCode != "" {
 		result["failure_code"] = view.FailureCode

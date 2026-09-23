@@ -294,7 +294,7 @@ func TestRetirementConfirmQueuesAndCompletesSandboxPayoutIdempotently(t *testing
 	if view.Status != entity.OrderStatusCompleted || view.Payout == nil || view.Payout.Reference != usecase.SandboxPayoutReference(orderID) || view.Payout.Simulated == nil || !*view.Payout.Simulated {
 		t.Fatalf("completed payout view = %+v", view)
 	}
-	if view.Payout.Disclosure != usecase.SandboxPayoutDisclosure {
+	if view.Payout.Disclosure != usecase.SandboxPayoutAfterConfirmedRetirementDisclosure {
 		t.Fatalf("payout disclosure = %q", view.Payout.Disclosure)
 	}
 	var payouts []entity.OfframpPayout

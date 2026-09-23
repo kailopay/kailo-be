@@ -49,7 +49,7 @@ A story is done when:
 |---|---|---:|---:|---|---|---|
 | KLP-001 | As the delivery team, we need a public repository, license, base README, and project structure so the work is reviewable from day one. | P0 | 2 | Phase 0 | FR-070 | Ready |
 | KLP-002 | As the team, we need to choose Xendit or Midtrans based on verified sandbox capabilities so integration risk is reduced early. | P0 | 2 | Phase 0 | DEC-01, FR-020 | Ready |
-| KLP-003 | As the team, we need to define the test asset, issuer/distributor model, and burn/retirement flow so on-chain behavior is unambiguous. | P0 | 2 | Phase 0 | DEC-02, FR-030 | Ready |
+| KLP-003 | As the team, we need to define the test asset, issuer/distributor model, and off-ramp deposit/retirement evidence so sandbox behavior is unambiguous. | P0 | 2 | Phase 0 | DEC-02, FR-030 | Ready |
 | KLP-004 | As the team, we need hosting, domain, secret-management, and review-window decisions so public evidence can be delivered reliably. | P0 | 2 | Phase 0 | DEC-05 | Ready |
 | KLP-005 | As the owner, I need a decision and risk log so unresolved assumptions do not silently change SOW scope. | P1 | 1 | Week 1 | Scope control | Ready |
 
@@ -109,7 +109,7 @@ A story is done when:
 | KLP-031 | As an on-ramp user, I receive a supported bank-transfer/virtual-account sandbox checkout so I can test a second local rail. | P0 | 3 | Week 1 | FR-021 | Blocked by KLP-002 |
 | KLP-032 | As the platform, I authenticate and reconcile gateway callbacks before accepting payment state changes. | P0 | 5 | Week 1 | FR-022-FR-025 | Blocked by KLP-002 |
 | KLP-033 | As the platform, I handle duplicate and out-of-order callbacks idempotently so token movement occurs exactly once. | P0 | 5 | Week 1-2 | FR-024, NFR-006 | Blocked by KLP-032 |
-| KLP-034 | As an off-ramp user, I receive a sandbox withdrawal/payout reference or approved simulation evidence after asset retirement. | P0 | 5 | Week 2 | FR-026, DEC-03 | Blocked by KLP-002 |
+| KLP-034 | As an off-ramp user, I receive a sandbox payout reference after exact XLM deposit and simulated-retirement evidence. | P0 | 5 | Week 2 | FR-026, DEC-03 | Blocked by KLP-002 |
 | KLP-035 | As an operator, I can correlate and inspect sanitized gateway request/callback metadata so failed tests can be explained. | P1 | 3 | Week 2 | NFR-008 | Blocked by KLP-032 |
 
 #### Epic E3 acceptance
@@ -126,7 +126,7 @@ A story is done when:
 |---|---|---:|---:|---|---|---|
 | KLP-040 | As the platform, I can connect to funded Stellar testnet processing accounts so settlement can be demonstrated. | P0 | 3 | Week 1 | FR-030 | Blocked by KLP-003 |
 | KLP-041 | As an on-ramp user, I receive the configured test asset after verified payment so the buy flow completes on-chain. | P0 | 5 | Week 2 | FR-031 | Blocked by KLP-032, KLP-040 |
-| KLP-042 | As an off-ramp user, my received test asset is verified and burned or retired before sandbox withdrawal begins. | P0 | 8 | Week 2 | FR-032 | Blocked by KLP-023, KLP-040 |
+| KLP-042 | As an off-ramp user, my exact received test asset is verified before the sandbox records simulated retirement and payout; no on-chain burn or real IDR transfer is claimed. | P0 | 8 | Week 2 | FR-032 | Blocked by KLP-023, KLP-040 |
 | KLP-043 | As an operator, I can correlate each order with a Stellar memo/reference and transaction hash so evidence is auditable. | P0 | 3 | Week 2 | FR-033, FR-034 | Blocked by KLP-041 |
 | KLP-044 | As the platform, I recover safely from uncertain or failed Stellar submissions so retries cannot duplicate asset movement. | P0 | 5 | Week 2 | FR-035, NFR-006 | Blocked by KLP-041 |
 | KLP-045 | As a reviewer, I can open a Stellar testnet explorer link from a completed order so I can verify movement independently. | P1 | 2 | Week 3 | FR-054 | Blocked by KLP-043 |

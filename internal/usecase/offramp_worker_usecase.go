@@ -11,6 +11,7 @@ import (
 // worker jobs.
 type OfframpWorkerRepository interface {
 	SaveRetirementHash(ctx context.Context, intentID, hash string, now time.Time) error
+	SimulateRetirement(ctx context.Context, intentID string, now time.Time) error
 	ConfirmRetirement(ctx context.Context, intentID, hash string, ledgerAt time.Time) error
 	FailRetirement(ctx context.Context, intentID, safeError string) error
 }
@@ -118,14 +119,15 @@ func (s DepositScanner) ScanDeposits(ctx context.Context, depositAccount string,
 	return matched, nil
 }
 
-// RetireWorker submits burn-address transactions for retirement intents.
-// It mirrors the settlement worker's safety posture: hash persisted before
-// submission, unknown outcomes reconciled by hash before any rebuild.
+// RetireWorker processes retirement intents. The sandbox path records a
+// simulated retirement when no transaction hash exists; persisted hashes are
+// always reconciled before any other action.
 type RetireWorker struct {
 	Repository OfframpWorkerRepository
 	Intents    RetirementIntentReader
 	Network    Network
 	Config     SettlementConfig
+	Simulate   bool
 }
 
 // RetirementIntentReader loads one pending retirement intent by ID.
@@ -141,14 +143,22 @@ func (w RetireWorker) RunOnce(ctx context.Context, intentID string) error {
 		return fmt.Errorf("loading retirement intent: %w", err)
 	}
 	if intent.TransactionHash != "" {
+		if w.Network == nil {
+			return errors.New("stellar network is required to reconcile a retirement hash")
+		}
 		return w.reconcile(ctx, intent.IntentID, intent.TransactionHash)
+	}
+	if w.Simulate {
+		return w.Repository.SimulateRetirement(ctx, intent.IntentID, now)
+	}
+	if w.Network == nil {
+		return errors.New("stellar network is required to submit a retirement")
 	}
 	built, buildErr := w.Network.Build(ctx, Transfer{OrderID: intent.OrderID, Source: intent.Source,
 		Destination: BurnAddress, Amount: intent.Amount, Memo: intent.Memo})
 	if buildErr != nil {
 		return fmt.Errorf("building retirement transaction: %w", buildErr)
 	}
-	_ = now
 	if built.Hash == "" || built.Envelope == "" {
 		return errors.New("Stellar adapter returned incomplete retirement transaction")
 	}

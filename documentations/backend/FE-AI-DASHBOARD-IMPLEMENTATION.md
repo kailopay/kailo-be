@@ -120,8 +120,9 @@ The order record can include:
 - the immutable financial entry when one exists.
 
 Show `environment: "sandbox"` and `network: "stellar_testnet"` on the page.
-Keep `payout_disclosure` visible for off-ramp orders. A simulated payout does
-not prove that a bank transfer occurred.
+Keep `payout_disclosure` visible for off-ramp orders. The current simulation
+also does not retire XLM on-chain; it requires a verified deposit, and the
+disclosure must remain visible beside the payout reference.
 
 ## Build the fee and revenue pages
 
@@ -266,8 +267,9 @@ empty states for `recent_orders`, `buckets`, `entries`, `orders`, `api_keys`,
 
 ## Keep the sandbox disclosures visible
 
-The backend operates on Stellar testnet XLM. The off-ramp payout simulator
-accepts synthetic payout references and does not send a real bank transfer.
+The backend operates on Stellar testnet XLM. The off-ramp simulator requires an
+exact verified deposit, records retirement without an on-chain burn, accepts
+synthetic payout references, and does not send a real bank transfer.
 Payment checkout redirects do not prove payment confirmation. Poll the order
 until the backend reports the final state.
 

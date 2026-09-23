@@ -6,16 +6,16 @@ import (
 	"testing/fstest"
 )
 
-func TestRepositoryMigrationsIncludeWebhookDeliveryVersion(t *testing.T) {
+func TestRepositoryMigrationsIncludeSimulatedOfframpRetirementVersion(t *testing.T) {
 	migrations, err := DiscoverMigrations(os.DirFS("../../migrations"))
 	if err != nil {
 		t.Fatalf("DiscoverMigrations() error = %v", err)
 	}
-	if len(migrations) != 15 {
-		t.Fatalf("migration count = %d, want 15", len(migrations))
+	if len(migrations) != 16 {
+		t.Fatalf("migration count = %d, want 16", len(migrations))
 	}
 	last := migrations[len(migrations)-1]
-	if last.Version != 15 || last.Name != "webhook_test_events" {
+	if last.Version != 16 || last.Name != "simulated_offramp_retirement" {
 		t.Fatalf("last migration = %#v", last)
 	}
 	if last.UpSQL == "" || last.DownSQL == "" {

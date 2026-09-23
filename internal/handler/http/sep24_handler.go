@@ -584,7 +584,11 @@ func (h *Sep24Handler) publicTransaction(view usecase.Sep24TransactionView) gin.
 	}
 	if view.ExternalTransactionID != "" {
 		transaction["external_transaction_id"] = view.ExternalTransactionID
-		transaction["sandbox_disclosure"] = "No real IDR moved; this is a simulated testnet payout."
+		disclosure := usecase.SandboxPayoutDisclosureForRetirementStatus("")
+		if view.Order.Payout != nil {
+			disclosure = view.Order.Payout.Disclosure
+		}
+		transaction["sandbox_disclosure"] = disclosure
 	}
 	if view.Kind == usecase.Sep24KindDeposit {
 		transaction["amount_in"] = strconv.FormatInt(int64(view.Order.FiatAmountMinor), 10)
@@ -594,7 +598,7 @@ func (h *Sep24Handler) publicTransaction(view usecase.Sep24TransactionView) gin.
 		transaction["payment_link_url"] = paymentLinkURL
 	}
 	if view.Order.StellarTransactionHash != "" {
-		transaction["stellar_transaction_id"] = view.Order.StellarTransactionHash
+		transaction["stellar_retirement_transaction_id"] = view.Order.StellarTransactionHash
 	}
 	if view.Order.DepositTransactionHash != "" {
 		transaction["stellar_transaction_id"] = view.Order.DepositTransactionHash

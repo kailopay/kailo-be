@@ -154,8 +154,10 @@ Rules:
 - Fail startup when required secrets are missing or obviously invalid.
 - `SEP24_TEST_AUTO_APPROVE_KYC=true` is accepted only with `APP_ENV=test` and
   the Stellar testnet passphrase; it is not a request-controlled bypass.
-- `OFFRAMP_PAYOUT_MODE=simulated` is testnet-only and never contacts a bank;
-  public evidence must retain the no-real-IDR disclosure.
+- The current off-ramp simulator is hard-coded, requires exact verified XLM
+  deposits, sends no burn transaction for new orders, and never contacts a bank.
+  Public evidence must disclose that no real IDR moved and accurately
+  distinguish simulated retirement from previously confirmed on-chain evidence.
 - Never echo secrets during startup or health checks.
 - Rotate exposed secrets and document testnet account replacement.
 - CI scans repository history/current changes for credential patterns.

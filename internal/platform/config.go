@@ -224,7 +224,7 @@ func Load() (Config, error) {
 			Offramp: OfframpConfig{
 				DepositAccount: strings.TrimSpace(v.GetString("offramp.deposit_account")),
 				DepositExpiry:  v.GetDuration("offramp.deposit_expiry"),
-				PayoutMode:     strings.ToLower(strings.TrimSpace(v.GetString("offramp.payout_mode"))),
+				PayoutMode:     OfframpPayoutModeSimulated,
 			},
 			Onramp: OnrampConfig{
 				QuoteTTL:       v.GetDuration("onramp.quote_ttl"),
@@ -656,7 +656,6 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("minio.region", "us-east-1")
 	v.SetDefault("minio.use_ssl", false)
 	v.SetDefault("offramp.deposit_expiry", 24*time.Hour)
-	v.SetDefault("offramp.payout_mode", OfframpPayoutModeDisabled)
 	v.SetDefault("onramp.quote_ttl", 5*time.Minute)
 	v.SetDefault("onramp.quote_max_age", 2*time.Minute)
 	v.SetDefault("onramp.quote_spread_bps", 0)
@@ -749,7 +748,6 @@ func environmentBindings() map[string]string {
 		"api_key.pepper":                   "API_KEY_PEPPER",
 		"offramp.deposit_account":          "OFFRAMP_DEPOSIT_ACCOUNT",
 		"offramp.deposit_expiry":           "OFFRAMP_DEPOSIT_EXPIRY",
-		"offramp.payout_mode":              "OFFRAMP_PAYOUT_MODE",
 		"offramp.deposit_secret":           "OFFRAMP_DEPOSIT_SECRET",
 		"onramp.quote_ttl":                 "QUOTE_TTL",
 		"onramp.quote_max_age":             "QUOTE_MAX_AGE",

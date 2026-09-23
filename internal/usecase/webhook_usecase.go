@@ -41,7 +41,7 @@ func PublicWebhookEventType(internal string) (string, bool) {
 		return EventOrderPaymentConfirmed, true
 	case "asset.received":
 		return EventOrderAssetReceived, true
-	case "stellar.transfer_requested", "retirement.requested":
+	case "stellar.transfer_requested", "retirement.requested", "retirement.simulated":
 		return EventOrderProcessing, true
 	case "stellar.transfer_confirmed", "payout.simulated":
 		return EventOrderCompleted, true

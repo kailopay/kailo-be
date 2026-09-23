@@ -173,12 +173,12 @@ Do not manually create an unrelated Stellar transfer as a shortcut; it breaks au
 
 ## 9. Runbook: asset received but withdrawal incomplete
 
-1. Verify deposit transaction matches asset, issuer, amount, destination, memo/order, and testnet.
-2. Inspect retirement intent and transaction outcome.
-3. Reconcile unknown retirement before resubmission.
-4. Confirm retirement evidence exists before payout processing.
-5. Inspect payout intent/provider status or approved simulation result.
-6. Reconcile unknown provider outcome before retry.
+1. Verify the confirmed deposit transaction matches asset, amount, destination, memo/order, and testnet.
+2. Inspect the retirement intent, its status, transaction hash, and ledger time.
+3. For the current sandbox path, `status=simulated` with no retirement hash or ledger time is expected and is not on-chain retirement evidence.
+4. If a retirement hash exists, reconcile that exact hash against Stellar; never replace an unknown submitted operation with a simulation.
+5. Inspect the payout intent and deterministic sandbox payout reference; public evidence must disclose that no on-chain retirement or real IDR payout occurred in the simulation path.
+6. Reconcile any unknown real provider outcome before retry.
 7. Update order through the application recovery path, not direct SQL state edits.
 
 ## 10. Runbook: duplicate callback

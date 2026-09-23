@@ -310,6 +310,107 @@ func (r *OfframpRepository) SaveRetirementHash(ctx context.Context, intentID, ha
 		Updates(map[string]any{"transaction_hash": hash, "status": "submitted", "attempt_count": gorm.Expr("attempt_count + 1"), "updated_at": now}).Error
 }
 
+// RequeueUnsubmittedRetirements recovers exhausted retirement jobs only when
+// their order is still processing and the pending intent has no hash.
+func (r *OfframpRepository) RequeueUnsubmittedRetirements(ctx context.Context, now time.Time, maxAttempts int) (int64, error) {
+	if maxAttempts <= 0 {
+		return 0, errors.New("maximum outbox attempts must be positive")
+	}
+
+	now = now.UTC()
+	result := r.db.WithContext(ctx).Model(&entity.OutboxMessage{}).
+		Where(`topic = ? AND processed_at IS NULL AND attempts >= ?
+			AND (lease_until IS NULL OR lease_until <= ?)
+			AND EXISTS (
+				SELECT 1 FROM stellar_transactions
+				WHERE stellar_transactions.order_id = outbox_messages.aggregate_id
+					AND stellar_transactions.purpose = 'retirement'
+					AND stellar_transactions.status = 'pending'
+					AND stellar_transactions.transaction_hash IS NULL
+					AND stellar_transactions.ledger_at IS NULL
+			)
+			AND EXISTS (
+				SELECT 1 FROM orders
+				WHERE orders.id = outbox_messages.aggregate_id
+					AND orders.direction = 'offramp'
+					AND orders.status = ?
+			)`,
+			"stellar.retire_offramp", maxAttempts, now, entity.OrderStatusRetirementProcessing).
+		Updates(map[string]any{
+			"attempts":     0,
+			"available_at": now,
+			"lease_owner":  nil,
+			"lease_until":  nil,
+			"last_error":   nil,
+		})
+	if result.Error != nil {
+		return 0, fmt.Errorf("requeueing unsubmitted retirement jobs: %w", result.Error)
+	}
+	return result.RowsAffected, nil
+}
+
+// SimulateRetirement records a sandbox-only retirement without inventing a
+// transaction hash or ledger time, then queues the payout simulation atomically.
+func (r *OfframpRepository) SimulateRetirement(ctx context.Context, intentID string, now time.Time) error {
+	return r.tx.do(ctx, func(tx *gorm.DB) error {
+		var stellar entity.StellarTransaction
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("intent_id = ? AND purpose = ?", intentID, "retirement").First(&stellar).Error; err != nil {
+			return fmt.Errorf("locking retirement intent: %w", err)
+		}
+
+		var order entity.OrderRecord
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", stellar.OrderID).First(&order).Error; err != nil {
+			return fmt.Errorf("locking retirement order: %w", err)
+		}
+		if stellar.Status == "simulated" {
+			if stellar.TransactionHash == nil && stellar.LedgerAt == nil &&
+				(entity.OrderStatus(order.Status) == entity.OrderStatusWithdrawalProcessing ||
+					entity.OrderStatus(order.Status) == entity.OrderStatusCompleted) {
+				return nil
+			}
+			return entity.ErrInvalidOrderState
+		}
+		if stellar.Status != "pending" || stellar.TransactionHash != nil || stellar.LedgerAt != nil {
+			return errors.New("retirement intent cannot be simulated after submission")
+		}
+		if order.Direction != "offramp" || entity.OrderStatus(order.Status) != entity.OrderStatusRetirementProcessing {
+			return entity.ErrInvalidOrderState
+		}
+
+		now = now.UTC()
+		stellarUpdate := tx.Model(&entity.StellarTransaction{}).
+			Where("id = ? AND status = ? AND transaction_hash IS NULL AND ledger_at IS NULL", stellar.ID, "pending").
+			Updates(map[string]any{"status": "simulated", "last_error": nil, "updated_at": now})
+		if stellarUpdate.Error != nil {
+			return fmt.Errorf("recording simulated retirement: %w", stellarUpdate.Error)
+		}
+		if stellarUpdate.RowsAffected != 1 {
+			return entity.ErrInvalidOrderState
+		}
+
+		orderUpdate := tx.Model(&entity.OrderRecord{}).Where("id = ? AND version = ? AND status = ?",
+			order.ID, order.Version, entity.OrderStatusRetirementProcessing).
+			Updates(map[string]any{"status": entity.OrderStatusWithdrawalProcessing, "version": order.Version + 1, "updated_at": now})
+		if orderUpdate.Error != nil {
+			return fmt.Errorf("moving simulated retirement order to withdrawal processing: %w", orderUpdate.Error)
+		}
+		if orderUpdate.RowsAffected != 1 {
+			return entity.ErrInvalidOrderState
+		}
+		if err := appendOrderEventFromSource(tx, order.ID, order.Version+1, "retirement.simulated", order.Status,
+			string(entity.OrderStatusWithdrawalProcessing), "worker", now); err != nil {
+			return err
+		}
+		if err := tx.Model(&entity.OutboxMessage{}).
+			Where("topic = ? AND aggregate_id = ? AND processed_at IS NULL", "stellar.retire_offramp", order.ID).
+			Updates(map[string]any{"processed_at": now, "lease_owner": nil, "lease_until": nil, "last_error": nil}).Error; err != nil {
+			return fmt.Errorf("completing simulated retirement job: %w", err)
+		}
+		return enqueueSandboxPayout(tx, order.ID, now)
+	})
+}
+
 // ConfirmRetirement records confirmation, advances the order to withdrawal
 // processing, and finishes the outbox job atomically.
 func (r *OfframpRepository) ConfirmRetirement(ctx context.Context, intentID, hash string, ledgerAt time.Time) error {
@@ -344,29 +445,34 @@ func (r *OfframpRepository) ConfirmRetirement(ctx context.Context, intentID, has
 			Updates(map[string]any{"status": entity.OrderStatusWithdrawalProcessing, "version": order.Version + 1, "updated_at": now}).Error; err != nil {
 			return fmt.Errorf("moving order to withdrawal processing: %w", err)
 		}
-		if err := appendOrderEvent(tx, order.ID, order.Version+1, "retirement.confirmed", order.Status, string(entity.OrderStatusWithdrawalProcessing), now); err != nil {
+		if err := appendOrderEventFromSource(tx, order.ID, order.Version+1, "retirement.confirmed", order.Status,
+			string(entity.OrderStatusWithdrawalProcessing), "worker", now); err != nil {
 			return err
 		}
 		if err := tx.Model(&entity.OutboxMessage{}).Where("topic = ? AND aggregate_id = ? AND processed_at IS NULL", "stellar.retire_offramp", order.ID).
 			Updates(map[string]any{"processed_at": now, "lease_owner": nil, "lease_until": nil, "last_error": nil}).Error; err != nil {
 			return err
 		}
-		payoutOutboxID, err := platform.NewID()
-		if err != nil {
-			return fmt.Errorf("generating payout outbox id: %w", err)
-		}
-		payoutPayload, err := json.Marshal(map[string]string{"order_id": order.ID})
-		if err != nil {
-			return fmt.Errorf("encoding payout outbox payload: %w", err)
-		}
-		if err := tx.Create(&entity.OutboxMessage{
-			ID: payoutOutboxID, Topic: usecase.SandboxPayoutTopic, AggregateType: "order", AggregateID: order.ID,
-			Payload: payoutPayload, CreatedAt: now, AvailableAt: now,
-		}).Error; err != nil {
-			return fmt.Errorf("creating payout outbox message: %w", err)
-		}
-		return nil
+		return enqueueSandboxPayout(tx, order.ID, now)
 	})
+}
+
+func enqueueSandboxPayout(tx *gorm.DB, orderID string, now time.Time) error {
+	payoutOutboxID, err := platform.NewID()
+	if err != nil {
+		return fmt.Errorf("generating payout outbox id: %w", err)
+	}
+	payoutPayload, err := json.Marshal(map[string]string{"order_id": orderID})
+	if err != nil {
+		return fmt.Errorf("encoding payout outbox payload: %w", err)
+	}
+	if err := tx.Create(&entity.OutboxMessage{
+		ID: payoutOutboxID, Topic: usecase.SandboxPayoutTopic, AggregateType: "order", AggregateID: orderID,
+		Payload: payoutPayload, CreatedAt: now, AvailableAt: now,
+	}).Error; err != nil {
+		return fmt.Errorf("creating payout outbox message: %w", err)
+	}
+	return nil
 }
 
 // CompleteSandboxPayout atomically records the deterministic simulated payout,
@@ -409,7 +515,8 @@ func (r *OfframpRepository) CompleteSandboxPayout(ctx context.Context, orderID, 
 					"completed_at": now.UTC(), "updated_at": now.UTC()}).Error; err != nil {
 				return fmt.Errorf("completing payout order: %w", err)
 			}
-			if err := appendOrderEvent(tx, order.ID, order.Version+1, "payout.simulated", order.Status, string(entity.OrderStatusCompleted), now.UTC()); err != nil {
+			if err := appendOrderEventFromSource(tx, order.ID, order.Version+1, "payout.simulated", order.Status,
+				string(entity.OrderStatusCompleted), "worker", now.UTC()); err != nil {
 				return err
 			}
 		}
@@ -446,7 +553,8 @@ func (r *OfframpRepository) FailRetirement(ctx context.Context, intentID, safeEr
 				"failure_stage": "stellar", "failure_retryable": false, "version": order.Version + 1, "updated_at": now}).Error; err != nil {
 			return err
 		}
-		if err := appendOrderEvent(tx, order.ID, order.Version+1, "retirement.failed", order.Status, string(entity.OrderStatusRetirementFailed), now); err != nil {
+		if err := appendOrderEventFromSource(tx, order.ID, order.Version+1, "retirement.failed", order.Status,
+			string(entity.OrderStatusRetirementFailed), "worker", now); err != nil {
 			return err
 		}
 		return tx.Model(&entity.OutboxMessage{}).Where("topic = ? AND aggregate_id = ? AND processed_at IS NULL", "stellar.retire_offramp", order.ID).
@@ -512,9 +620,16 @@ func (r *OfframpRepository) orderView(ctx context.Context, order entity.OrderRec
 	if err := r.db.WithContext(ctx).Where("order_id = ?", order.ID).First(&payout).Error; err == nil {
 		simulation := true
 		view.Payout = &usecase.PayoutView{Reference: payout.ReferenceID, Method: payout.Method,
-			AmountMinor: payout.AmountMinor, State: payout.State, Simulated: &simulation, Disclosure: usecase.SandboxPayoutDisclosure}
+			AmountMinor: payout.AmountMinor, State: payout.State, Simulated: &simulation,
+			Disclosure: usecase.SandboxPayoutDisclosureForRetirementStatus("")}
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return usecase.OrderView{}, fmt.Errorf("finding payout: %w", err)
+	}
+	var retirement entity.StellarTransaction
+	if err := r.db.WithContext(ctx).Where("order_id = ? AND purpose = ?", order.ID, "retirement").First(&retirement).Error; err == nil {
+		applyOfframpRetirementEvidence(&view, retirement)
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return usecase.OrderView{}, fmt.Errorf("finding retirement transaction: %w", err)
 	}
 	var deposit entity.StellarTransaction
 	if err := r.db.WithContext(ctx).Where("order_id = ? AND purpose = ?", order.ID, "deposit").First(&deposit).Error; err == nil && deposit.TransactionHash != nil {
@@ -523,6 +638,27 @@ func (r *OfframpRepository) orderView(ctx context.Context, order entity.OrderRec
 		return usecase.OrderView{}, fmt.Errorf("finding deposit transaction: %w", err)
 	}
 	return view, nil
+}
+
+func applyOfframpRetirementEvidence(view *usecase.OrderView, retirement entity.StellarTransaction) {
+	status := retirement.Status
+	switch retirement.Status {
+	case "simulated":
+		if retirement.TransactionHash != nil || retirement.LedgerAt != nil {
+			status = ""
+		}
+	case "confirmed":
+		if retirement.TransactionHash == nil || retirement.LedgerAt == nil {
+			status = ""
+		} else {
+			view.StellarTransactionHash = *retirement.TransactionHash
+		}
+	default:
+		status = ""
+	}
+	if view.Payout != nil {
+		view.Payout.Disclosure = usecase.SandboxPayoutDisclosureForRetirementStatus(status)
+	}
 }
 
 func strPtr(value string) *string { return &value }

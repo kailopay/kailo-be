@@ -234,7 +234,7 @@ services:
             MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
             MINIO_USE_SSL: ${MINIO_USE_SSL:-true}
             STELLAR_TREASURY_SECRET: ${STELLAR_TREASURY_SECRET:?STELLAR_TREASURY_SECRET is required}
-            OFFRAMP_DEPOSIT_SECRET: ${OFFRAMP_DEPOSIT_SECRET:?OFFRAMP_DEPOSIT_SECRET is required}
+            OFFRAMP_DEPOSIT_SECRET: ${OFFRAMP_DEPOSIT_SECRET:-}
         depends_on:
             postgres:
                 condition: service_healthy

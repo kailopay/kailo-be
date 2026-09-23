@@ -5,7 +5,7 @@
 Testing must prove both business outcomes and failure safety:
 
 - A verified payment causes one on-ramp settlement.
-- A verified asset deposit and retirement precede one off-ramp withdrawal result.
+- An exactly verified asset deposit precedes simulated retirement and one off-ramp withdrawal result; simulation never fabricates on-chain evidence.
 - Duplicates, concurrency, timeouts, and unknown external outcomes do not create duplicate value movement.
 - Only users with approved Persona sandbox KYC status can create API keys or orders.
 - Public API, SEP-24, and webhook behavior match their contracts.
@@ -123,8 +123,10 @@ Testnet evidence tests:
 
 - Successful on-ramp issuance/transfer.
 - Successful off-ramp deposit detection.
-- Successful burn/retirement.
-- Stored hashes resolve on a public testnet explorer and match order evidence.
+- Exact successful off-ramp deposit detection and explorer-resolvable deposit hash.
+- Simulated retirement has no hash or ledger time; any retirement hash persisted
+  before the simulator release is reconciled against Stellar rather than
+  replaced with simulated evidence.
 
 Tests must not assume instant ledger availability; use bounded polling with meaningful timeout diagnostics.
 
@@ -179,8 +181,9 @@ Tests must not assume instant ledger availability; use bounded polling with mean
   and lookup by protocol/Stellar/external ID.
 - SEP-38 firm quote creation, ownership, expiry, exact amounts, one-time
   consumption, and SEP-24 quote correlation.
-- Testnet payout simulator completion, disabled-mode pending behavior, unique
-  payout/reference rows, outbox retry, and explicit no-real-IDR disclosure.
+- Testnet payout simulator completion after exact deposit verification, unique
+  payout/reference rows, outbox retry/recovery, and explicit no-on-chain-retirement
+  and no-real-IDR disclosure.
 - Persona sandbox inquiry/status behavior, approved-only gating, and explicit
   non-production KYC wording.
 - Federation valid lookup, unknown name, malformed query, and safe output.
@@ -214,9 +217,10 @@ Create on-ramp order using supported sandbox bank transfer/virtual account and v
 
 Authenticate an external classic wallet with SEP-10, start an SEP-24 off-ramp,
 link a KailoPay retail session, complete the approved-KYC (or guarded test)
-flow, send the correct test asset with correlation data, detect deposit, retire
-the asset, run the sandbox payout simulator, and capture both Stellar and
-disclosed withdrawal evidence.
+flow, send the exact test asset with correlation data, detect and capture the
+deposit hash, record simulated retirement without a burn transaction, run the
+sandbox payout simulator, and capture disclosed withdrawal evidence. Any
+previously submitted retirement hash must be reconciled, not simulated over.
 
 The SOW requires at least two documented flows. The release target should run QRIS buy and sell as the mandatory pair; bank-transfer buy is also required to demonstrate the promised method.
 

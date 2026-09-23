@@ -222,10 +222,14 @@ reconciliation.
 Deposit responses also include the sandbox-specific `payment_link_url` when a
 hosted checkout was created. Withdrawal responses do not include this field.
 `/sep24/deposit` and `/sep24/withdraw` are retained as local compatibility
-aliases. When `OFFRAMP_PAYOUT_MODE=simulated` is enabled on Stellar testnet,
-retirement queues a deterministic sandbox payout and completes the order; the
-optional payout evidence keeps its existing shape and explicitly discloses that
-no real IDR moved. `disabled` leaves the order in `withdrawal_processing`.
+aliases. The current release hard-codes simulated off-ramp settlement: an exact
+XLM deposit is still required, then the worker records a simulated retirement
+without sending a burn transaction or inventing a retirement hash, queues a
+deterministic sandbox payout, and completes the order. Payout evidence keeps
+its existing shape and discloses that no real IDR moved. New simulated
+retirements also disclose that XLM was not retired on-chain; a previously
+submitted retirement hash that confirms is surfaced as testnet evidence rather
+than replaced with simulated evidence.
 
 ### SEP-38 quote server
 

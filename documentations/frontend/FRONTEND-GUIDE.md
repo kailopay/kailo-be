@@ -371,7 +371,7 @@ gently, e.g. every 3-5 seconds while `payment_pending`, and back off after.
 
 Do not build against any of these:
 
-- ~~Off-ramp / sell flow~~ now implemented: `POST /v1/offramps` creates sell orders with quote and deposit instructions. After the deposit is verified and XLM is retired, the order remains in `withdrawal_processing` because the payout rail is deferred. A completed payout object is not returned in the current release.
+- ~~Off-ramp / sell flow~~ now implemented: `POST /v1/offramps` creates sell orders with quote and exact-deposit instructions. After the deposit is verified, the sandbox records retirement and payout as simulated and completes the order. Show the deposit hash and payout reference with the disclosure that no real IDR moved; for newly simulated retirements also state XLM was not retired on-chain. A previously confirmed retirement hash is shown with its matching disclosure.
 - Outgoing developer webhooks (event subscription UI has no backend yet).
 - A wallet-facing SEP-24 UI. The backend SEP-24 interactive endpoints,
   `stellar.toml`, and federation are available for authenticated sandbox use.
