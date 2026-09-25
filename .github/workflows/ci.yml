@@ -39,6 +39,14 @@ jobs:
           set -e
 
           if [ "$status" -ne 0 ]; then
+            jq -rs '
+              [ .[] | select(.Action == "fail")
+                | (.Package // "unknown package") + (if .Test == null then "" else "/" + .Test end)
+              ]
+              | unique[]
+              | "::error::Race test failed: " + .
+            ' "$RUNNER_TEMP/race-tests.json"
+
             {
               printf '## Race-test failure details\n\n'
               jq -rs '
