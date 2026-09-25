@@ -57,19 +57,25 @@ func PublicWebhookEventType(internal string) (string, bool) {
 // ErrInvalidWebhookURL rejects endpoints that fail the activation policy.
 var ErrInvalidWebhookURL = errors.New("webhook URL must be https with a public host")
 
+// ErrInvalidWebhookEventType indicates a requested subscription is not part of
+// the public webhook event catalog.
+var ErrInvalidWebhookEventType = errors.New("invalid webhook event type")
+
 // WebhookEndpointRepository is the persistence port for developer endpoint
 // management.
 type WebhookEndpointRepository interface {
 	CreateEndpoint(ctx context.Context, record WebhookEndpointRecord, secretReference []byte) (string, error)
-	ListEndpoints(ctx context.Context, clientID string) ([]WebhookEndpointView, error)
-	DisableEndpoint(ctx context.Context, clientID, endpointID string) error
+	ListEndpoints(ctx context.Context, ownerID string) ([]WebhookEndpointView, error)
+	DisableEndpoint(ctx context.Context, ownerID, endpointID string) error
 }
 
 // WebhookEndpointRecord is a new registration.
 type WebhookEndpointRecord struct {
-	ClientID   string
-	URL        string
-	EventTypes []string
+	ID          string
+	OwnerUserID string
+	URL         string
+	EventTypes  []string
+	CreatedAt   time.Time
 }
 
 // WebhookEndpointView is safe metadata; the signing secret never round-trips.
@@ -116,8 +122,8 @@ func newWebhookUsecase(repository WebhookEndpointRepository, newID func() (strin
 
 // Register validates the URL against the activation policy, stores the
 // endpoint, and returns its ID with the one-time plaintext signing secret.
-func (s *WebhookUsecase) Register(ctx context.Context, clientID, rawURL string, eventTypes []string) (string, string, error) {
-	if clientID == "" || len(rawURL) > 2048 || !isDeliverableWebhookURL(rawURL) {
+func (s *WebhookUsecase) Register(ctx context.Context, ownerID, rawURL string, eventTypes []string) (string, string, error) {
+	if strings.TrimSpace(ownerID) == "" || len(rawURL) > 2048 || !isDeliverableWebhookURL(rawURL) {
 		return "", "", ErrInvalidWebhookURL
 	}
 	if s.resolver != nil {
@@ -134,7 +140,7 @@ func (s *WebhookUsecase) Register(ctx context.Context, clientID, rawURL string, 
 	}
 	for _, eventType := range eventTypes {
 		if !isKnownEventType(eventType) {
-			return "", "", fmt.Errorf("unknown event type %q", eventType)
+			return "", "", fmt.Errorf("%w: %q", ErrInvalidWebhookEventType, eventType)
 		}
 	}
 	secretBytes := make([]byte, 32)
@@ -154,20 +160,19 @@ func (s *WebhookUsecase) Register(ctx context.Context, clientID, rawURL string, 
 		}
 	}
 	storedID, err := s.repository.CreateEndpoint(ctx, WebhookEndpointRecord{
-		ClientID: clientID, URL: rawURL, EventTypes: eventTypes}, secretReference)
+		ID: id, OwnerUserID: ownerID, URL: rawURL, EventTypes: eventTypes, CreatedAt: s.now().UTC()}, secretReference)
 	if err != nil {
 		return "", "", err
 	}
-	_ = id
 	return storedID, secret, nil
 }
 
-func (s *WebhookUsecase) List(ctx context.Context, clientID string) ([]WebhookEndpointView, error) {
-	return s.repository.ListEndpoints(ctx, clientID)
+func (s *WebhookUsecase) List(ctx context.Context, ownerID string) ([]WebhookEndpointView, error) {
+	return s.repository.ListEndpoints(ctx, ownerID)
 }
 
-func (s *WebhookUsecase) Disable(ctx context.Context, clientID, endpointID string) error {
-	return s.repository.DisableEndpoint(ctx, clientID, endpointID)
+func (s *WebhookUsecase) Disable(ctx context.Context, ownerID, endpointID string) error {
+	return s.repository.DisableEndpoint(ctx, ownerID, endpointID)
 }
 
 // isDeliverableWebhookURL enforces the Week 2 activation policy: HTTPS with

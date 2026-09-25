@@ -208,3 +208,24 @@ func TestWebhookSecretBoxDoesNotPersistPlaintext(t *testing.T) {
 		t.Fatalf("Unprotect() = %q, %v; want original secret", got, err)
 	}
 }
+
+func TestWebhookSecretBoxAcceptsConfiguredPepperLongerThanAESKey(t *testing.T) {
+	pepper := []byte(strings.Repeat("p", 64))
+	box, err := NewWebhookSecretBox(pepper)
+	if err != nil {
+		t.Fatalf("NewWebhookSecretBox() error = %v", err)
+	}
+
+	protected, err := box.Protect("whsec_test")
+	if err != nil {
+		t.Fatalf("Protect() error = %v", err)
+	}
+
+	reopenedBox, err := NewWebhookSecretBox(pepper)
+	if err != nil {
+		t.Fatalf("NewWebhookSecretBox() with the same pepper error = %v", err)
+	}
+	if got, err := reopenedBox.Unprotect(protected); err != nil || got != "whsec_test" {
+		t.Fatalf("Unprotect() = %q, %v; want original secret", got, err)
+	}
+}

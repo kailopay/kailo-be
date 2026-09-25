@@ -52,6 +52,7 @@ Payloads contain the public order representation or a documented stable subset, 
 Registration requirements:
 
 - HTTPS URL for hosted review; local development may use explicitly allowed tunnel tooling.
+- Registration is scoped to the signed-in developer. If the developer has no test API client yet, create one in the same transaction and reuse it for later test API keys.
 - Resolve and validate URL against SSRF rules before activation and again immediately before delivery.
 - Reject loopback, link-local, private network, metadata-service, embedded-credential, and unsupported-port destinations unless an explicit safe local-development mode is active.
 - Re-resolve and revalidate at delivery time to reduce DNS rebinding risk.

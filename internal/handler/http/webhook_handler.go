@@ -61,8 +61,12 @@ func (h *WebhookHandler) Create(c *gin.Context) {
 	}
 	id, secret, err := h.service.Register(c.Request.Context(), user.User.ID, request.URL, request.EventTypes)
 	if err != nil {
-		if errors.Is(err, usecase.ErrInvalidWebhookURL) {
+		switch {
+		case errors.Is(err, usecase.ErrInvalidWebhookURL):
 			c.JSON(http.StatusBadRequest, gin.H{"error": "webhook URL must be https with a public host"})
+			return
+		case errors.Is(err, usecase.ErrInvalidWebhookEventType):
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid webhook event type"})
 			return
 		}
 		h.logger.ErrorContext(c.Request.Context(), "registering webhook endpoint failed", slog.Any("error", err))
@@ -94,7 +98,7 @@ func (h *WebhookHandler) Disable(c *gin.Context) {
 		return
 	}
 	if err := h.service.Disable(c.Request.Context(), user.User.ID, c.Param("id")); err != nil {
-		if err.Error() == "webhook endpoint not found" {
+		if errors.Is(err, usecase.ErrWebhookEndpointNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "endpoint not found"})
 			return
 		}

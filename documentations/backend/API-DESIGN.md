@@ -159,6 +159,10 @@ are serialized as strings. The default immutable financial policy is
 `sandbox-zero-fee-v1`; its revenue figures are estimates and do not represent
 real fiat earnings.
 
+Webhook registration creates the owner's test API client if one does not yet
+exist. Later test API keys reuse that client; creating an API key still requires
+approved Persona sandbox KYC.
+
 Webhook consumers receive the canonical raw JSON body with these headers:
 
 ```text

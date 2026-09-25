@@ -44,6 +44,17 @@ This status does not mark the remaining P0 evidence, reconciliation, webhook,
 testing, deployment, or release work as done. The status column below remains
 the source of truth for each story.
 
+Owner-confirmed update on 2026-09-25:
+
+- The web app is live at `https://kailopay.com`.
+- The backend API is live at `https://api.kailopay.com`.
+- The TypeScript SDK is published at `https://www.npmjs.com/package/@kailopay/sdk`.
+- The project owner confirms that the Week 1 sandbox flows were tested. The
+  formal run records are not linked in this repository yet.
+
+The [completion report draft](COMPLETION-REPORT-DRAFT.md) records these
+confirmations and separates them from evidence that still needs to be attached.
+
 ### BE0: Decisions and foundation
 
 | ID | Story | Pri | SP | Target | Dependency | Status |
@@ -52,7 +63,7 @@ the source of truth for each story.
 | BE-002 | Define Stellar test asset/accounts/retirement and record ADR. | P0 | 2 | Phase 0 | Testnet access | Implemented by ADR-001 and ADR-003 (native XLM and burn-address retirement) |
 | BE-003 | Decide off-ramp sandbox evidence fallback and document wording. | P0 | 1 | Phase 0 | BE-001 | Implemented by ADR-003; formal sell evidence remains open |
 | BE-004 | Select Auth0 email login with KailoPay-owned PostgreSQL retail sessions for test-key management. | P0 | 2 | Phase 0 | Product decision | Superseded by ADR-002 self-hosted auth |
-| BE-005 | Decide hosting, public URL topology, and managed secrets. | P0 | 2 | Phase 0 | Hosting access | Ready |
+| BE-005 | Decide hosting, public URL topology, and managed secrets. | P0 | 2 | Phase 0 | Hosting access | In Review; app and API URLs are owner-confirmed, deployment and secret-management evidence still needs a release record |
 | BE-006 | Initialize Go module, dependency lock files, commands, license, and package layout. | P0 | 2 | Phase 0 | None | Implemented with MIT license |
 | BE-007 | Configure CI build, lint, unit/integration test, dependency, and secret scans. | P1 | 3 | Week 1 | BE-006 | Implemented (build/vet/race tests, Postgres integration job, gitleaks); lint beyond gofmt pending |
 
@@ -191,10 +202,10 @@ Acceptance: an order is traceable across all systems; secrets are absent from lo
 | BE-083 | Build gateway callback replay/mismatch/timeout/reconciliation tests. | P0 | 5 | Week 1-2 | BE-033-BE-036 | Blocked |
 | BE-084 | Build Stellar success/failure/unknown/deposit-validation tests and testnet harness. | P0 | 5 | Week 2 | BE-041-BE-046 | Blocked |
 | BE-085 | Build webhook signing/retry/SSRF test suite. | P0 | 5 | Week 3 | BE-061-BE-065 | Implemented for unit and repository integration coverage; external HTTPS receiver evidence pending |
-| BE-086 | Deploy migration, API, worker, database, discovery, and docs through public HTTPS URLs. | P0 | 5 | Week 3 | BE-005, core flows | Blocked |
-| BE-087 | Run/capture formal QRIS buy, bank-transfer buy, and sell E2E evidence. | P0 | 5 | Week 3 | BE-086 | Blocked |
-| BE-088 | Finalize OpenAPI, backend docs, test results, limitations, and Completion Report inputs. | P0 | 3 | Week 4 | BE-087 | Blocked |
-| BE-089 | Execute final security/secret/dependency/regression gate and tag `v0.1.0`. | P0 | 3 | Week 4 | All P0 | Blocked |
+| BE-086 | Deploy migration, API, worker, database, discovery, and docs through public HTTPS URLs. | P0 | 5 | Week 3 | BE-005, core flows | In Review; app/API docs, Stellar TOML, documented federation lookup, SEP-24 info, and liveness returned HTTP 200 on 2026-09-25; deployment/secret-management records remain |
+| BE-087 | Run/capture formal QRIS buy, bank-transfer buy, and sell E2E evidence. | P0 | 5 | Week 3 | BE-086 | Blocked; Week 1 testing is owner-confirmed, but formal buy/sell records and transaction hashes are not linked here |
+| BE-088 | Finalize OpenAPI, backend docs, test results, limitations, and Completion Report inputs. | P0 | 3 | Week 4 | BE-087 | In Progress; release notes and verification results recorded; formal E2E evidence and off-ramp acceptance remain |
+| BE-089 | Execute final security/secret/dependency/regression gate and tag `v0.1.0`. | P0 | 3 | Week 4 | All P0 | In Review; local format/vet/build/race/PostgreSQL checks pass; CI secret scan and release tag are pending |
 
 Acceptance: tests and scans pass on the release commit; public URLs/evidence match the tag; E2E hashes/references are valid; no P0 document contains unresolved implementation placeholders.
 
@@ -202,11 +213,11 @@ Acceptance: tests and scans pass on the release commit; public URLs/evidence mat
 
 | ID | Story | Pri | SP | Target | Dependency | Status |
 |---|---|---:|---:|---|---|---|
-| BE-090 | Define the TypeScript SDK public client, runtime/module support, versioning, and compatibility policy. | P0 | 2 | Week 3 | BE-028 | Blocked |
-| BE-091 | Implement typed on-ramp/off-ramp create and order retrieve/list methods against the OpenAPI contract. | P0 | 5 | Week 3 | BE-028, BE-090 | Blocked |
-| BE-092 | Implement exact amount serialization, idempotency propagation, timeouts, safe retries, and typed error mapping. | P0 | 5 | Week 3 | BE-091 | Blocked |
-| BE-093 | Implement framework-neutral webhook signature verification using raw body bytes and constant-time comparison. | P0 | 3 | Week 3 | BE-066, BE-090 | Blocked |
-| BE-094 | Add Node.js/type/package/API contract tests, documentation, examples, and browser API-key warning. | P0 | 5 | Week 3 | BE-091-BE-093 | Blocked |
+| BE-090 | Define the TypeScript SDK public client, runtime/module support, versioning, and compatibility policy. | P0 | 2 | Week 3 | BE-028 | In Review; package is published per project owner, compatibility details are not linked here |
+| BE-091 | Implement typed on-ramp/off-ramp create and order retrieve/list methods against the OpenAPI contract. | P0 | 5 | Week 3 | BE-028, BE-090 | In Review; package is published per project owner, method coverage needs a linked acceptance check |
+| BE-092 | Implement exact amount serialization, idempotency propagation, timeouts, safe retries, and typed error mapping. | P0 | 5 | Week 3 | BE-091 | In Review; package is published per project owner, behavior checks need a linked result |
+| BE-093 | Implement framework-neutral webhook signature verification using raw body bytes and constant-time comparison. | P0 | 3 | Week 3 | BE-066, BE-090 | In Review; package is published per project owner, signature-vector verification needs a linked result |
+| BE-094 | Add Node.js/type/package/API contract tests, documentation, examples, and browser API-key warning. | P0 | 5 | Week 3 | BE-091-BE-093 | In Review; package is published per project owner, package tests and docs need a linked review |
 
 Acceptance: the SDK remains a thin TypeScript client; contract tests pass against the Go API; exact amounts are preserved; webhook vectors verify; API keys are never embedded in browser examples or emitted in errors/logs.
 

@@ -14,6 +14,14 @@ acceptance.
 See [Weeks 1 and 2 backend checkpoint](WEEK1-2-CHECKPOINT.md) for the complete
 status, Week 2 result, and frontend handoff.
 
+## Owner-confirmed test update
+
+On 2026-09-25, the project owner confirmed that the Week 1 sandbox flows were
+tested. The test artifacts are not linked here yet. Keep the screenshot,
+callback-log, and transaction-hash items below open until their records are
+attached. See the [completion report draft](COMPLETION-REPORT-DRAFT.md) for
+the current public URLs and release evidence status.
+
 ## Repository and contract
 
 - [x] Public GitHub repository URL: `https://github.com/kailopay/kailo-be` (verified reachable on 2026-09-09).

@@ -269,8 +269,11 @@ func TestRetirementConfirmQueuesAndCompletesSandboxPayoutIdempotently(t *testing
 			t.Fatalf("webhook event %d type = %q, want %q", index, webhookEvents[index].EventType, wantType)
 		}
 	}
-	if countRows(t, db, &entity.OutboxMessage{}) != 2 {
-		t.Fatal("expected retirement and sandbox payout outbox rows")
+	if countRowsForTopic(t, db, "stellar.retire_offramp") != 1 {
+		t.Fatal("expected one retirement outbox row")
+	}
+	if countRowsForTopic(t, db, usecase.SandboxPayoutTopic) != 1 {
+		t.Fatal("expected one sandbox payout outbox row")
 	}
 	var payoutOutbox entity.OutboxMessage
 	if err := db.Where("topic = ? AND aggregate_id = ?", usecase.SandboxPayoutTopic, orderID).First(&payoutOutbox).Error; err != nil {

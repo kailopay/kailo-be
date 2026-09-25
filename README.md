@@ -18,6 +18,18 @@ The backend is intentionally implemented in Go. For this repository, that is
 the accepted implementation of the SOW's Node.js/TypeScript backend wording;
 the separate TypeScript SDK remains available for Node.js integrations.
 
+## Live sandbox
+
+The project owner confirmed these public locations on 2026-09-25:
+
+- Web app: [kailopay.com](https://kailopay.com)
+- Backend API: [api.kailopay.com](https://api.kailopay.com)
+- TypeScript SDK: [@kailopay/sdk on npm](https://www.npmjs.com/package/@kailopay/sdk)
+
+See the [completion report draft](documentations/backend/COMPLETION-REPORT-DRAFT.md)
+for test status, evidence links, and remaining SOW acceptance items. See the
+[v0.1.0 release notes](CHANGELOG.md) for the sandbox scope and limitations.
+
 ## Layout minimum
 
 ```text

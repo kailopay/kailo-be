@@ -10,6 +10,8 @@ This folder is the planning and delivery baseline derived from the KailoPay Inst
 | [Delivery Phases](PHASES.md) | Maps the committed 30-day Instaward delivery and separates future production/mainnet phases. | Draft for review |
 | [Product Backlog](BACKLOG.md) | Provides prioritized epics and stories with dependencies, story points, requirement traceability, and acceptance criteria. | Initial backlog |
 | [Documentation Plan](DOCUMENTATION-PLAN.md) | Defines all product, API, engineering, QA, operations, evidence, and future production documents required. | Draft for review |
+| [Completion Report Draft](backend/COMPLETION-REPORT-DRAFT.md) | Records owner-confirmed URLs and test status, maps the SOW evidence, and lists release items that still need proof or approval. | Draft, not final acceptance |
+| [v0.1.0 Release Notes](../CHANGELOG.md) | Records the sandbox/testnet release scope, verification performed, and limitations. | Release record; SOW acceptance remains partial |
 | [Frontend Guide](frontend/FRONTEND-GUIDE.md) | Handoff for frontend developers/agents: implemented API surface, contracts, UI rules, and current limitations. | Living document |
 | [Frontend end-to-end testing](frontend/END-TO-END-TESTING.md) | Step-by-step local sandbox test sequence for authentication, Persona KYC, API keys, orders, callbacks, Stellar testnet, and SEP-24. | Living document |
 

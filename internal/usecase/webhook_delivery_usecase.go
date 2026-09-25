@@ -62,7 +62,13 @@ type WebhookSecretBox struct {
 }
 
 func NewWebhookSecretBox(key []byte) (*WebhookSecretBox, error) {
-	block, err := aes.NewCipher(key)
+	cipherKey := key
+	if len(key) > 32 {
+		keyMAC := hmac.New(sha256.New, key)
+		_, _ = keyMAC.Write([]byte("kailopay/webhook-secret-box/v1"))
+		cipherKey = keyMAC.Sum(nil)
+	}
+	block, err := aes.NewCipher(cipherKey)
 	if err != nil {
 		return nil, fmt.Errorf("creating webhook secret cipher: %w", err)
 	}

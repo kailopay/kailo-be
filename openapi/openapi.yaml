@@ -764,7 +764,9 @@ paths:
         Registers an HTTPS endpoint for sandbox order-lifecycle events. The
         endpoint must use a public host without embedded credentials. The
         signing secret is returned only once. Delivery is at-least-once and
-        can be inspected or replayed through the delivery routes.
+        can be inspected or replayed through the delivery routes. If the
+        developer has no test API client, registration creates one for later
+        reuse by test API keys.
       security:
         - kailoSession: []
       requestBody:
