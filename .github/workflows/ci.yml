@@ -33,8 +33,9 @@ jobs:
         run: go build ./...
       - name: Unit tests (race enabled)
         run: |
+          packages=$(go list ./... | grep -v '/internal/repository$')
           set +e
-          go test -race -json ./... > "$RUNNER_TEMP/race-tests.json"
+          go test -race -json $packages > "$RUNNER_TEMP/race-tests.json"
           status=$?
           set -e
 
@@ -86,7 +87,7 @@ jobs:
           go-version-file: go.mod
           cache: true
       - name: Apply migrations and run integration suite
-        run: go test ./internal/repository/ -count=1 -v
+        run: go test -race ./internal/repository/ -count=1 -v
 
   secrets:
     name: secret scan

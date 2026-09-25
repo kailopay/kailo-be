@@ -29,6 +29,9 @@ Testing must prove both business outcomes and failure safety:
 
 - Unit/integration CI uses deterministic fake gateway and Stellar adapters.
 - PostgreSQL tests run against the same supported major version as deployment. Set `TEST_DATABASE_DSN` to a disposable database to run the repository integration suite in `internal/repository`; the tests apply the versioned migrations and verify constraints and transactions. Local runs skip when the variable is unset; CI runs fail fast instead of silently omitting this coverage.
+- The general CI race job excludes `internal/repository`, because those tests
+  require PostgreSQL. The PostgreSQL CI job sets `TEST_DATABASE_DSN` and runs
+  that package with the race detector enabled.
 - Real provider sandbox tests are tagged and run manually or in protected CI with sandbox secrets.
 - Stellar testnet tests use dedicated accounts/assets and handle network flakiness explicitly.
 - API integration tests configure `HTTP_ALLOWED_ORIGINS` with exact local or
