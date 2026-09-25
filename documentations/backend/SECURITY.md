@@ -160,7 +160,9 @@ Rules:
   distinguish simulated retirement from previously confirmed on-chain evidence.
 - Never echo secrets during startup or health checks.
 - Rotate exposed secrets and document testnet account replacement.
-- CI scans repository history/current changes for credential patterns.
+- CI runs the pinned Gitleaks CLI against the Git commit range introduced by
+  each push or pull request. Review the full repository history separately when
+  auditing inherited commits.
 
 ## 10. Database security
 

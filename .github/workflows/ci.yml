@@ -32,7 +32,25 @@ jobs:
       - name: Build
         run: go build ./...
       - name: Unit tests (race enabled)
-        run: go test -race ./...
+        run: |
+          set +e
+          go test -race -json ./... > "$RUNNER_TEMP/race-tests.json"
+          status=$?
+          set -e
+
+          if [ "$status" -ne 0 ]; then
+            {
+              printf '## Race-test failure details\n\n'
+              jq -rs '
+                group_by((.Package // "") + "\u0000" + (.Test // ""))[]
+                | select(any(.[]; .Action == "fail"))
+                | "### " + (.[0].Package // "unknown package") + " / " + (.[0].Test // "package") + "\n\n"
+                  + ([.[] | select(.Action == "output") | .Output] | join(""))
+                  + "\n"
+              ' "$RUNNER_TEMP/race-tests.json"
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit "$status"
+          fi
 
   integration:
     name: postgres integration tests
@@ -70,6 +88,22 @@ jobs:
         with:
           fetch-depth: 0
       - name: Gitleaks
-        uses: gitleaks/gitleaks-action@v2
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_BEFORE: ${{ github.event.before }}
+          EVENT_SHA: ${{ github.sha }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            log_range="${PR_BASE_SHA}..${EVENT_SHA}"
+          elif [ -n "$EVENT_BEFORE" ] && [ "$EVENT_BEFORE" != "0000000000000000000000000000000000000000" ]; then
+            log_range="${EVENT_BEFORE}..${EVENT_SHA}"
+          else
+            log_range="--all"
+          fi
+
+          docker run --rm --network none \
+            --volume "$GITHUB_WORKSPACE:/repo:ro" \
+            --workdir /repo \
+            ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:b109bc5f8f76a38196a3e413704fc5b9e3c32360bce4e4b603bd6f45b3721dbb \
+            git --log-opts="$log_range" --redact --verbose /repo
