@@ -227,7 +227,7 @@ func (r *OfframpRepository) RecordAssetReceived(ctx context.Context, orderID str
 		retirement := entity.StellarTransaction{ID: retirementID, OrderID: order.ID,
 			IntentID: "stellar-retire-" + order.ID, Purpose: "retirement", Network: order.Network,
 			AssetCode: "XLM", Amount: order.AssetAmount, Source: order.StellarSource,
-			Destination: strPtr(usecase.BurnAddress), Memo: order.StellarMemo,
+			Destination: strPtr(usecase.RetirementSinkAddress), Memo: order.StellarMemo,
 			Status: "pending", CreatedAt: now, UpdatedAt: now}
 		if err := tx.Create(&retirement).Error; err != nil {
 			return fmt.Errorf("creating retirement intent: %w", err)
@@ -290,8 +290,7 @@ func (r *OfframpRepository) LoadRetirement(ctx context.Context, intentID string)
 	if err != nil {
 		return usecase.RetirementIntent{}, err
 	}
-	intent := usecase.RetirementIntent{IntentID: row.IntentID, OrderID: row.OrderID,
-		BurnTarget: usecase.BurnAddress, Amount: amount}
+	intent := usecase.RetirementIntent{IntentID: row.IntentID, OrderID: row.OrderID, Amount: amount}
 	if row.Source != nil {
 		intent.Source = *row.Source
 	}
@@ -304,10 +303,36 @@ func (r *OfframpRepository) LoadRetirement(ctx context.Context, intentID string)
 	return intent, nil
 }
 
-// SaveRetirementHash persists the deterministic burn hash before submission.
+// SaveRetirementHash atomically claims a pending retirement before submission.
 func (r *OfframpRepository) SaveRetirementHash(ctx context.Context, intentID, hash string, now time.Time) error {
-	return r.db.WithContext(ctx).Model(&entity.StellarTransaction{}).Where("intent_id = ?", intentID).
-		Updates(map[string]any{"transaction_hash": hash, "status": "submitted", "attempt_count": gorm.Expr("attempt_count + 1"), "updated_at": now}).Error
+	result := r.db.WithContext(ctx).Model(&entity.StellarTransaction{}).
+		Where("intent_id = ? AND purpose = ? AND status = ? AND transaction_hash IS NULL AND ledger_at IS NULL",
+			intentID, "retirement", "pending").
+		Updates(map[string]any{"destination": usecase.RetirementSinkAddress, "transaction_hash": hash,
+			"status": "submitted", "attempt_count": gorm.Expr("attempt_count + 1"), "updated_at": now.UTC()})
+	if result.Error != nil {
+		return fmt.Errorf("saving retirement transaction hash: %w", result.Error)
+	}
+	if result.RowsAffected != 1 {
+		return usecase.ErrRetirementHashAlreadySaved
+	}
+	return nil
+}
+
+// ResetRetirementHash clears a hash only after Horizon proves the transaction
+// was rejected before application, and only if it is still the submitted hash.
+func (r *OfframpRepository) ResetRetirementHash(ctx context.Context, intentID, hash, safeError string, now time.Time) error {
+	result := r.db.WithContext(ctx).Model(&entity.StellarTransaction{}).
+		Where("intent_id = ? AND purpose = ? AND status = ? AND transaction_hash = ? AND ledger_at IS NULL",
+			intentID, "retirement", "submitted", hash).
+		Updates(map[string]any{"transaction_hash": nil, "status": "pending", "last_error": safeError, "updated_at": now.UTC()})
+	if result.Error != nil {
+		return fmt.Errorf("resetting rejected retirement hash: %w", result.Error)
+	}
+	if result.RowsAffected != 1 {
+		return entity.ErrInvalidOrderState
+	}
+	return nil
 }
 
 // RequeueUnsubmittedRetirements recovers exhausted retirement jobs only when

@@ -131,11 +131,10 @@ Invariants:
 - Creating an order requires an approved KYC inquiry for the owning user, regardless of whether the principal is an API client or a retail session.
 - State changes use optimistic versioning and a legal transition table.
 - A completed on-ramp has a reconciled payment and successful Stellar transaction.
-- A completed off-ramp has an exactly verified XLM deposit, a durable
-  simulated-retirement or reconciled prior-retirement record, and durable payout
-  evidence. The current sandbox simulator sends no burn transaction for new
-  orders, and discloses that no real IDR moved while accurately distinguishing
-  simulated retirement from previously confirmed on-chain retirement.
+- A completed off-ramp has an exactly verified XLM deposit, a confirmed
+  testnet retirement (or a preserved historical retirement outcome), and
+  durable sandbox payout evidence. Public evidence identifies confirmed
+  retirement and discloses that no real IDR moved.
 - A failure never erases previously recorded external evidence.
 
 ### 3.4 Order event

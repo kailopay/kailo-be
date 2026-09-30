@@ -5,7 +5,9 @@
 Testing must prove both business outcomes and failure safety:
 
 - A verified payment causes one on-ramp settlement.
-- An exactly verified asset deposit precedes simulated retirement and one off-ramp withdrawal result; simulation never fabricates on-chain evidence.
+- An exactly verified asset deposit precedes one confirmed testnet retirement
+  and one sandbox withdrawal result; only confirmed Stellar outcomes are shown
+  as on-chain evidence.
 - Duplicates, concurrency, timeouts, and unknown external outcomes do not create duplicate value movement.
 - Only users with approved Persona sandbox KYC status can create API keys or orders.
 - Public API, SEP-24, and webhook behavior match their contracts.
@@ -127,9 +129,10 @@ Testnet evidence tests:
 - Successful on-ramp issuance/transfer.
 - Successful off-ramp deposit detection.
 - Exact successful off-ramp deposit detection and explorer-resolvable deposit hash.
-- Simulated retirement has no hash or ledger time; any retirement hash persisted
-  before the simulator release is reconciled against Stellar rather than
-  replaced with simulated evidence.
+- Successful retirement has a Horizon-confirmed hash and ledger time. A
+  definitively rejected sequence-conflict transaction is reset and rebuilt;
+  pending or unknown submissions retain the same hash and reconcile before
+  retry.
 
 Tests must not assume instant ledger availability; use bounded polling with meaningful timeout diagnostics.
 
@@ -221,9 +224,10 @@ Create on-ramp order using supported sandbox bank transfer/virtual account and v
 Authenticate an external classic wallet with SEP-10, start an SEP-24 off-ramp,
 link a KailoPay retail session, complete the approved-KYC (or guarded test)
 flow, send the exact test asset with correlation data, detect and capture the
-deposit hash, record simulated retirement without a burn transaction, run the
-sandbox payout simulator, and capture disclosed withdrawal evidence. Any
-previously submitted retirement hash must be reconciled, not simulated over.
+deposit hash, confirm the worker's exact-amount retirement transaction and
+capture its hash, run the sandbox payout simulator, and capture the disclosure
+that no real IDR moved. Any previously submitted retirement hash must be
+reconciled before retry.
 
 The SOW requires at least two documented flows. The release target should run QRIS buy and sell as the mandatory pair; bank-transfer buy is also required to demonstrate the promised method.
 

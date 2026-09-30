@@ -334,10 +334,9 @@ completion retry cannot create a second order mapping.
 
 One unique row per off-ramp order records the method, exact IDR minor amount,
 deterministic sandbox reference, state, completion timestamp, and timestamps.
-The current testnet simulator writes it after an exactly verified XLM deposit
-and durable simulated-retirement evidence (or reconciliation of a previously
-submitted retirement). It does not contain bank details or claim that XLM was
-retired on-chain or that real IDR moved.
+The current testnet payout simulator writes it after an exactly verified XLM
+deposit and confirmed retirement. It does not contain bank details or claim
+that real IDR moved.
 
 ### `order_events`
 
@@ -409,7 +408,7 @@ Unique: `(provider, provider_event_id)` when provided; otherwise `(provider, pay
 
 ### `stellar_transactions`
 
-Columns include ID, order ID, stable intent ID, purpose, network, asset, amount, source, destination, memo, transaction hash, status (`pending`, `submitted`, `confirmed`, `failed`, `unknown`, `simulated`), attempt count, ledger/created-at time, last safe error, and timestamps. A database constraint limits `simulated` to retirement intents with no transaction hash or ledger time; it is not on-chain evidence. Deposit transactions remain `confirmed` with their observed hash and ledger time.
+Columns include ID, order ID, stable intent ID, purpose, network, asset, amount, source, destination, memo, transaction hash, status (`pending`, `submitted`, `confirmed`, `failed`, `unknown`, `simulated`), attempt count, ledger/created-at time, last safe error, and timestamps. The `simulated` retirement status remains available for historical records and has no transaction hash or ledger time; new sell retirements are confirmed on Stellar testnet. Deposit transactions remain `confirmed` with their observed hash and ledger time.
 
 Unique constraints:
 

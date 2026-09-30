@@ -9,12 +9,14 @@
 
 All `v0.1.0` operations use **Stellar testnet**. The release demonstrates:
 
-- A configured test asset and processing accounts.
-- On-ramp issuance or distribution after confirmed sandbox payment.
-- Off-ramp asset receipt and exact validation; the current sandbox simulator
-  records retirement and payout as simulated and sends no burn transaction.
-- Testnet deposit/issuance transaction hashes linked to orders; simulated
-  retirements have no transaction hash.
+- A native-XLM corridor. KailoPay does not issue a custom Stellar asset.
+- On-ramp transfer of pre-funded native XLM from the treasury after confirmed
+  sandbox payment; this is distribution, not asset issuance.
+- Off-ramp receipt and exact validation followed by a confirmed native-XLM
+  payment to the retirement sink. This retires the received XLM from KailoPay's
+  usable balance; Stellar does not protocol-burn native XLM.
+- On-ramp settlement, off-ramp deposit, and retirement transaction hashes linked
+  to orders.
 - Canonical SEP-10-authenticated SEP-24 deposit and withdrawal flows for classic
   Stellar wallets, including retail-session linking and Persona approval.
 - SEP-38 indicative and wallet-owned firm quotes for the supported testnet pair.
@@ -26,29 +28,29 @@ Mainnet, production custody, reserves, liquidity, and regulated issuance are Fut
 
 ## 2. Account and asset roles
 
-The Phase 0 ADR must define:
+The `v0.1.0` model intentionally uses native XLM:
 
-- Asset code and supported precision.
-- Issuer account.
-- Distribution/processing account.
-- Off-ramp deposit account.
-- Burn/retirement method: return to issuer, clawback when intentionally configured, or another testnet-safe method.
-- Account trustline setup and authorization flags if used.
+- No asset issuer or issuer key is involved; native XLM has no issuer.
+- The pre-funded treasury account signs on-ramp transfers to customer wallets.
+- The off-ramp deposit account receives XLM and signs the retirement transfer.
+  Its worker-only secret must match the configured public account.
+- XLM does not require a trustline. The deposit still requires the exact amount,
+  destination, memo, and a unique transaction hash.
+- Issuing a credit asset and burning it with issuer controls is outside this
+  release. It would change the asset and wallet requirements and is not part of
+  the current FE/API flow.
 
-Preferred minimal model:
-
-- Issuer secret is used only by the settlement worker and injected through managed secrets.
-- Distribution/processing account submits routine transfers and receives off-ramp assets.
-- Public account IDs may be documented; secret seeds are never stored in PostgreSQL, source, logs, screenshots, or evidence.
+Public account IDs may be documented; secret seeds are never stored in
+PostgreSQL, source, logs, screenshots, or evidence.
 
 ## 3. Stellar port
 
 ```ts
 interface StellarSettlement {
   validateAccount(input: AccountInput): Promise<AccountValidation>;
-  issueOrTransfer(input: IssueAssetInput): Promise<SubmissionResult>;
+  transferNativeXLM(input: OnrampTransferInput): Promise<SubmissionResult>;
   findDeposit(input: DepositLookup): Promise<DepositResult>;
-  retireAsset(input: RetireAssetInput): Promise<SubmissionResult>;
+  retireNativeXLM(input: RetirementInput): Promise<SubmissionResult>;
   findTransaction(input: TransactionLookup): Promise<TransactionResult>;
 }
 ```
@@ -58,23 +60,23 @@ The adapter owns Horizon/RPC/SDK types, sequence handling, fee configuration, tr
 ## 4. On-ramp settlement
 
 1. Verified payment moves order to `payment_confirmed`.
-2. In the same database transaction, create a unique issuance intent and outbox message.
-3. Worker validates destination and required trustline/account conditions.
-4. Worker builds a transaction using the configured testnet network passphrase.
+2. In the same database transaction, create a unique settlement intent and outbox message.
+3. Worker validates the destination Stellar account.
+4. Worker builds a native-XLM payment using the configured testnet network passphrase.
 5. Include a deterministic order correlation value in a memo or documented alternative.
 6. Sign only inside the settlement adapter using injected testnet secret material.
 7. Submit and persist the result.
 8. If successful, record transaction hash and move order to `completed`.
 9. If timeout/unknown, query network history using hash/source/sequence/memo before rebuilding or resubmitting.
 
-Exactly one active issuance intent per order is enforced in PostgreSQL.
+Exactly one active settlement intent per order is enforced in PostgreSQL.
 
 ## 5. Off-ramp deposit and retirement
 
 Deposit instructions include:
 
-- Processing account.
-- Exact asset code and issuer.
+- Off-ramp deposit account.
+- Native XLM (no asset issuer).
 - Exact amount.
 - Required memo/order correlation or muxed-account mechanism.
 - Expiry and testnet warning.
@@ -83,24 +85,27 @@ A deposit is accepted only when:
 
 - Transaction is successful on testnet.
 - Destination is the configured account.
-- Asset code and issuer match.
+- The payment uses native XLM.
 - Amount matches the order exactly in stroops.
 - Memo/muxed/correlation identifies the order.
 - Transaction hash has not been assigned to another order.
 
-After acceptance, persist a retirement intent. In the current hard-coded
-sandbox path, if no retirement hash exists, record the intent as `simulated`
-without submitting a burn transfer or inventing a hash/ledger time, then queue
-the payout simulation. If a hash was already submitted by an earlier release,
-reconcile that exact transaction against Stellar instead.
+After acceptance, persist a retirement intent. The worker builds a native-XLM
+payment for the exact verified amount from the configured deposit account to
+the all-zero public-key retirement sink. It stores the transaction hash
+before submission. Unknown and pending outcomes are reconciled against Stellar
+using that hash; a confirmed retirement advances the order and queues the
+payout simulation. A sequence-conflict response proves the transaction was not
+applied, so that hash is cleared and rebuilt on a later attempt. Historical
+hashes remain subject to reconciliation and are never replaced with simulated
+evidence.
 
 Unexpected/wrong deposits are not silently credited. Record safe evidence and follow the sandbox exception procedure.
 
 ## 5.1 Testnet payout simulator
 
 The current release hard-codes the worker-owned sandbox payout adapter. After
-exact deposit verification and simulated retirement (or reconciliation of a
-previously submitted retirement hash), the worker leases a
+exact deposit verification and confirmed testnet retirement, the worker leases a
 `payout.simulate_offramp` outbox job, creates one deterministic
 `sandbox_bank_transfer` payout reference, records `payout.simulated`, and
 advances the order to `completed`.
@@ -108,11 +113,10 @@ advances the order to `completed`.
 The simulator accepts any non-empty synthetic destination reference within the
 existing 200-character limit. It does not validate, contact, or transfer to a
 bank account, and every public payout/SEP-24 response says no real IDR moved.
-For new simulated retirements, it also says the deposit was not retired
-on-chain; a previously submitted retirement hash that confirms is exposed as
-`stellar_retirement_transaction_id` alongside the deposit's
-`stellar_transaction_id`, with a matching disclosure. There is no runtime
-disabled mode.
+For confirmed retirements, `stellar_retirement_transaction_id` exposes the
+retirement hash alongside the deposit's `stellar_transaction_id`, with a
+matching disclosure. The payout remains simulated and has no runtime disabled
+mode.
 
 ## 6. Sequence numbers and concurrent submissions
 
@@ -284,8 +288,8 @@ Requirements:
 
 - Public testnet account and asset configuration.
 - Successful on-ramp transaction hash and explorer link.
-- Successful off-ramp deposit hash and corresponding simulated-retirement and
-  payout evidence; do not expect a retirement hash for new sandbox orders.
+- Successful off-ramp deposit hash, confirmed retirement hash, and simulated
+  payout evidence with a no-real-IDR disclosure.
 - Order-to-transaction correlation visible in safe logs/database evidence.
 - Public valid `stellar.toml`.
 - Public federation test.
@@ -293,4 +297,4 @@ Requirements:
   authenticated order ownership, persisted transaction mapping, current-state
   polling, wallet linking, and Persona sandbox KYC-gate disclosure.
 - SEP-38 firm quote ownership/expiry/consumption evidence and a testnet
-  off-ramp simulator record that explicitly says no real IDR moved.
+  off-ramp payout record that explicitly says no real IDR moved.

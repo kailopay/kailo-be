@@ -7,10 +7,16 @@ import (
 	"time"
 )
 
+// ErrRetirementHashAlreadySaved indicates another worker persisted a
+// retirement transaction first. The caller must reconcile that hash instead
+// of submitting its newly built transaction.
+var ErrRetirementHashAlreadySaved = errors.New("retirement transaction hash already saved")
+
 // OfframpWorkerRepository is the persistence port for off-ramp retirement
 // worker jobs.
 type OfframpWorkerRepository interface {
 	SaveRetirementHash(ctx context.Context, intentID, hash string, now time.Time) error
+	ResetRetirementHash(ctx context.Context, intentID, hash, safeError string, now time.Time) error
 	SimulateRetirement(ctx context.Context, intentID string, now time.Time) error
 	ConfirmRetirement(ctx context.Context, intentID, hash string, ledgerAt time.Time) error
 	FailRetirement(ctx context.Context, intentID, safeError string) error
@@ -119,9 +125,9 @@ func (s DepositScanner) ScanDeposits(ctx context.Context, depositAccount string,
 	return matched, nil
 }
 
-// RetireWorker processes retirement intents. The sandbox path records a
-// simulated retirement when no transaction hash exists; persisted hashes are
-// always reconciled before any other action.
+// RetireWorker processes retirement intents. Persisted hashes are always
+// reconciled before any other action. Simulation remains available for
+// explicit test configurations; the worker process submits testnet transfers.
 type RetireWorker struct {
 	Repository OfframpWorkerRepository
 	Intents    RetirementIntentReader
@@ -155,7 +161,7 @@ func (w RetireWorker) RunOnce(ctx context.Context, intentID string) error {
 		return errors.New("stellar network is required to submit a retirement")
 	}
 	built, buildErr := w.Network.Build(ctx, Transfer{OrderID: intent.OrderID, Source: intent.Source,
-		Destination: BurnAddress, Amount: intent.Amount, Memo: intent.Memo})
+		Destination: RetirementSinkAddress, Amount: intent.Amount, Memo: intent.Memo})
 	if buildErr != nil {
 		return fmt.Errorf("building retirement transaction: %w", buildErr)
 	}
@@ -163,6 +169,16 @@ func (w RetireWorker) RunOnce(ctx context.Context, intentID string) error {
 		return errors.New("Stellar adapter returned incomplete retirement transaction")
 	}
 	if err := w.Repository.SaveRetirementHash(ctx, intent.IntentID, built.Hash, now); err != nil {
+		if errors.Is(err, ErrRetirementHashAlreadySaved) {
+			current, loadErr := w.Intents.LoadRetirement(ctx, intent.IntentID)
+			if loadErr != nil {
+				return fmt.Errorf("loading saved retirement transaction: %w", loadErr)
+			}
+			if current.TransactionHash == "" {
+				return errors.New("retirement transaction hash changed before reconciliation")
+			}
+			return w.reconcile(ctx, intent.IntentID, current.TransactionHash)
+		}
 		return fmt.Errorf("persisting retirement hash: %w", err)
 	}
 	submission, submitErr := w.Network.Submit(ctx, built)
@@ -176,7 +192,12 @@ func (w RetireWorker) RunOnce(ctx context.Context, intentID string) error {
 		return w.Repository.FailRetirement(ctx, intent.IntentID, "retirement transaction rejected")
 	case SubmissionUnknown:
 		return w.reconcile(ctx, intent.IntentID, built.Hash)
-	case SubmissionPending, SubmissionRetryable:
+	case SubmissionRetryable:
+		if err := w.Repository.ResetRetirementHash(ctx, intent.IntentID, built.Hash, submission.SafeError, now); err != nil {
+			return fmt.Errorf("resetting rejected retirement submission: %w", err)
+		}
+		return errors.New("stellar retirement transaction was rejected before application and will be retried")
+	case SubmissionPending:
 		return nil // lease expiry schedules the retry
 	default:
 		return errors.New("invalid retirement submission result")

@@ -1104,13 +1104,13 @@ paths:
         Prices the sell order against current market data, then returns
         deterministic deposit instructions: send exactly the quoted XLM amount
         to the deposit account using the returned memo before expiry. After
-        verification, the worker records a simulated retirement and payout and
-        advances the order through `withdrawal_processing` to `completed`. The
-        simulator sends no burn transaction and creates no retirement hash or
-        ledger time; it discloses that XLM was not retired on-chain and no real
-        IDR moved. Any retirement hash already submitted is reconciled against
-        Stellar rather than replaced by simulated evidence; if confirmed, it is
-        returned as testnet retirement evidence with a matching disclosure. Accepts
+        verification, the worker submits an exact-amount native-XLM retirement
+        payment to the all-zero public-key retirement sink on Stellar testnet.
+        It persists the transaction hash before submission and reconciles
+        uncertain outcomes against Stellar. The order advances through `withdrawal_processing` only
+        after retirement is confirmed, then completes through the deterministic
+        sandbox payout. The response discloses that retirement occurred on
+        Stellar testnet and that no real IDR moved. Accepts
         either an API-key principal or a verified retail session principal. A
         session-authenticated browser mutation requires an exact configured
         `Origin`, or a matching `Referer` origin when `Origin` is absent.
@@ -2363,7 +2363,7 @@ components:
             expires_at: {type: string, format: date-time, nullable: true}
         stellar_transaction_hash:
           type: string
-          description: On-chain settlement hash where one exists; simulated off-ramp retirement has no hash.
+          description: On-chain settlement hash; for off-ramp orders this is the confirmed retirement hash.
         deposit_transaction_hash:
           type: string
           description: Verified off-ramp XLM deposit hash; present after the deposit is accepted.
@@ -2835,7 +2835,7 @@ components:
         stellar_transaction_id: {type: string}
         stellar_retirement_transaction_id:
           type: string
-          description: Confirmed off-ramp retirement hash when reconciling a previously submitted retirement; absent for simulated retirement.
+          description: Confirmed off-ramp retirement hash when the XLM retirement is confirmed on Stellar testnet.
         withdraw_anchor_account: {type: string}
         withdraw_memo: {type: string}
         withdraw_memo_type: {type: string, enum: [text]}
@@ -2845,7 +2845,7 @@ components:
         external_transaction_id: {type: string}
         sandbox_disclosure:
           type: string
-          description: Present for sandbox payout completion; distinguishes simulated retirement from a previously submitted retirement confirmed on Stellar testnet and states that no real IDR moved.
+          description: Present for sandbox payout completion; states that retirement was confirmed on Stellar testnet and that no real IDR moved.
         more_info_url: {type: string, format: uri}
     SEP24TransactionResponse:
       type: object

@@ -41,8 +41,8 @@ The `v0.1.0` target is a public, reviewable sandbox platform containing:
 - Official TypeScript SDK for server-side developer integrations; the backend runtime remains Go.
 - One real Indonesian payment gateway integration in sandbox mode, supporting QRIS and bank transfer.
 - Verified payment callbacks and developer webhook delivery.
-- Stellar testnet issuance/transfer and exact off-ramp deposit evidence, plus
-  explicitly simulated retirement/payout evidence without a fabricated burn hash.
+- Stellar testnet issuance/transfer, exact off-ramp deposit evidence, and a
+  confirmed retirement transaction hash; payout remains simulated.
 - Authenticated SEP-24 deposit and withdrawal order mapping, Persona-backed
   sandbox KYC status gate, `stellar.toml`, and federation configuration.
 - User-facing buy/sell web app, order status, transaction history, and developer section.
@@ -74,7 +74,7 @@ Resolve and record these items during Phase 0:
 
 1. Select Xendit or Midtrans after testing exact sandbox capabilities.
 2. Define the Stellar test asset, issuance path, exact deposit validation, and retirement evidence.
-3. Document the approved simulated off-ramp payout evidence when the gateway has no sandbox disbursement rail (ADR-006).
+3. Record testnet retirement evidence and the approved simulated off-ramp payout when the gateway has no sandbox disbursement rail (ADR-006/007).
 4. Select the minimum demo authentication approach.
 5. Select public hosting and domain/subdomain layout.
 6. Select the repository license.

@@ -151,6 +151,10 @@ func (f *retirementWorkerRepositoryFake) SaveRetirementHash(context.Context, str
 	return nil
 }
 
+func (f *retirementWorkerRepositoryFake) ResetRetirementHash(context.Context, string, string, string, time.Time) error {
+	return nil
+}
+
 func (f *retirementWorkerRepositoryFake) SimulateRetirement(_ context.Context, intentID string, now time.Time) error {
 	f.simulatedIntentID = intentID
 	f.simulatedAt = now

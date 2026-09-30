@@ -1,6 +1,6 @@
 # ADR-006: Testnet-simulated off-ramp payout
 
-- Status: Accepted
+- Status: Superseded for retirement behavior by ADR-007; the payout simulator remains active
 - Date: 2026-09-22
 - Supersedes: the simulator prohibition in ADR-005
 

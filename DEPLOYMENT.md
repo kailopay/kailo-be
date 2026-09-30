@@ -14,15 +14,17 @@ cp .env.example .env
 ```
 
 Replace every placeholder in `.env`. Set `APP_ENV=production`, use HTTPS for
-`HTTP_ALLOWED_ORIGINS`, `AUTH_SUCCESS_REDIRECT_URL`, `AUTH_EMAIL_LINK_BASE_URL`,
-and `ANCHOR_BASE_URL`, and provide real sandbox provider credentials. When the
-Google callback is served from an API subdomain and the frontend is on a
-different subdomain, set `AUTH_COOKIE_DOMAIN` to their shared parent domain,
+`HTTP_ALLOWED_ORIGINS`, `AUTH_SUCCESS_REDIRECT_URL`, and
+`AUTH_EMAIL_LINK_BASE_URL`, and provide real sandbox provider credentials.
+When the Google callback is served from an API subdomain and the frontend is on
+a different subdomain, set `AUTH_COOKIE_DOMAIN` to their shared parent domain,
 such as `.kailopay.com`. Set it empty when both use the same hostname. Set
-`ANCHOR_BASE_URL` to the public API origin; it is the base used by
-`stellar.toml`, SEP-24, and federation and must not point to the frontend.
-The Stellar signing secrets may remain in this one file; Compose passes them
-only to the worker container.
+`ANCHOR_BASE_URL=https://api.kailopay.com`; it is the public API origin used by
+`stellar.toml`, SEP-24, SEP-38, federation, and web authentication. It must not
+point to `localhost` or the frontend. The production Compose file rejects a
+missing value. Set `OFFRAMP_DEPOSIT_SECRET` to the signing key for
+`OFFRAMP_DEPOSIT_ACCOUNT`; Compose passes this and the other Stellar signing
+secrets only to the worker container.
 
 Create the internal MinIO certificate files by following
 [`MINIO-TLS.md`](MINIO-TLS.md). The certificate must contain `minio` as its

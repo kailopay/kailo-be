@@ -121,22 +121,21 @@ Mismatch handling:
 
 ## 8. Off-ramp payout
 
-After an exact XLM deposit is verified, the worker records a simulated
-retirement if no retirement transaction hash has been submitted, then queues a
-durable payout intent. It does not send a burn-address transfer or fabricate a
-retirement hash/ledger time. A hash already submitted by an earlier release is
-reconciled against Stellar before the order proceeds.
+After an exact XLM deposit is verified, the worker submits an exact-amount
+retirement transfer from the configured deposit account to the all-zero
+public-key sink on Stellar testnet. It persists the transaction hash before submission
+and reconciles uncertain outcomes against Stellar before the order proceeds.
+Only confirmed retirement queues the durable payout intent.
 
 The current release hard-codes simulation: it records one deterministic
 `sandbox_bank_transfer` payout row, exact IDR amount, synthetic destination
 reference, and `payout.simulated`, then completes the order atomically. The
 simulator never calls Xendit or a bank and accepts only a non-empty synthetic
 reference within the existing limit. Every response, UI, demo, test record,
-and Completion Report must say no real IDR moved. For new simulated
-retirements, also say the XLM was not retired on-chain; when a previously
-submitted retirement hash is confirmed, show that testnet evidence instead. A
-future real provider adapter still needs provider idempotency and
-unknown-outcome reconciliation before it can complete a real payout.
+and Completion Report must say no real IDR moved and show the confirmed
+testnet retirement evidence. A future real provider adapter still needs
+provider idempotency and unknown-outcome reconciliation before it can complete
+a real payout.
 
 ## 9. Error classification
 

@@ -41,7 +41,7 @@ Phase 0 is the opening mobilization segment inside the Phase 1 30-day window and
   callbacks, and document the absence of a real payout rail; ADR-006 defines the
   simulated payout evidence.
 - Choose the Stellar test asset code and issuer/distributor model; document exact
-  off-ramp deposit validation and simulated-retirement evidence.
+  off-ramp deposit validation, confirmed-retirement evidence, and payout simulation.
 - Fund required Stellar testnet accounts and prove a small transfer.
 - Decide the repository license, hosting approach, domain/subdomain layout, and secret-management approach.
 - Establish the public repository, project structure, CI baseline, PostgreSQL, environment template, and decision log.
@@ -104,8 +104,8 @@ Week 1 gate:
 Planned work:
 
 - Connect confirmed on-ramp payment to exactly-once asset issuance/transfer.
-- Implement exact off-ramp asset deposit detection/verification, simulated
-  retirement evidence, and sandbox withdrawal processing without a burn transfer.
+- Implement exact off-ramp asset deposit detection/verification, confirmed
+  testnet retirement evidence, and sandbox withdrawal processing.
 - Persist payment, asset, and transaction correlation references.
 - Implement outgoing signed developer webhooks and retry logs.
 - Add authenticated SEP-24 interactive deposit/withdrawal order mapping and
@@ -116,8 +116,8 @@ Planned work:
 Expected evidence:
 
 - One internal on-ramp testnet transaction hash.
-- One internal off-ramp deposit transaction hash plus simulated-retirement and
-  payout evidence; new simulated retirements have no on-chain retirement hash.
+- One internal off-ramp deposit hash, one confirmed retirement hash, and
+  simulated payout evidence with a no-real-IDR disclosure.
 - Webhook delivery log with signature metadata.
 - Public `stellar.toml` and federation URLs.
 - Basic web flow screenshots.

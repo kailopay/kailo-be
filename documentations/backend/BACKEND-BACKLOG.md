@@ -126,11 +126,11 @@ Acceptance: invalid/mismatched/replayed callback cannot duplicate state/settleme
 | BE-043 | Implement unknown submission reconciliation before retry. | P0 | 5 | Week 2 | BE-041 | Implemented |
 | BE-044 | Generate off-ramp deposit instructions with exact asset/amount/memo and expiry. | P0 | 3 | Week 2 | BE-025, BE-040 | Implemented (including expiry sweep) |
 | BE-045 | Detect/look up and validate off-ramp deposit transaction. | P0 | 5 | Week 2 | BE-044 | Implemented (Horizon payment-history scan) |
-| BE-046 | Implement off-ramp retirement handling and transaction correlation. | P0 | 5 | Week 2 | BE-045, BE-041 | Current sandbox path records simulated retirement after exact deposit; reconciles any previously submitted hash; sends no burn transfer (ADR-006) |
-| BE-047 | Link transaction hashes/explorer metadata to public order result. | P0 | 2 | Week 2-3 | BE-042, BE-046 | Blocked |
+| BE-046 | Implement off-ramp retirement handling and transaction correlation. | P0 | 5 | Week 2 | BE-045, BE-041 | Worker submits exact-amount testnet retirement after deposit verification; persists/reconciles the retirement hash before simulated payout (ADR-007) |
+| BE-047 | Link transaction hashes/explorer metadata to public order result. | P0 | 2 | Week 2-3 | BE-042, BE-046 | Implemented for confirmed on-ramp settlement and off-ramp retirement hashes; formal E2E evidence remains in BE-087 |
 | BE-048 | Correct public off-ramp deposit-account serialization. | P0 | 2 | Week 2 | BE-025, BE-044 | Implemented; existing `/v1/offramps` contract is covered by regression tests |
 
-Acceptance: one paid on-ramp order creates one testnet settlement; wrong off-ramp deposits are rejected; exact deposits retain their hash evidence; unknown submitted retirement results reconcile before retry; a new sandbox retirement is explicitly simulated with no hash/ledger time before the disclosed deterministic payout completes.
+Acceptance: one paid on-ramp order creates one testnet settlement; wrong off-ramp deposits are rejected; exact deposits retain their hash evidence; sell retirement is confirmed on testnet before the disclosed deterministic payout completes; unknown submissions reconcile before retry.
 
 ### BE5: SEP-24 and discovery
 
@@ -197,15 +197,15 @@ Acceptance: an order is traceable across all systems; secrets are absent from lo
 | ID | Story | Pri | SP | Target | Dependency | Status |
 |---|---|---:|---:|---|---|---|
 | BE-080 | Build domain transition/invariant unit test suite. | P0 | 5 | Week 1-2 | BE-021 | Blocked |
-| BE-081 | Build PostgreSQL repository, constraint, transaction, lease, and concurrency tests. | P0 | 5 | Week 1-2 | BE-011, BE-015, BE-022 | In progress; consumer ownership/replay coverage added behind TEST_DATABASE_DSN, CI wiring pending |
+| BE-081 | Build PostgreSQL repository, constraint, transaction, lease, and concurrency tests. | P0 | 5 | Week 1-2 | BE-011, BE-015, BE-022 | In progress; consumer ownership/replay coverage runs in the PostgreSQL CI job with race detection; broader coverage remains tracked by the test suite |
 | BE-082 | Build API auth, ownership, validation, idempotency, error, and OpenAPI contract tests. | P0 | 5 | Week 1-3 | BE-020, BE-024-BE-028 | In progress; principal precedence, session origin, and trackable unknown-outcome coverage added |
 | BE-083 | Build gateway callback replay/mismatch/timeout/reconciliation tests. | P0 | 5 | Week 1-2 | BE-033-BE-036 | Blocked |
 | BE-084 | Build Stellar success/failure/unknown/deposit-validation tests and testnet harness. | P0 | 5 | Week 2 | BE-041-BE-046 | Blocked |
 | BE-085 | Build webhook signing/retry/SSRF test suite. | P0 | 5 | Week 3 | BE-061-BE-065 | Implemented for unit and repository integration coverage; external HTTPS receiver evidence pending |
 | BE-086 | Deploy migration, API, worker, database, discovery, and docs through public HTTPS URLs. | P0 | 5 | Week 3 | BE-005, core flows | In Review; app/API docs, Stellar TOML, documented federation lookup, SEP-24 info, and liveness returned HTTP 200 on 2026-09-25; deployment/secret-management records remain |
-| BE-087 | Run/capture formal QRIS buy, bank-transfer buy, and sell E2E evidence. | P0 | 5 | Week 3 | BE-086 | Blocked; Week 1 testing is owner-confirmed, but formal buy/sell records and transaction hashes are not linked here |
+| BE-087 | Run/capture formal QRIS buy, bank-transfer buy, and sell E2E evidence. | P0 | 5 | Week 3 | BE-086 | In Progress; owner-provided buy/sell transaction URLs and buy, sell, and developer/user dashboard demo URLs are linked in the completion report; timestamps, order references, checkout/callback/webhook logs remain to be linked |
 | BE-088 | Finalize OpenAPI, backend docs, test results, limitations, and Completion Report inputs. | P0 | 3 | Week 4 | BE-087 | In Progress; release notes and verification results recorded; formal E2E evidence and off-ramp acceptance remain |
-| BE-089 | Execute final security/secret/dependency/regression gate and tag `v0.1.0`. | P0 | 3 | Week 4 | All P0 | In Review; local format/vet/build/race/PostgreSQL checks pass; CI secret scan and release tag are pending |
+| BE-089 | Execute final security/secret/dependency/regression gate and tag `v0.1.0`. | P0 | 3 | Week 4 | All P0 | In Review; GitHub Actions build, vet, unit and PostgreSQL race tests, and secret scan pass on the release candidate; tag publication is pending |
 
 Acceptance: tests and scans pass on the release commit; public URLs/evidence match the tag; E2E hashes/references are valid; no P0 document contains unresolved implementation placeholders.
 

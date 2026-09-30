@@ -22,11 +22,12 @@ import (
 const maxHorizonResponseBytes int64 = 2 << 20
 
 type Config struct {
-	HorizonURL         string
-	NetworkPassphrase  string
-	TreasurySecret     string
-	HTTPClient         *http.Client
-	TransactionTimeout time.Duration
+	HorizonURL            string
+	NetworkPassphrase     string
+	TreasurySecret        string
+	ExpectedSignerAddress string
+	HTTPClient            *http.Client
+	TransactionTimeout    time.Duration
 }
 
 type Client struct {
@@ -44,7 +45,10 @@ func New(config Config) (*Client, error) {
 	}
 	signer, err := keypair.ParseFull(config.TreasurySecret)
 	if err != nil {
-		return nil, errors.New("valid Stellar treasury secret is required")
+		return nil, errors.New("valid Stellar signing secret is required")
+	}
+	if expected := strings.TrimSpace(config.ExpectedSignerAddress); expected != "" && signer.Address() != expected {
+		return nil, errors.New("stellar signer does not match the configured account")
 	}
 	client.passphrase = config.NetworkPassphrase
 	client.signer = signer

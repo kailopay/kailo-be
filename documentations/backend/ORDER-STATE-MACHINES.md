@@ -71,7 +71,7 @@ stateDiagram-v2
     asset_pending --> expired: deposit window expired
     asset_pending --> asset_invalid: wrong asset/amount/reference
     asset_received --> retirement_processing: retirement intent persisted
-    retirement_processing --> withdrawal_processing: simulated retirement recorded or prior submitted retirement reconciled
+    retirement_processing --> withdrawal_processing: Stellar retirement confirmed
     retirement_processing --> retirement_failed: permanent network failure
     withdrawal_processing --> completed: simulated payout evidence recorded on testnet
     withdrawal_processing --> withdrawal_failed: permanent provider failure
@@ -94,26 +94,22 @@ stateDiagram-v2
 | `asset_pending` | Expire order | Deposit window passed and no matching asset received | `expired` | Expiry event |
 | `asset_pending` | Invalid deposit established | A correlated deposit exists but violates required asset/amount rules | `asset_invalid` | Transaction hash and safe mismatch reason |
 | `asset_received` | Queue retirement | No existing retirement intent | `retirement_processing` | Retirement intent and outbox row |
-| `retirement_processing` | Retirement simulated | Exact XLM deposit is verified and no retirement hash was submitted | `withdrawal_processing` | `stellar_transactions.status=simulated`; no retirement hash or ledger time |
-| `retirement_processing` | Prior retirement reconciled | A retirement hash was persisted by an earlier release and Stellar confirms it | `withdrawal_processing` | Reconciled retirement transaction hash |
+| `retirement_processing` | Retirement confirmed | Exact XLM deposit is verified; Horizon confirms the retirement payment | `withdrawal_processing` | Confirmed retirement transaction hash and ledger time |
 | `retirement_processing` | Retirement failed | Permanent result established after reconciliation | `retirement_failed` | Attempts and final safe error |
 | `withdrawal_processing` | Withdrawal completed | Durable sandbox payout simulation succeeds | `completed` | Deterministic sandbox payout reference and disclosure |
 | `withdrawal_processing` | Withdrawal failed | Verified permanent provider outcome | `withdrawal_failed` | Safe provider failure code |
 
-The current release hard-codes a worker-owned sandbox simulator. It still
-requires an exact, successful XLM deposit to the configured account with the
-order's expected amount and memo. For a pending retirement intent with no
-submitted transaction hash, the worker records `simulated` and atomically
-queues an idempotent `payout.simulate_offramp` job; no burn transfer is sent and
-no retirement hash or ledger time is fabricated. A previously persisted
-retirement hash is reconciled against Stellar instead of being replaced by a
-simulation. The payout worker records a deterministic `sandbox_bank_transfer`
-reference and completes the order. New simulated-retirement records disclose
-that XLM was not retired on-chain and no real IDR moved. If a previously
-submitted retirement hash is confirmed, public surfaces show that testnet hash
-and disclose that no real IDR moved. A future real payout adapter still
-requires its own provider idempotency, reconciliation, and explicit
-success/failure evidence.
+The worker requires an exact, successful XLM deposit to the configured account
+with the order's expected amount and memo. It submits that amount from the
+worker-controlled deposit account to the all-zero public-key sink on testnet, saving
+the transaction hash before submission. Unknown or pending outcomes retain the
+same hash and are reconciled against Stellar. A confirmed retirement atomically
+advances the order and queues `payout.simulate_offramp`. The payout worker
+records a deterministic `sandbox_bank_transfer` reference and completes the
+order. Public evidence shows the confirmed retirement hash and discloses that
+no real IDR moved. Historical simulated retirement records remain preserved.
+A future real payout adapter still requires its own provider idempotency,
+reconciliation, and explicit success/failure evidence.
 
 ## 4. Unknown external outcomes
 

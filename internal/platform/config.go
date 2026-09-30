@@ -290,7 +290,7 @@ func loadSettings() (*viper.Viper, error) {
 }
 
 // LoadWorkerDepositSecret reads the worker-only off-ramp deposit account
-// signing key used for burn-address retirement submissions.
+// signing key used for retirement-sink submissions.
 func LoadWorkerDepositSecret() (string, error) {
 	v, err := loadSettings()
 	if err != nil {

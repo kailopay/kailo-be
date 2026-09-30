@@ -85,8 +85,8 @@ Build off-ramp and anchor capabilities on the Week 1 native-XLM settlement found
 ### Build order
 
 1. Off-ramp deposit instructions, transaction lookup/detection, and exact validation.
-2. Simulated retirement and sandbox payout after exact deposit validation;
-   reconcile previously submitted retirement hashes instead of simulating them.
+2. Confirmed on-chain retirement and sandbox payout after exact deposit
+   validation; reconcile submitted retirement hashes before retry.
 3. SEP-10 challenge exchange and classic-wallet bearer authentication.
 4. SEP-24 deposit/withdrawal interactive sessions, wallet history/lookup, and
    Persona-backed retail-session linking.
@@ -97,10 +97,10 @@ Build off-ramp and anchor capabilities on the Week 1 native-XLM settlement found
 ### Week 2 gate
 
 - Internal E2E on-ramp completes with transaction hash.
-- Internal E2E off-ramp verifies an exact deposit, records a simulated
-  retirement without a burn transaction/hash, and completes with disclosed
-  deterministic payout evidence. Previously submitted retirement hashes are
-  reconciled against Stellar.
+- Internal E2E off-ramp verifies an exact deposit, confirms the on-chain XLM
+  retirement hash, and completes with disclosed deterministic payout evidence.
+  Unknown or previously submitted retirement hashes are reconciled against
+  Stellar before retry.
 - Unknown Stellar result is reconciled before retry in automated tests.
 - `stellar.toml` and federation configuration validate.
 - SEP-10/SEP-24 wallet ownership, interactive linking, and state mapping do not
@@ -199,9 +199,8 @@ Do not cut without written SOW change:
 - On/off-ramp create and order-status API.
 - QRIS and bank-transfer sandbox integration.
 - Authenticated/idempotent gateway callback processing.
-- Testnet issuance/transfer with transaction hashes; off-ramp deposit with a
-  transaction hash and simulated retirement/payout evidence without a fabricated
-  retirement hash.
+- Testnet issuance/transfer hashes; off-ramp deposit and confirmed retirement
+  hashes, followed by simulated payout evidence without a real-IDR claim.
 - Authenticated SEP-24 deposit/withdrawal order mapping, Persona sandbox KYC
   status gate, `stellar.toml`, and federation.
 - Developer webhook delivery and logs.

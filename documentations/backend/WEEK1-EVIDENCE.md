@@ -17,10 +17,10 @@ status, Week 2 result, and frontend handoff.
 ## Owner-confirmed test update
 
 On 2026-09-25, the project owner confirmed that the Week 1 sandbox flows were
-tested. The test artifacts are not linked here yet. Keep the screenshot,
-callback-log, and transaction-hash items below open until their records are
-attached. See the [completion report draft](COMPLETION-REPORT-DRAFT.md) for
-the current public URLs and release evidence status.
+tested. On 2026-09-29, the owner provided buy and sell testnet transaction URLs
+and three demo video URLs. Checkout screenshots and sanitized callback logs
+are still pending. See the [completion report draft](COMPLETION-REPORT-DRAFT.md)
+for the linked transactions, demos, and remaining evidence.
 
 ## Repository and contract
 
@@ -67,7 +67,23 @@ the current public URLs and release evidence status.
 - [x] Stellar testnet adapter and settlement worker are present.
 - [x] Funded Stellar testnet treasury account: `GDGLOWQIRDAURHIXNJUDEON43AMMZWOWER3LDAVEIDDDFFVGV5CZSEE7`
   with `10000.0000000` native XLM observed from Horizon on 2026-09-09.
-- [ ] Testnet transaction hash proving the settlement transfer.
+- [x] Owner-provided buy flow transaction proving settlement transfer: [Stellar Testnet Explorer](https://stellar.expert/explorer/testnet/tx/45c1d2d17d33359d67afce199039f2b216bd4767ce06c0427c794cc344801b3e).
+
+## Sell flow evidence
+
+- [ ] Confirmed off-ramp retirement transaction hash and explorer link. The
+  owner-provided [sell flow URL](https://stellar.expert/explorer/testnet/tx/21189560457244672#21189560457244673)
+  contains numeric IDs rather than a 64-character Stellar transaction hash, so
+  it does not verify the deposit or the backend retirement transaction.
+- [ ] Capture the deposit hash, confirmed retirement hash, order reference, and
+  payout-simulation disclosure together after deploying the on-chain retirement
+  worker.
+
+## Demo video links (owner-provided)
+
+- [x] Buy flow demo: [YouTube](https://youtu.be/jvUxssZjSzM).
+- [x] Sell flow demo: [YouTube](https://youtu.be/fBq_dOv1aGc).
+- [x] Developer/user dashboard demo: [YouTube](https://youtu.be/CEVcd4mjYMk).
 
 ## Reproducible verification
 

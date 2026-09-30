@@ -48,7 +48,8 @@ in `.env.example` and the root `README.md`; everything else has defaults. Requir
 `XENDIT_CALLBACK_TOKEN`, `STELLAR_TREASURY_ACCOUNT`, and MinIO credentials.
 `STELLAR_TREASURY_SECRET` is only needed when also running `go run ./cmd/worker`
 (the XLM transfer worker; without it, paid orders stay in
-`stellar_processing`).
+`stellar_processing`). The worker also needs `OFFRAMP_DEPOSIT_SECRET` matching
+`OFFRAMP_DEPOSIT_ACCOUNT` to retire accepted sell deposits on testnet.
 Email verification and password-reset links use the console provider by default.
 Set `EMAIL_PROVIDER=gmail`, `GMAIL_USERNAME`, and `GMAIL_APP_PASSWORD` to send
 them through Gmail SMTP.
@@ -371,7 +372,7 @@ gently, e.g. every 3-5 seconds while `payment_pending`, and back off after.
 
 Do not build against any of these:
 
-- ~~Off-ramp / sell flow~~ now implemented: `POST /v1/offramps` creates sell orders with quote and exact-deposit instructions. After the deposit is verified, the sandbox records retirement and payout as simulated and completes the order. Show the deposit hash and payout reference with the disclosure that no real IDR moved; for newly simulated retirements also state XLM was not retired on-chain. A previously confirmed retirement hash is shown with its matching disclosure.
+- ~~Off-ramp / sell flow~~ now implemented: `POST /v1/offramps` creates sell orders with quote and exact-deposit instructions. After the deposit is verified, the worker confirms an exact-amount XLM retirement on Stellar testnet, then the sandbox completes a simulated payout. Show the deposit hash, retirement hash, and payout reference with the disclosure that no real IDR moved.
 - Outgoing developer webhooks (event subscription UI has no backend yet).
 - A wallet-facing SEP-24 UI. The backend SEP-24 interactive endpoints,
   `stellar.toml`, and federation are available for authenticated sandbox use.

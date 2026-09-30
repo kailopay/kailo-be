@@ -45,8 +45,8 @@ type ObservedPayment struct {
 	LedgerAt        time.Time
 }
 
-// BurnAddress is the standard unspendable Stellar address (ADR-003).
-const BurnAddress = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWH4"
+// RetirementSinkAddress is the standard all-zero public-key sink (ADR-003).
+const RetirementSinkAddress = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"
 
 const (
 	offrampMemoPrefix       = "off"
@@ -111,12 +111,11 @@ type OfframpCreateRecord struct {
 	CreatedAt          time.Time
 }
 
-// RetirementIntent is the worker-side view of a pending burn submission.
+// RetirementIntent is the worker-side view of a pending retirement submission.
 type RetirementIntent struct {
 	IntentID        string
 	OrderID         string
 	Source          string
-	BurnTarget      string
 	Amount          entity.Stroops
 	Memo            string
 	TransactionHash string

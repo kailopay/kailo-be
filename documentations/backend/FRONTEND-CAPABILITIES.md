@@ -369,18 +369,15 @@ The `destination_token` is a synthetic sandbox reference. It is not a bank accou
 
 For an off-ramp, the relevant states are `asset_pending`, `asset_received`, `asset_invalid`, `retirement_processing`, `withdrawal_processing`, `completed`, `expired`, `retirement_failed`, `withdrawal_failed`, and `cancelled`.
 
-The current release hard-codes a sandbox simulator. After the exact XLM deposit
-is verified, the worker records a simulated retirement without sending a burn
-transaction or creating a retirement hash, then records a deterministic payout
-and advances the order to `completed`. Show the payout reference and the
-disclosure that the XLM was not retired on-chain and no real IDR moved. Any
-retirement hash submitted by an earlier release is reconciled against Stellar,
-not replaced with simulated evidence; if confirmed, show its hash and use the
-matching disclosure that no real IDR moved.
+After the exact XLM deposit is verified, the worker submits an exact-amount
+retirement transfer on Stellar testnet and advances the order only after the
+transaction is confirmed. Show the confirmed retirement hash, deterministic
+payout reference, and disclosure that no real IDR moved. Persisted hashes are
+reconciled before retry.
 
 The backend records `asset_received` before it queues retirement. The stored order state can already be `retirement_processing` when the frontend polls it. Treat `asset_received` as a valid transitional state, not as a state that must appear.
 
-For an off-ramp, `order.stellar_destination` identifies the deposit account and memo. `order.deposit_transaction_hash` identifies the user's XLM deposit after the worker accepts it. A newly created order normally does not include `payout`; keep polling until the simulator adds completed payout evidence. Do not expect a retirement hash for newly simulated retirements.
+For an off-ramp, `order.stellar_destination` identifies the deposit account and memo. `order.deposit_transaction_hash` identifies the user's XLM deposit after the worker accepts it. A newly created order normally does not include `payout`; keep polling until the worker confirms retirement and the simulator adds completed payout evidence. `order.stellar_transaction_hash` contains the retirement hash after confirmation.
 
 The shared order response includes `payment_method`, but that field is meaningful only for on-ramp orders. Use the off-ramp request's `withdrawal.method` for the selected payout destination; when present, `payout.disclosure` is authoritative and must remain visible.
 

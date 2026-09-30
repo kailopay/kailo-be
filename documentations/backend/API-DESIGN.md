@@ -226,14 +226,13 @@ reconciliation.
 Deposit responses also include the sandbox-specific `payment_link_url` when a
 hosted checkout was created. Withdrawal responses do not include this field.
 `/sep24/deposit` and `/sep24/withdraw` are retained as local compatibility
-aliases. The current release hard-codes simulated off-ramp settlement: an exact
-XLM deposit is still required, then the worker records a simulated retirement
-without sending a burn transaction or inventing a retirement hash, queues a
-deterministic sandbox payout, and completes the order. Payout evidence keeps
-its existing shape and discloses that no real IDR moved. New simulated
-retirements also disclose that XLM was not retired on-chain; a previously
-submitted retirement hash that confirms is surfaced as testnet evidence rather
-than replaced with simulated evidence.
+aliases. The current sell flow remains unchanged: the user sends the exact XLM
+amount to the configured account with the returned memo. After the deposit is
+verified, the worker retires that amount on Stellar testnet and exposes the
+confirmed retirement transaction hash through the existing order response.
+The order then uses the deterministic sandbox payout; its existing response
+shape discloses that no real IDR moved. The worker persists a hash before
+submission and reconciles uncertain outcomes before retrying.
 
 ### SEP-38 quote server
 

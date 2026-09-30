@@ -1,6 +1,6 @@
 # ADR-003: Off-Ramp Retirement and Payout Model
 
-- Status: historical; current sandbox retirement and payout behavior is superseded by ADR-006
+- Status: historical; retirement is superseded by ADR-007 and payout simulation by ADR-006
 - Date: 2026-08-24
 - Decision owners: KailoPay project owner and backend developer
 - Resolves: BE-002 (Stellar asset/retirement model) and BE-003 (off-ramp
@@ -17,11 +17,14 @@ payment gateway's sandbox offers no usable disbursement rail.
 
 ## Decision
 
-1. **Original retirement by burn-address transfer (not used by the current
-   sandbox path).** After an off-ramp deposit is
+1. **Original retirement by sink transfer (restored by ADR-007).**
+   ADR-006 temporarily replaced this transfer with simulation. After an off-ramp deposit is
    verified (exact account, memo, amount match on Stellar testnet), the worker
    sends the deposited XLM from the deposit processing account to the standard
-   unspendable burn address `GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWH4`.
+   all-zero public-key address
+   `GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF`. KailoPay does
+   not hold a signing key for this destination; this is a payment to a sink,
+   not Stellar's protocol-level asset burn operation.
    The transaction is recorded as a `stellar_transactions` row with purpose
    `retirement`; the order may only enter `withdrawal_processing` after that
    row is confirmed on Horizon.
@@ -59,11 +62,9 @@ payment gateway's sandbox offers no usable disbursement rail.
 - If a real sandbox disbursement rail is enabled later, only the payout job
   changes; the retirement gate stays.
 
-ADR-006 supersedes the burn-address submission and retirement-hash requirement
-for the current hard-coded sandbox path. Exact deposit account, amount, and memo
-verification from this ADR remain required; the current flow records simulated
-retirement without a transaction hash or ledger time and discloses that XLM was
-not retired on-chain.
+ADR-006 originally superseded the burn-address submission for the sandbox
+release. ADR-007 restores on-chain retirement after exact deposit verification;
+the simulated payout and its no-real-IDR disclosure remain in place.
 
 ## Alternatives considered
 

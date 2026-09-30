@@ -111,8 +111,9 @@ one file per table; repository queries remain in `internal/repository`.
    The repository-level `.air.toml` builds `./cmd/api` into the ignored
    `tmp/api.exe` and reloads when Go source or `.env` changes.
 
-5. Run the settlement worker in a second terminal after configuring a funded
-   Stellar testnet distribution account and `STELLAR_TREASURY_SECRET`:
+5. Run the settlement worker in a second terminal after configuring the funded
+   Stellar testnet distribution account and `STELLAR_TREASURY_SECRET`, plus the
+   deposit account and matching `OFFRAMP_DEPOSIT_SECRET` for sell retirement:
 
    ```powershell
    go run ./cmd/worker

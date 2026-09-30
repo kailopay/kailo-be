@@ -175,9 +175,9 @@ Do not manually create an unrelated Stellar transfer as a shortcut; it breaks au
 
 1. Verify the confirmed deposit transaction matches asset, amount, destination, memo/order, and testnet.
 2. Inspect the retirement intent, its status, transaction hash, and ledger time.
-3. For the current sandbox path, `status=simulated` with no retirement hash or ledger time is expected and is not on-chain retirement evidence.
-4. If a retirement hash exists, reconcile that exact hash against Stellar; never replace an unknown submitted operation with a simulation.
-5. Inspect the payout intent and deterministic sandbox payout reference; public evidence must disclose that no on-chain retirement or real IDR payout occurred in the simulation path.
+3. New sell orders require `status=confirmed`, a retirement hash, and a ledger time before payout processing.
+4. Reconcile the exact persisted hash against Stellar before retry; never replace an unknown submitted operation with a new transfer.
+5. Inspect the payout intent and deterministic sandbox payout reference; public evidence must disclose that no real IDR payout occurred.
 6. Reconcile any unknown real provider outcome before retry.
 7. Update order through the application recovery path, not direct SQL state edits.
 

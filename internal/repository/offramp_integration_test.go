@@ -210,7 +210,7 @@ func TestRecordAssetReceivedQueuesRetirementAtomically(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadRetirement() error = %v", err)
 	}
-	if intent.BurnTarget != usecase.BurnAddress || intent.Amount != 40_000_000 || intent.TransactionHash != "" {
+	if intent.Amount != 40_000_000 || intent.TransactionHash != "" {
 		t.Fatalf("intent = %+v", intent)
 	}
 
