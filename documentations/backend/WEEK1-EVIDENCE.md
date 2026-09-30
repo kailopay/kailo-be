@@ -69,13 +69,13 @@ for the linked transactions, demos, and remaining evidence.
 - [x] Stellar testnet adapter and settlement worker are present.
 - [x] Funded Stellar testnet treasury account: `GDGLOWQIRDAURHIXNJUDEON43AMMZWOWER3LDAVEIDDDFFVGV5CZSEE7`
   with `10000.0000000` native XLM observed from Horizon on 2026-09-09.
-- [x] Verified on-ramp settlement: [Stellar Testnet transaction](https://stellar.expert/explorer/testnet/tx/b4106f0c9fecc7d7a00b7715e5a99d2e156dfdb11b29c7954a8edb1bcb8f1065). Horizon confirms a successful `24.1411618` native-XLM payment from the recorded treasury to the customer wallet on 2026-09-29.
+- [x] Verified buy on-ramp settlement: [Stellar Testnet transaction](https://stellar.expert/explorer/testnet/tx/b4106f0c9fecc7d7a00b7715e5a99d2e156dfdb11b29c7954a8edb1bcb8f1065). Horizon confirms a successful `24.1411618` native-XLM payment from the recorded treasury to the customer wallet on 2026-09-29. This is the buy hash; L11 and L12 below are sell deposits.
 
 ## Sell flow evidence
 
-- [x] Verified sell deposit: [Stellar Testnet transaction](https://stellar.expert/explorer/testnet/tx/5ebd7e80ebad47de8becf74d271537944a95d40ed1965ddc3ced608c9fccd93a). Horizon confirms a successful `35.0000000` native-XLM payment to the off-ramp deposit account on 2026-09-30.
-- [x] Verified on-chain retirement: [Stellar Testnet transaction](https://stellar.expert/explorer/testnet/tx/1b7b8c3a23e248bdac3ef5a16f414472c65513530909269e4892d17f0691ce3e). Five seconds after the deposit, the deposit account sent exactly `35.0000000` native XLM to the retirement sink with the same memo.
-- [x] The earlier [30 XLM payment](https://stellar.expert/explorer/testnet/tx/45c1d2d17d33359d67afce199039f2b216bd4767ce06c0427c794cc344801b3e) is also a sell deposit, not buy evidence; its memo starts with `off` and it has the same deposit destination.
+- [x] **L11 — sell deposit, not buy:** [Stellar Testnet transaction](https://stellar.expert/explorer/testnet/tx/45c1d2d17d33359d67afce199039f2b216bd4767ce06c0427c794cc344801b3e). This is a `30.0000000` native-XLM payment from the customer wallet to the off-ramp deposit account; its memo starts with `off`.
+- [x] **L12 — sell deposit:** [Stellar Testnet transaction](https://stellar.expert/explorer/testnet/tx/5ebd7e80ebad47de8becf74d271537944a95d40ed1965ddc3ced608c9fccd93a). Horizon confirms a successful `35.0000000` native-XLM payment from the customer wallet to the off-ramp deposit account on 2026-09-30.
+- [x] **Separate retirement after L12 — not the L12 transaction:** [Stellar Testnet transaction](https://stellar.expert/explorer/testnet/tx/1b7b8c3a23e248bdac3ef5a16f414472c65513530909269e4892d17f0691ce3e). Five seconds after the L12 deposit, the deposit account sent exactly `35.0000000` native XLM to the retirement sink with the same memo. This retirement hash is separate from the L12 deposit hash.
 - [ ] Attach the authenticated order reference and sanitized webhook delivery record if required for the acceptance package. The public links verify the testnet transfers; the sandbox payout record is expected behavior and no real IDR payout is part of this testnet flow.
 
 ## Demo video links (owner-provided)

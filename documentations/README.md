@@ -41,8 +41,9 @@ The `v0.1.0` target is a public, reviewable sandbox platform containing:
 - Official TypeScript SDK for server-side developer integrations; the backend runtime remains Go.
 - One real Indonesian payment gateway integration in sandbox mode, supporting QRIS and bank transfer.
 - Verified payment callbacks and developer webhook delivery.
-- Stellar testnet issuance/transfer, exact off-ramp deposit evidence, and a
-  confirmed retirement transaction hash; payout remains simulated.
+- Stellar testnet native-XLM transfer (no project-token issuance), exact
+  off-ramp deposit evidence, and a confirmed retirement transaction hash;
+  payout remains simulated.
 - Authenticated SEP-24 deposit and withdrawal order mapping, Persona-backed
   sandbox KYC status gate, `stellar.toml`, and federation configuration.
 - User-facing buy/sell web app, order status, transaction history, and developer section.
@@ -68,16 +69,19 @@ The `v0.1.0` target is a public, reviewable sandbox platform containing:
 | Four-week execution plan | Release and scope control | Phase 1, Weeks 1-4 | Suggested sprint sequence | Weekly evidence and release gates |
 | Out-of-scope constraints | PRD section 5 | Phases 2-4 | Future backlog | Completion Report limitations and roadmap |
 
-## Immediate decisions before implementation
+## Phase 0 decisions to preserve
 
-Resolve and record these items during Phase 0:
+These decisions are recorded in ADRs; keep implementation and evidence aligned
+with them:
 
-1. Select Xendit or Midtrans after testing exact sandbox capabilities.
-2. Define the Stellar test asset, issuance path, exact deposit validation, and retirement evidence.
-3. Record testnet retirement evidence and the approved simulated off-ramp payout when the gateway has no sandbox disbursement rail (ADR-006/007).
-4. Select the minimum demo authentication approach.
-5. Select public hosting and domain/subdomain layout.
-6. Select the repository license.
+1. Use Xendit Payment Sessions for sandbox QRIS and bank-transfer checkout (ADR-001).
+2. Use native XLM; the project does not issue a custom Stellar asset. Exact
+   deposits are followed by a separate retirement-sink transfer (ADR-001/003/007).
+3. Record the sandbox payout after confirmed testnet retirement; it does not
+   represent a bank transfer or real IDR movement (ADR-006/007).
+4. Use the documented sandbox authentication and Persona KYC decisions (ADR-002/004).
+5. Use the public app and API URLs listed in the completion report.
+6. Keep the repository license recorded in `LICENSE`.
 
 ## Maintenance rules
 

@@ -1,7 +1,7 @@
 # KailoPay completion report draft
 
-> Status: Draft. This report records available project facts and owner
-> confirmations. It is not a final acceptance report.
+> Status: Reviewer-aligned draft. It records the reviewer verdict and available
+> evidence; it is not a final sponsor acceptance decision.
 
 **Report date:** 2026-09-30
 
@@ -11,18 +11,28 @@
 
 KailoPay has a public sandbox web app and backend API. The project owner also
 confirms that the TypeScript SDK is published and that the Week 1 sandbox flows
-were tested. The backend test suite passed on the current working tree. Within
-the selected native-XLM testnet scope, the buy settlement and sell deposit plus
-on-chain retirement are implemented and verified. A simulated fiat-payout
-record is the expected sandbox outcome; no real IDR payout is expected or
-claimed on Stellar testnet.
+were tested. Reviewer feedback approves Deliverable 1 with a note on the Go
+backend stack, marks Deliverable 2 Partial, and approves Deliverable 3. The
+overall SOW verdict is Partial because the selected native-XLM design does not
+implement literal custom-token issuance and issuer-burn. The sandbox buy,
+sell-deposit, and retirement flows are demonstrated on testnet; simulated fiat
+payout is expected in this environment and no real IDR payout is claimed.
 
 The owner has directed preparation of the `v0.1.0` sandbox release. The owner
-provided buy and sell transaction links and three demo video URLs. Checkout
-captures and sanitized callback logs have not been attached to this report, so
-the evidence package and formal SOW acceptance remain open. The remaining
-evidence items are documentation and acceptance work, not missing testnet
-payout functionality.
+provided buy and sell transaction links and three demo video URLs. The reviewer
+accepts Deliverable 3 based on the live app, docs, demos, and frontend repository.
+The D2 verdict remains Partial under literal SOW wording; use the corrected
+transaction map below so the deposit, retirement, and buy hashes are not
+confused.
+
+## Reviewer verdict
+
+| SOW item | Verdict from reviewer feedback | Basis |
+|---|---|---|
+| Deliverable 1: API and payment integration | Approve / Complete, with note | Go is the backend stack substitution; the feedback treats additional evidence as optional. |
+| Deliverable 2: Stellar anchor | Partial | The native-XLM testnet flow runs, but there is no custom project-token issuance or issuer-authorized burn. A sink transfer is retirement evidence, not protocol-level burn. |
+| Deliverable 3: Web app and demo | Approve / Complete | Feedback confirms `kailopay.com` and references L13-L15 for the app materials plus L08 for the canonical `kailopay/kailo-web` repository. The separate `kailo-fe-v1` URL returned 404 in that review. |
+| Overall | Partial | The reviewer recommends approval with a D2 caveat; if the chapter requires literal issue/burn wording, retain the Partial verdict for D2 and overall. |
 
 ## Public locations
 
@@ -32,6 +42,7 @@ The project owner confirmed these URLs on 2026-09-25:
 |---|---|---|
 | Web app | [https://kailopay.com](https://kailopay.com) | Owner-confirmed live |
 | Backend API | [https://api.kailopay.com](https://api.kailopay.com) | Owner-confirmed live |
+| Web frontend source | [kailopay/kailo-web](https://github.com/kailopay/kailo-web) | Reviewer evidence L08 identifies this as the available canonical repository; the separate `kailo-fe-v1` URL returned 404 in that review. |
 | TypeScript SDK | [@kailopay/sdk on npm](https://www.npmjs.com/package/@kailopay/sdk) | Owner-confirmed published |
 | Source repository | [kailopay/kailo-be](https://github.com/kailopay/kailo-be) | Week 1 checklist records it reachable on 2026-09-09 |
 
@@ -46,9 +57,9 @@ design.
 
 | Deliverable | Current status | Evidence and remaining work |
 |---|---|---|
-| On/off-ramp API and payment integration | Implemented; Week 1 flows tested per project owner | The API, OpenAPI contract, and Xendit sandbox session are recorded in the repository. The [verified on-ramp settlement](https://stellar.expert/explorer/testnet/tx/b4106f0c9fecc7d7a00b7715e5a99d2e156dfdb11b29c7954a8edb1bcb8f1065) is linked in the [Week 1 evidence checklist](WEEK1-EVIDENCE.md); QRIS/BRI checkout captures and sanitized callback logs remain to attach. |
-| Stellar testnet anchor | Implemented for the selected native-XLM testnet scope; buy settlement and sell retirement verified | Horizon confirms the [buy transfer](https://stellar.expert/explorer/testnet/tx/b4106f0c9fecc7d7a00b7715e5a99d2e156dfdb11b29c7954a8edb1bcb8f1065), the [sell deposit](https://stellar.expert/explorer/testnet/tx/5ebd7e80ebad47de8becf74d271537944a95d40ed1965ddc3ced608c9fccd93a), and the matching [35 XLM retirement transfer](https://stellar.expert/explorer/testnet/tx/1b7b8c3a23e248bdac3ef5a16f414472c65513530909269e4892d17f0691ce3e). The chosen design distributes treasury-funded native XLM and retires off-ramp XLM through the verified sink transfer. Native XLM has no issuer, so custom-token issuance and issuer-authorized burn are outside this chosen design. The simulated fiat-payout record is expected testnet behavior; it does not represent or claim a real IDR transfer. |
-| Web app and demo materials | App is live; demo URLs provided by owner | The app URL is owner-confirmed and the SDK is published. Demo recordings: [buy](https://youtu.be/jvUxssZjSzM), [sell](https://youtu.be/fBq_dOv1aGc), and [developer/user dashboard](https://youtu.be/CEVcd4mjYMk). Final user and reviewer guides remain open. |
+| On/off-ramp API and payment integration | Approve / Complete per reviewer feedback | Go is accepted as the backend stack substitution. The API, OpenAPI contract, and Xendit sandbox session are recorded in the repository; the [buy on-ramp transaction](https://stellar.expert/explorer/testnet/tx/b4106f0c9fecc7d7a00b7715e5a99d2e156dfdb11b29c7954a8edb1bcb8f1065) is included below. |
+| Stellar testnet anchor | Partial per reviewer feedback | The sandbox uses native XLM, not a project-issued token. The buy settlement, sell deposits, and separate retirement hash are mapped below. Native XLM has no issuer; therefore literal custom-token issuance and issuer-authorized burn are not met. |
+| Web app and demo materials | Approve / Complete per reviewer feedback | The feedback approves the live app, docs, demos, and frontend source. Demo recordings: [buy](https://youtu.be/jvUxssZjSzM), [sell](https://youtu.be/fBq_dOv1aGc), and [developer/user dashboard](https://youtu.be/CEVcd4mjYMk). |
 
 ## Implementation and tests
 
@@ -67,7 +78,18 @@ design.
 - The project owner confirms that Week 1 sandbox flows were tested. The run
   records are not linked to this report yet.
 - The live frontend is maintained in a separate repository. This report does
-  not claim a test result for that repository.
+  not claim a test result for that repository; the D3 approval is recorded from
+  the reviewer feedback, which identifies `kailopay/kailo-web` as the canonical
+  frontend repository.
+
+## Corrected transaction evidence index
+
+| Evidence reference | Transaction type and direction | Testnet transaction |
+|---|---|---|
+| L11 | Sell deposit: customer wallet to the off-ramp deposit account, `30.0000000` native XLM. This is not buy evidence. | [45c1d2d17d33359d67afce199039f2b216bd4767ce06c0427c794cc344801b3e](https://stellar.expert/explorer/testnet/tx/45c1d2d17d33359d67afce199039f2b216bd4767ce06c0427c794cc344801b3e) |
+| L12 | Sell deposit: customer wallet to the off-ramp deposit account, `35.0000000` native XLM. | [5ebd7e80ebad47de8becf74d271537944a95d40ed1965ddc3ced608c9fccd93a](https://stellar.expert/explorer/testnet/tx/5ebd7e80ebad47de8becf74d271537944a95d40ed1965ddc3ced608c9fccd93a) |
+| Retirement after L12 (separate transaction) | Off-ramp deposit account to the retirement sink, exactly `35.0000000` native XLM, five seconds after L12. This is a distinct hash, not the L12 deposit hash. | [1b7b8c3a23e248bdac3ef5a16f414472c65513530909269e4892d17f0691ce3e](https://stellar.expert/explorer/testnet/tx/1b7b8c3a23e248bdac3ef5a16f414472c65513530909269e4892d17f0691ce3e) |
+| Buy on-ramp settlement | Treasury to customer wallet, `24.1411618` native XLM. | [b4106f0c9fecc7d7a00b7715e5a99d2e156dfdb11b29c7954a8edb1bcb8f1065](https://stellar.expert/explorer/testnet/tx/b4106f0c9fecc7d7a00b7715e5a99d2e156dfdb11b29c7954a8edb1bcb8f1065) |
 
 ## Evidence matrix
 
@@ -80,19 +102,17 @@ design.
 | Formal buy and sell end-to-end records | On-chain hashes are verified; webhook and order-correlation artifacts are not attached here | [Buy transaction](https://stellar.expert/explorer/testnet/tx/b4106f0c9fecc7d7a00b7715e5a99d2e156dfdb11b29c7954a8edb1bcb8f1065) · [sell deposit](https://stellar.expert/explorer/testnet/tx/5ebd7e80ebad47de8becf74d271537944a95d40ed1965ddc3ced608c9fccd93a) · [sell retirement](https://stellar.expert/explorer/testnet/tx/1b7b8c3a23e248bdac3ef5a16f414472c65513530909269e4892d17f0691ce3e) · [buy demo](https://youtu.be/jvUxssZjSzM) · [sell demo](https://youtu.be/fBq_dOv1aGc) · [dashboard demo](https://youtu.be/CEVcd4mjYMk). Attach sanitized webhook logs and the authenticated order reference if the reviewer requires those records. |
 | Fiat payout rail | No real fiat payout is expected in testnet scope | The sandbox records a payout outcome to complete the test flow; it does not contact a bank or move real IDR. A production payout integration is a separate future scope. |
 | Demo recording | Three video URLs provided by owner | [Buy](https://youtu.be/jvUxssZjSzM) · [sell](https://youtu.be/fBq_dOv1aGc) · [developer/user dashboard](https://youtu.be/CEVcd4mjYMk). The links are recorded as owner-provided evidence; video contents have not been independently reviewed. |
-| Final evidence matrix | Draft only | Confirm each evidence link and mark each deliverable Present, Partial, or Missing. |
+| Final evidence matrix | Updated to match reviewer verdicts: D1 Approve, D2 Partial, D3 Approve; overall Partial | Keep L11/L12 classified as sell deposits, link the separate retirement hash, and use the buy on-ramp hash above for buy evidence. |
 | Final security and regression gate | Local format, vet, build, and race suite passed; GitHub Actions build/vet/unit tests, PostgreSQL integration tests, and secret scan passed before tagging | See the [GitHub Actions runs](https://github.com/kailopay/kailo-be/actions) for the release commit. |
 | `v0.1.0` release tag | Published | [Tag `v0.1.0`](https://github.com/kailopay/kailo-be/tree/v0.1.0) points to the CI-verified release commit `ecce60a`. |
 
 ## Week 4 closeout
 
-The `v0.1.0` sandbox software scope is implemented, and the native-XLM buy and
-sell retirement transfers are verified on testnet. A real IDR payout is not
-part of this testnet deliverable; the sandbox payout record is expected
-behavior. The release notes state these environment limits. To close the
-acceptance package, attach checkout and callback artifacts if required and
-record that the accepted anchor interpretation is treasury-funded native XLM
-with sink retirement, rather than custom-token issuance and issuer-burn.
+The reviewer approves D1 and D3 and marks D2 Partial, making the overall SOW
+verdict Partial when literal anchor wording is enforced. Evidence now labels
+L11 and L12 as sell deposits, gives the separate retirement hash, and includes
+the buy on-ramp hash. The sandbox uses native XLM and does not issue a project
+token or perform issuer-burn; a real IDR payout is outside testnet scope.
 
 ## Source records
 
