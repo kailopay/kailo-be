@@ -79,7 +79,7 @@ design.
 | Demo recording | Three video URLs provided by owner | [Buy](https://youtu.be/jvUxssZjSzM) · [sell](https://youtu.be/fBq_dOv1aGc) · [developer/user dashboard](https://youtu.be/CEVcd4mjYMk). The links are recorded as owner-provided evidence; video contents have not been independently reviewed. |
 | Final evidence matrix | Draft only | Confirm each evidence link and mark each deliverable Present, Partial, or Missing. |
 | Final security and regression gate | Local format, vet, build, and race suite passed; GitHub Actions build/vet/unit tests, PostgreSQL integration tests, and secret scan passed before tagging | See the [GitHub Actions runs](https://github.com/kailopay/kailo-be/actions) for the release commit. |
-| `v0.1.0` release tag | Pending publication | Record the tag and GitHub release URL after publication. |
+| `v0.1.0` release tag | Published | [Tag `v0.1.0`](https://github.com/kailopay/kailo-be/tree/v0.1.0) points to the CI-verified release commit `ecce60a`. |
 
 ## Week 4 closeout
 
