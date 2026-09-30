@@ -1,5 +1,10 @@
 # KailoPay completion report draft
 
+> Historical evidence in this draft records earlier native-XLM testnet flows.
+> It does not prove KXLM issuance or protocol burn implemented by ADR-008.
+> Submit fresh testnet KXLM buy and sell transaction evidence after issuer
+> flags and trustlines have been provisioned.
+
 > Status: Reviewer-aligned draft. It records the reviewer verdict and available
 > evidence; it is not a final sponsor acceptance decision.
 

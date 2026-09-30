@@ -25,10 +25,11 @@ const offrampRequestOperation = "offramp.create"
 const (
 	StellarTestnetNetwork = "stellar_testnet"
 	NativeXLMAssetCode    = "XLM"
+	KXLMAssetCode         = "KXLM"
 	IDRCurrency           = "IDR"
 )
 
-// DepositWatcher supplies recent native payments credited to the deposit
+// DepositWatcher supplies recent Stellar payments credited to the deposit
 // account. The stellar adapter implements it from Horizon payment history.
 type DepositWatcher interface {
 	RecentPayments(ctx context.Context, account string, limit int) ([]ObservedPayment, error)
@@ -40,6 +41,8 @@ type ObservedPayment struct {
 	TransactionHash string
 	From            string
 	To              string
+	AssetCode       string
+	AssetIssuer     string
 	Amount          entity.Stroops
 	Memo            string
 	LedgerAt        time.Time
@@ -103,6 +106,7 @@ type OfframpCreateRecord struct {
 	IdempotencyKeyHash string
 	RequestHash        string
 	AssetAmount        entity.Stroops
+	AssetIssuer        string
 	Quote              Quote
 	WithdrawalMethod   entity.WithdrawalMethod
 	DestinationToken   []byte
@@ -116,13 +120,18 @@ type RetirementIntent struct {
 	IntentID        string
 	OrderID         string
 	Source          string
+	ClawbackFrom    string
+	AssetCode       string
+	AssetIssuer     string
+	Destination     string
 	Amount          entity.Stroops
 	Memo            string
 	TransactionHash string
 }
 
 // PayoutView is the public sandbox payout representation. Its disclosure must
-// describe the retirement evidence accurately and clarify that no real IDR moved.
+// describe burn/clawback or legacy retirement evidence accurately and clarify
+// that no real IDR moved.
 type PayoutView struct {
 	Reference   string
 	Method      string
@@ -148,9 +157,9 @@ func (view PayoutView) MarshalJSON() ([]byte, error) {
 }
 
 const (
-	SandboxPayoutDisclosure                         = "Sandbox simulation: your XLM deposit was received but not retired on-chain, and no real IDR moved."
-	SandboxPayoutAfterConfirmedRetirementDisclosure = "Sandbox simulation: the XLM retirement was confirmed on Stellar testnet, but no real IDR moved."
-	SandboxPayoutUnknownRetirementDisclosure        = "Sandbox payout simulation: no real IDR moved; check the retirement status and on-chain evidence separately."
+	SandboxPayoutDisclosure                         = "Sandbox simulation: the asset deposit was received, but no on-chain burn or retirement was submitted; no real IDR moved."
+	SandboxPayoutAfterConfirmedRetirementDisclosure = "Sandbox simulation: the sell asset's on-chain burn or retirement was confirmed on Stellar testnet, but no real IDR moved."
+	SandboxPayoutUnknownRetirementDisclosure        = "Sandbox payout simulation: no real IDR moved; check the sell asset's on-chain transaction status separately."
 )
 
 func SandboxPayoutDisclosureForRetirementStatus(status string) string {
@@ -169,6 +178,7 @@ type OfframpDependencies struct {
 	Repository   OfframpRepository
 	Prices       PriceReader
 	Destinations DestinationValidator
+	Trustlines   AssetTrustlineValidator
 	KYC          KYCStatusReader
 }
 
@@ -178,6 +188,7 @@ type OfframpServiceConfig struct {
 	MinIDR         entity.IDR
 	MaxIDR         entity.IDR
 	DepositAccount string
+	AssetIssuer    string
 	DepositExpiry  time.Duration
 	NewID          func() (string, error)
 	Now            func() time.Time
@@ -229,7 +240,7 @@ func (s *OfframpUsecase) Create(ctx context.Context, command OfframpCommand) (Or
 	command.AssetAmount = strings.TrimSpace(command.AssetAmount)
 	command.DestinationToken = strings.TrimSpace(command.DestinationToken)
 	if command.IdempotencyKey == "" || len(command.IdempotencyKey) > 255 ||
-		command.AssetNetwork != StellarTestnetNetwork || command.AssetCode != NativeXLMAssetCode || command.FiatCurrency != IDRCurrency ||
+		command.AssetNetwork != StellarTestnetNetwork || command.AssetCode != KXLMAssetCode || command.FiatCurrency != IDRCurrency ||
 		command.WithdrawalMethod != entity.WithdrawalMethodSandboxTransfer || command.DestinationToken == "" || len(command.DestinationToken) > 200 {
 		return OrderView{}, false, ErrInvalidWithdrawal
 	}
@@ -253,6 +264,14 @@ func (s *OfframpUsecase) Create(ctx context.Context, command OfframpCommand) (Or
 	}
 	if !approved {
 		return OrderView{}, false, ErrKYCRequired
+	}
+	if strings.TrimSpace(s.config.AssetIssuer) == "" {
+		return OrderView{}, false, ErrInvalidWithdrawal
+	}
+	if s.dependencies.Trustlines != nil {
+		if err := s.dependencies.Trustlines.ValidateCreditAssetTrustline(ctx, s.config.DepositAccount, KXLMAssetCode, s.config.AssetIssuer); err != nil {
+			return OrderView{}, false, ErrInvalidWithdrawal
+		}
 	}
 
 	now := s.config.Now().UTC()
@@ -280,6 +299,7 @@ func (s *OfframpUsecase) Create(ctx context.Context, command OfframpCommand) (Or
 		IdempotencyKeyHash: idempotencyHash,
 		RequestHash:        requestHash,
 		AssetAmount:        stroops,
+		AssetIssuer:        s.config.AssetIssuer,
 		Quote:              quote,
 		WithdrawalMethod:   command.WithdrawalMethod,
 		DestinationToken:   []byte(command.DestinationToken),

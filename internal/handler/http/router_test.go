@@ -126,7 +126,7 @@ func TestRouterRegistersWeek1Routes(t *testing.T) {
 		}
 	}
 
-	request := httptest.NewRequest(http.MethodPost, "/v1/quotes", strings.NewReader(`{"direction":"buy","fiat":{"currency":"IDR","amount_minor":"100000"},"asset":{"network":"stellar_testnet","code":"XLM"}}`))
+	request := httptest.NewRequest(http.MethodPost, "/v1/quotes", strings.NewReader(`{"direction":"buy","fiat":{"currency":"IDR","amount_minor":"100000"},"asset":{"network":"stellar_testnet","code":"KXLM"}}`))
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
 	router.ServeHTTP(response, request)

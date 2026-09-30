@@ -105,7 +105,7 @@ func (r *SettlementRepository) LoadIntent(ctx context.Context, intentID string) 
 	if err != nil {
 		return usecase.Intent{}, err
 	}
-	transfer := usecase.Transfer{OrderID: row.OrderID, Amount: amount}
+	transfer := usecase.Transfer{OrderID: row.OrderID, Amount: amount, AssetCode: row.AssetCode, AssetIssuer: row.AssetIssuer}
 	if row.Source != nil {
 		transfer.Source = *row.Source
 	}

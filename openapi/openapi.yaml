@@ -978,11 +978,14 @@ paths:
     post:
       tags: [Orders]
       operationId: previewQuote
-      summary: Preview the current IDR/XLM exchange quote
+      summary: Preview the current IDR/KXLM exchange quote
       description: |
-        Returns an indicative quote without creating an order, reserving
-        treasury liquidity, or creating a payment checkout. The order create
-        endpoint fetches a fresh rate and is authoritative if the market moves
+        Returns an indicative quote using the XLM/IDR market price as a
+        quantity reference for sandbox KXLM. KXLM is not native XLM, is not
+        redeemable for XLM, and has no real-world value. The endpoint does not
+        create an order, reserve treasury liquidity, or create a payment
+        checkout. The order-create endpoint fetches a fresh rate and is
+        authoritative if the market moves
         between preview and submission. This preview endpoint is public; order
         creation remains authenticated.
       security: []
@@ -1023,7 +1026,7 @@ paths:
     post:
       tags: [Orders]
       operationId: createOnramp
-      summary: Create an IDR to native-XLM sandbox on-ramp
+      summary: Create an IDR to KXLM sandbox on-ramp
       description: |
         Accepts either an API-key principal or a verified retail session
         principal. For a session-authenticated browser mutation, `Origin`
@@ -1054,7 +1057,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/OrderResponse'
         '201':
-          description: Treasury inventory reserved and Xendit hosted checkout created
+          description: Issuer transaction-fee reserve recorded and Xendit hosted checkout created
           content:
             application/json:
               schema:
@@ -1099,17 +1102,17 @@ paths:
     post:
       tags: [Orders]
       operationId: createOfframp
-      summary: Create an XLM to IDR sandbox off-ramp
+      summary: Create a KXLM to IDR sandbox off-ramp
       description: |
         Prices the sell order against current market data, then returns
-        deterministic deposit instructions: send exactly the quoted XLM amount
+        deterministic deposit instructions: send exactly the quoted KXLM amount
         to the deposit account using the returned memo before expiry. After
-        verification, the worker submits an exact-amount native-XLM retirement
-        payment to the all-zero public-key retirement sink on Stellar testnet.
+        verification, the treasury issuer submits an exact-amount Stellar
+        Clawback operation that burns the KXLM held by the deposit account.
         It persists the transaction hash before submission and reconciles
         uncertain outcomes against Stellar. The order advances through `withdrawal_processing` only
-        after retirement is confirmed, then completes through the deterministic
-        sandbox payout. The response discloses that retirement occurred on
+        after the clawback is confirmed, then completes through the deterministic
+        sandbox payout. The response discloses that the KXLM burn occurred on
         Stellar testnet and that no real IDR moved. Accepts
         either an API-key principal or a verified retail session principal. A
         session-authenticated browser mutation requires an exact configured
@@ -1243,7 +1246,7 @@ paths:
       tags: [Anchor discovery]
       operationId: getStellarToml
       summary: Get the public Stellar testnet anchor descriptor
-      description: Advertises only the configured sandbox/testnet SEP-24 transfer server, SEP-38 quote server, federation endpoint, and native XLM asset.
+      description: Advertises the configured sandbox/testnet SEP-24 transfer server, SEP-38 quote server, federation endpoint, and issued KXLM asset with its issuer.
       responses:
         '200':
           description: Stellar TOML document
@@ -1282,10 +1285,10 @@ paths:
       tags: [SEP-24]
       operationId: getSEP24Info
       summary: Get supported SEP-24 sandbox assets and limits
-      description: Deposit limits use IDR minor units in this sandbox; withdrawal limits use exact XLM units.
+      description: Deposit limits use IDR minor units in this sandbox; withdrawal limits use exact KXLM units.
       responses:
         '200':
-          description: Supported testnet XLM deposit and withdrawal configuration
+          description: Supported testnet KXLM deposit and withdrawal configuration
           content:
             application/json:
               schema:
@@ -1441,7 +1444,7 @@ paths:
           required: false
           schema:
             type: string
-            enum: [XLM]
+            enum: [KXLM]
         - name: kind
           in: query
           required: false
@@ -1636,7 +1639,7 @@ paths:
       tags: [SEP-38]
       operationId: getSEP38Info
       summary: Get supported SEP-38 quote assets and delivery methods
-      description: Returns the sandbox quote assets, supported delivery methods, and country metadata for the IDR/native-XLM pair.
+      description: Returns the sandbox quote assets, supported delivery methods, and country metadata for the IDR/KXLM pair.
       responses:
         '200':
           description: Supported quote assets and delivery methods
@@ -1654,11 +1657,17 @@ paths:
         - name: sell_asset
           in: query
           required: false
-          schema: {type: string, enum: [iso4217:IDR, stellar:native]}
+          schema:
+            type: string
+            description: Use iso4217:IDR or stellar:KXLM:<issuer_account>.
+            example: "stellar:KXLM:<issuer_account>"
         - name: buy_asset
           in: query
           required: false
-          schema: {type: string, enum: [iso4217:IDR, stellar:native]}
+          schema:
+            type: string
+            description: Use iso4217:IDR or stellar:KXLM:<issuer_account>.
+            example: "stellar:KXLM:<issuer_account>"
       responses:
         '200':
           description: Indicative prices
@@ -1683,16 +1692,22 @@ paths:
       tags: [SEP-38]
       operationId: getSEP38Price
       summary: Calculate a SEP-38 amount-specific price
-      description: Returns an amount-specific calculation. Provide exactly one of sell_amount or buy_amount. IDR uses minor units and native XLM uses up to 7 decimal places.
+      description: Returns an amount-specific calculation. Provide exactly one of sell_amount or buy_amount. IDR uses minor units and KXLM uses up to 7 decimal places.
       parameters:
         - name: sell_asset
           in: query
           required: true
-          schema: {type: string, enum: [iso4217:IDR, stellar:native]}
+          schema:
+            type: string
+            description: Use iso4217:IDR or stellar:KXLM:<issuer_account>.
+            example: "stellar:KXLM:<issuer_account>"
         - name: buy_asset
           in: query
           required: true
-          schema: {type: string, enum: [iso4217:IDR, stellar:native]}
+          schema:
+            type: string
+            description: Use iso4217:IDR or stellar:KXLM:<issuer_account>.
+            example: "stellar:KXLM:<issuer_account>"
         - name: sell_amount
           in: query
           required: false
@@ -1725,7 +1740,7 @@ paths:
       tags: [SEP-38]
       operationId: createSEP38Quote
       summary: Create an authenticated firm SEP-38 quote
-      description: Creates a short-lived, wallet-owned firm quote for the supported IDR/native-XLM pair. The quote can be used once by a matching SEP-24 wallet flow.
+      description: Creates a short-lived, wallet-owned firm quote for the supported IDR/KXLM pair. The quote can be used once by a matching SEP-24 wallet flow.
       security:
         - sep10Bearer: []
       requestBody:
@@ -1911,7 +1926,7 @@ components:
       name: currency
       in: query
       required: false
-      schema: {type: string, enum: [IDR, XLM]}
+      schema: {type: string, enum: [IDR, KXLM]}
     DeveloperDirection:
       name: direction
       in: query
@@ -2186,10 +2201,10 @@ components:
               enum: [stellar_testnet]
             code:
               type: string
-              enum: [XLM]
+              enum: [KXLM]
             amount:
               type: string
-              description: Exact decimal XLM amount with up to 7 fraction digits.
+              description: Exact decimal KXLM amount with up to 7 fraction digits.
         withdrawal:
           type: object
           additionalProperties: false
@@ -2230,7 +2245,7 @@ components:
           required: [network, code]
           properties:
             network: {type: string, enum: [stellar_testnet]}
-            code: {type: string, enum: [XLM]}
+            code: {type: string, enum: [KXLM]}
             amount:
               type: string
               description: Omit for a buy preview; the backend calculates this value.
@@ -2257,10 +2272,10 @@ components:
           required: [network, code, amount]
           properties:
             network: {type: string, enum: [stellar_testnet]}
-            code: {type: string, enum: [XLM]}
+            code: {type: string, enum: [KXLM]}
             amount:
               type: string
-              description: Exact decimal XLM amount with up to 7 fraction digits.
+              description: Exact decimal KXLM amount with up to 7 fraction digits.
     QuotePreviewResponse:
       type: object
       required: [quote]
@@ -2282,7 +2297,7 @@ components:
               type: object
               required: [code, amount]
               properties:
-                code: {type: string, enum: [XLM]}
+                code: {type: string, enum: [KXLM]}
                 amount: {type: string, pattern: '^[0-9]+\.[0-9]{7}$'}
             rate: {type: string}
             adjusted_rate: {type: string}
@@ -2336,7 +2351,7 @@ components:
         asset:
           type: object
           properties:
-            code: {type: string, enum: [XLM]}
+            code: {type: string, enum: [KXLM]}
             amount: {type: string, pattern: '^[0-9]+\.[0-9]{7}$'}
         quote:
           type: object
@@ -2363,10 +2378,10 @@ components:
             expires_at: {type: string, format: date-time, nullable: true}
         stellar_transaction_hash:
           type: string
-          description: On-chain settlement hash; for off-ramp orders this is the confirmed retirement hash.
+          description: On-chain settlement hash; for off-ramp orders this is the confirmed KXLM clawback hash.
         deposit_transaction_hash:
           type: string
-          description: Verified off-ramp XLM deposit hash; present after the deposit is accepted.
+          description: Verified off-ramp KXLM deposit hash; present after the deposit is accepted.
         payout:
           type: object
           properties:
@@ -2377,7 +2392,7 @@ components:
             simulated: {type: boolean}
             disclosure:
               type: string
-              description: States whether retirement was simulated or confirmed on Stellar testnet and that no real IDR moved.
+              description: States whether the sell asset's on-chain burn or legacy retirement was confirmed on Stellar testnet and that no real IDR moved.
         failure_code: {type: string}
         created_at: {type: string, format: date-time}
         updated_at: {type: string, format: date-time}
@@ -2760,23 +2775,23 @@ components:
         paging_id: {type: string, nullable: true}
     SEP24AssetInfoMap:
       type: object
-      required: [XLM]
+      required: [KXLM]
       properties:
-        XLM:
+        KXLM:
           type: object
           required: [enabled, min_amount, max_amount, amount_unit, fiat_currency]
           properties:
             enabled: {type: boolean}
             min_amount: {type: number}
             max_amount: {type: number}
-            amount_unit: {type: string, enum: [XLM, idr_minor]}
+            amount_unit: {type: string, enum: [KXLM, idr_minor]}
             fiat_currency: {type: string, enum: [IDR]}
     SEP24DepositRequest:
       type: object
       additionalProperties: false
       required: [asset_code, account]
       properties:
-        asset_code: {type: string, enum: [XLM]}
+        asset_code: {type: string, enum: [KXLM]}
         amount_minor:
           type: string
           pattern: '^[1-9][0-9]*$'
@@ -2797,11 +2812,11 @@ components:
       additionalProperties: false
       required: [asset_code, amount, destination_token]
       properties:
-        asset_code: {type: string, enum: [XLM]}
+        asset_code: {type: string, enum: [KXLM]}
         amount:
           type: string
           pattern: '^[0-9]+(\.[0-9]{1,7})?$'
-          description: Positive exact XLM amount with up to 7 fractional digits.
+          description: Positive exact KXLM amount with up to 7 fractional digits.
         destination_token:
           type: string
           minLength: 1
@@ -2835,7 +2850,7 @@ components:
         stellar_transaction_id: {type: string}
         stellar_retirement_transaction_id:
           type: string
-          description: Confirmed off-ramp retirement hash when the XLM retirement is confirmed on Stellar testnet.
+          description: Confirmed off-ramp KXLM clawback hash when the burn is confirmed on Stellar testnet.
         withdraw_anchor_account: {type: string}
         withdraw_memo: {type: string}
         withdraw_memo_type: {type: string, enum: [text]}
@@ -2845,7 +2860,7 @@ components:
         external_transaction_id: {type: string}
         sandbox_disclosure:
           type: string
-          description: Present for sandbox payout completion; states that retirement was confirmed on Stellar testnet and that no real IDR moved.
+          description: Present for sandbox payout completion; states whether the KXLM clawback burn or a legacy native-XLM retirement was confirmed on Stellar testnet and that no real IDR moved.
         more_info_url: {type: string, format: uri}
     SEP24TransactionResponse:
       type: object
@@ -2952,8 +2967,8 @@ components:
       additionalProperties: false
       required: [sell_asset, buy_asset]
       properties:
-        sell_asset: {type: string, enum: [iso4217:IDR, stellar:native]}
-        buy_asset: {type: string, enum: [iso4217:IDR, stellar:native]}
+        sell_asset: {type: string, description: Use iso4217:IDR or stellar:KXLM:<issuer_account>., example: "stellar:KXLM:<issuer_account>"}
+        buy_asset: {type: string, description: Use iso4217:IDR or stellar:KXLM:<issuer_account>., example: "stellar:KXLM:<issuer_account>"}
         sell_amount:
           type: string
           description: Exact amount on the sell side. Provide exactly one of sell_amount or buy_amount.

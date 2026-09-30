@@ -187,7 +187,7 @@ func publicOrder(view usecase.OrderView) gin.H {
 	result := gin.H{
 		"id": view.ID, "status": view.Status, "environment": "sandbox", "network": "stellar_testnet",
 		"fiat":  gin.H{"currency": "IDR", "amount_minor": strconv.FormatInt(int64(view.FiatAmountMinor), 10)},
-		"asset": gin.H{"code": "XLM", "amount": view.AssetAmount.String()},
+		"asset": gin.H{"code": usecase.KXLMAssetCode, "amount": view.AssetAmount.String()},
 		"quote": gin.H{"rate": view.QuoteRate, "adjusted_rate": view.QuoteAdjustedRate, "spread_bps": view.QuoteSpreadBPS,
 			"source_at": view.QuoteSourceAt, "expires_at": view.QuoteExpiresAt},
 		"payment_method":      view.PaymentMethod,

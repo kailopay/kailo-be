@@ -201,7 +201,7 @@ func run(ctx context.Context) error {
 	onrampRepository := repository.NewOnrampRepository(db, cfg.Week1.Stellar.TreasuryAccount, usecase.StellarTestnetNetwork,
 		entity.Stroops(cfg.Week1.Stellar.OperatingBufferStroops))
 	onrampService, err := usecase.NewOnrampUsecase(usecase.OnrampDependencies{Repository: onrampRepository, Prices: priceClient,
-		Treasury: treasuryReader, Gateway: paymentClient, Destinations: treasuryReader, KYC: orderKYC}, usecase.ServiceConfig{
+		Treasury: treasuryReader, Gateway: paymentClient, Destinations: treasuryReader, Trustlines: treasuryReader, KYC: orderKYC}, usecase.ServiceConfig{
 		QuotePolicy: quotePolicy, MinIDR: entity.IDR(cfg.Week1.Onramp.MinIDR),
 		MaxIDR: entity.IDR(cfg.Week1.Onramp.MaxIDR), TreasuryAccount: cfg.Week1.Stellar.TreasuryAccount,
 		NewID: platform.NewID, Now: time.Now,
@@ -215,9 +215,10 @@ func run(ctx context.Context) error {
 	}
 	offrampRepository := repository.NewOfframpRepository(db, cfg.Week1.Offramp.DepositAccount, usecase.StellarTestnetNetwork)
 	offrampService, err := usecase.NewOfframpUsecase(usecase.OfframpDependencies{
-		Repository: offrampRepository, Prices: priceClient, Destinations: treasuryReader, KYC: orderKYC}, usecase.OfframpServiceConfig{
+		Repository: offrampRepository, Prices: priceClient, Destinations: treasuryReader, Trustlines: treasuryReader, KYC: orderKYC}, usecase.OfframpServiceConfig{
 		QuotePolicy: quotePolicy, MinIDR: entity.IDR(cfg.Week1.Onramp.MinIDR),
 		MaxIDR: entity.IDR(cfg.Week1.Onramp.MaxIDR), DepositAccount: cfg.Week1.Offramp.DepositAccount,
+		AssetIssuer:   cfg.Week1.Stellar.TreasuryAccount,
 		DepositExpiry: cfg.Week1.Offramp.DepositExpiry, NewID: platform.NewID, Now: time.Now,
 	})
 	if err != nil {
@@ -233,6 +234,7 @@ func run(ctx context.Context) error {
 		QuotePolicy: quotePolicy,
 		MinIDR:      entity.IDR(cfg.Week1.Onramp.MinIDR),
 		MaxIDR:      entity.IDR(cfg.Week1.Onramp.MaxIDR),
+		AssetIssuer: cfg.Week1.Stellar.TreasuryAccount,
 		Now:         time.Now,
 	})
 	if err != nil {
@@ -301,6 +303,7 @@ func run(ctx context.Context) error {
 		QuotePolicy: quotePolicy,
 		MinIDR:      entity.IDR(cfg.Week1.Onramp.MinIDR),
 		MaxIDR:      entity.IDR(cfg.Week1.Onramp.MaxIDR),
+		AssetIssuer: cfg.Week1.Stellar.TreasuryAccount,
 		Now:         time.Now,
 		NewID:       platform.NewID,
 	})
@@ -310,6 +313,7 @@ func run(ctx context.Context) error {
 	sep38Handler.ConfigureFirmQuotes(sep38QuoteService, sep10Service)
 	sep24Config := httpapi.Sep24Config{
 		DepositAccount:        cfg.Week1.Offramp.DepositAccount,
+		AssetIssuer:           cfg.Week1.Stellar.TreasuryAccount,
 		NetworkPassphrase:     cfg.Week1.Stellar.NetworkPassphrase,
 		TransferServerURL:     publicBaseURL + "/sep24",
 		QuoteServerURL:        publicBaseURL + "/sep38",
@@ -328,6 +332,7 @@ func run(ctx context.Context) error {
 		SessionTTL:         30 * time.Minute,
 		Environment:        cfg.App.Environment,
 		Network:            usecase.StellarTestnetNetwork,
+		AssetIssuer:        cfg.Week1.Stellar.TreasuryAccount,
 		TestAutoApproveKYC: cfg.Anchor.TestAutoApproveKYC,
 		Now:                time.Now,
 		NewID:              platform.NewID,

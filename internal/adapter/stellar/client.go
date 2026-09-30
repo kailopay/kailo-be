@@ -65,7 +65,7 @@ func NewBalanceReader(horizonURL string, httpClient *http.Client) (*Client, erro
 }
 
 func (c *Client) Build(ctx context.Context, transfer usecase.Transfer) (usecase.BuiltTransaction, error) {
-	if c.signer == nil || transfer.Source != c.signer.Address() || transfer.Amount.Validate() != nil || transfer.Destination == "" {
+	if c.signer == nil || transfer.Source != c.signer.Address() || transfer.Amount.Validate() != nil {
 		return usecase.BuiltTransaction{}, errors.New("invalid Stellar transfer")
 	}
 	account, err := c.account(ctx, transfer.Source)
@@ -80,7 +80,50 @@ func (c *Client) Build(ctx context.Context, transfer usecase.Transfer) (usecase.
 			memo = memo[:txnbuild.MemoTextMaxLength]
 		}
 	}
-	operation := &txnbuild.Payment{Destination: transfer.Destination, Amount: transfer.Amount.String(), Asset: txnbuild.NativeAsset{}}
+	assetCode := transfer.AssetCode
+	if assetCode == "" { // Old persisted intents predate explicit asset metadata.
+		assetCode = usecase.NativeXLMAssetCode
+	}
+	var asset txnbuild.Asset
+	switch {
+	case assetCode == usecase.NativeXLMAssetCode && transfer.AssetIssuer == "":
+		asset = txnbuild.NativeAsset{}
+	case assetCode == usecase.KXLMAssetCode && transfer.AssetIssuer == c.signer.Address():
+		if !account.AuthRevocable || !account.AuthClawbackEnabled {
+			return usecase.BuiltTransaction{}, errors.New("KXLM issuer clawback flags are not enabled")
+		}
+		asset = txnbuild.CreditAsset{Code: assetCode, Issuer: transfer.AssetIssuer}
+	default:
+		return usecase.BuiltTransaction{}, errors.New("unsupported Stellar asset or issuer")
+	}
+	var operation txnbuild.Operation
+	if transfer.ClawbackFrom != "" {
+		if transfer.Destination != "" || asset.IsNative() || transfer.ClawbackFrom == c.signer.Address() {
+			return usecase.BuiltTransaction{}, errors.New("invalid Stellar clawback")
+		}
+		holder, err := c.account(ctx, transfer.ClawbackFrom)
+		if err != nil {
+			return usecase.BuiltTransaction{}, err
+		}
+		if !holder.hasClawbackTrustline(assetCode, transfer.AssetIssuer) {
+			return usecase.BuiltTransaction{}, errors.New("KXLM holder trustline is missing or not clawback-enabled")
+		}
+		operation = &txnbuild.Clawback{From: transfer.ClawbackFrom, Amount: transfer.Amount.String(), Asset: asset}
+	} else {
+		if transfer.Destination == "" {
+			return usecase.BuiltTransaction{}, errors.New("invalid Stellar destination")
+		}
+		if !asset.IsNative() {
+			destination, err := c.account(ctx, transfer.Destination)
+			if err != nil {
+				return usecase.BuiltTransaction{}, err
+			}
+			if !destination.hasClawbackTrustline(assetCode, transfer.AssetIssuer) {
+				return usecase.BuiltTransaction{}, errors.New("KXLM destination trustline is missing or not clawback-enabled")
+			}
+		}
+		operation = &txnbuild.Payment{Destination: transfer.Destination, Amount: transfer.Amount.String(), Asset: asset}
+	}
 	transaction, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
 		SourceAccount: &source, IncrementSequenceNum: true, Operations: []txnbuild.Operation{operation},
 		BaseFee: txnbuild.MinBaseFee, Memo: txnbuild.MemoText(memo),
@@ -226,18 +269,20 @@ func (c *Client) SpendableBalance(ctx context.Context, accountID string) (entity
 	return entity.Stroops(spendable), nil
 }
 
-// ObservedPayment is one successful native payment credited to an account,
+// ObservedPayment is one successful Stellar payment credited to an account,
 // as seen from Horizon's payment history.
 type ObservedPayment struct {
 	TransactionHash string
 	From            string
 	To              string
+	AssetCode       string
+	AssetIssuer     string
 	Amount          entity.Stroops
 	Memo            string
 	LedgerAt        time.Time
 }
 
-// RecentPayments returns successful native payments to accountID, newest
+// RecentPayments returns successful native and credit-asset payments to accountID, newest
 // first, up to limit. It backs off-ramp deposit detection; the caller owns
 // memo/amount matching against its own order state.
 func (c *Client) RecentPayments(ctx context.Context, accountID string, limit int) ([]ObservedPayment, error) {
@@ -261,6 +306,8 @@ func (c *Client) RecentPayments(ctx context.Context, accountID string, limit int
 				From            string `json:"from"`
 				To              string `json:"to"`
 				AssetType       string `json:"asset_type"`
+				AssetCode       string `json:"asset_code"`
+				AssetIssuer     string `json:"asset_issuer"`
 				Amount          string `json:"amount"`
 			} `json:"records"`
 		} `json:"_embedded"`
@@ -272,7 +319,8 @@ func (c *Client) RecentPayments(ctx context.Context, accountID string, limit int
 	transactions := make(map[string]paymentTxMeta)
 	payments := make([]ObservedPayment, 0, len(payload.Embedded.Records))
 	for _, record := range payload.Embedded.Records {
-		if record.Type != "payment" || record.AssetType != "native" {
+		if record.Type != "payment" || (record.AssetType != "native" &&
+			record.AssetType != "credit_alphanum4" && record.AssetType != "credit_alphanum12") {
 			continue
 		}
 		amount, err := stroops(record.Amount)
@@ -283,10 +331,15 @@ func (c *Client) RecentPayments(ctx context.Context, accountID string, limit int
 		if err != nil {
 			return nil, err
 		}
+		if !meta.successful {
+			continue
+		}
 		payments = append(payments, ObservedPayment{
 			TransactionHash: record.TransactionHash,
 			From:            record.From,
 			To:              record.To,
+			AssetCode:       record.AssetCode,
+			AssetIssuer:     record.AssetIssuer,
 			Amount:          entity.Stroops(amount),
 			Memo:            meta.memo,
 			LedgerAt:        meta.ledgerAt,
@@ -340,6 +393,38 @@ type horizonAccount struct {
 	NumSponsored             int64 `json:"num_sponsored"`
 	NativeBalance            int64
 	NativeSellingLiabilities int64
+	AuthRevocable            bool
+	AuthClawbackEnabled      bool
+	CreditBalances           []creditBalance
+}
+
+type creditBalance struct {
+	Code            string
+	Issuer          string
+	Authorized      bool
+	ClawbackEnabled bool
+}
+
+func (account horizonAccount) hasClawbackTrustline(code, issuer string) bool {
+	for _, balance := range account.CreditBalances {
+		if balance.Code == code && balance.Issuer == issuer && balance.Authorized && balance.ClawbackEnabled {
+			return true
+		}
+	}
+	return false
+}
+
+// ValidateCreditAssetTrustline checks that a wallet can receive and later
+// return KXLM through the issuer's clawback operation.
+func (c *Client) ValidateCreditAssetTrustline(ctx context.Context, accountID, code, issuer string) error {
+	account, err := c.account(ctx, accountID)
+	if err != nil {
+		return err
+	}
+	if !account.hasClawbackTrustline(code, issuer) {
+		return errors.New("KXLM trustline is missing or not clawback-enabled")
+	}
+	return nil
 }
 
 func (c *Client) account(ctx context.Context, accountID string) (horizonAccount, error) {
@@ -356,10 +441,18 @@ func (c *Client) account(ctx context.Context, accountID string) (horizonAccount,
 		SubentryCount int64  `json:"subentry_count"`
 		NumSponsoring int64  `json:"num_sponsoring"`
 		NumSponsored  int64  `json:"num_sponsored"`
-		Balances      []struct {
+		Flags         struct {
+			AuthRevocable       bool `json:"auth_revocable"`
+			AuthClawbackEnabled bool `json:"auth_clawback_enabled"`
+		} `json:"flags"`
+		Balances []struct {
 			AssetType          string `json:"asset_type"`
+			AssetCode          string `json:"asset_code"`
+			AssetIssuer        string `json:"asset_issuer"`
 			Balance            string `json:"balance"`
 			SellingLiabilities string `json:"selling_liabilities"`
+			Authorized         bool   `json:"is_authorized"`
+			ClawbackEnabled    bool   `json:"is_clawback_enabled"`
 		} `json:"balances"`
 	}
 	if err := json.Unmarshal(body, &payload); err != nil {
@@ -369,7 +462,9 @@ func (c *Client) account(ctx context.Context, accountID string) (horizonAccount,
 	if err != nil {
 		return horizonAccount{}, errors.New("invalid Stellar account sequence")
 	}
-	result := horizonAccount{Sequence: sequence, SubentryCount: payload.SubentryCount, NumSponsoring: payload.NumSponsoring, NumSponsored: payload.NumSponsored}
+	result := horizonAccount{Sequence: sequence, SubentryCount: payload.SubentryCount, NumSponsoring: payload.NumSponsoring,
+		NumSponsored: payload.NumSponsored, AuthRevocable: payload.Flags.AuthRevocable,
+		AuthClawbackEnabled: payload.Flags.AuthClawbackEnabled, CreditBalances: make([]creditBalance, 0, len(payload.Balances))}
 	for _, balance := range payload.Balances {
 		if balance.AssetType == "native" {
 			result.NativeBalance, err = stroops(balance.Balance)
@@ -379,10 +474,20 @@ func (c *Client) account(ctx context.Context, accountID string) (horizonAccount,
 			if balance.SellingLiabilities != "" {
 				result.NativeSellingLiabilities, err = stroops(balance.SellingLiabilities)
 			}
-			return result, err
+			if err != nil {
+				return horizonAccount{}, err
+			}
+			continue
+		}
+		if balance.AssetType == "credit_alphanum4" || balance.AssetType == "credit_alphanum12" {
+			result.CreditBalances = append(result.CreditBalances, creditBalance{Code: balance.AssetCode,
+				Issuer: balance.AssetIssuer, Authorized: balance.Authorized, ClawbackEnabled: balance.ClawbackEnabled})
 		}
 	}
-	return horizonAccount{}, errors.New("native XLM balance missing")
+	if result.NativeBalance == 0 {
+		return horizonAccount{}, errors.New("native XLM balance missing")
+	}
+	return result, nil
 }
 
 func (c *Client) request(ctx context.Context, method, path string, body io.Reader) (*http.Request, error) {

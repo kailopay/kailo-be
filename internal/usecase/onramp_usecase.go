@@ -52,6 +52,10 @@ type DestinationValidator interface {
 	ValidateDestination(account string) error
 }
 
+type AssetTrustlineValidator interface {
+	ValidateCreditAssetTrustline(ctx context.Context, account, code, issuer string) error
+}
+
 type PaymentGateway interface {
 	CreateCheckout(ctx context.Context, input CheckoutInput) (Checkout, error)
 }
@@ -76,6 +80,7 @@ type OnrampDependencies struct {
 	Treasury     TreasuryReader
 	Gateway      PaymentGateway
 	Destinations DestinationValidator
+	Trustlines   AssetTrustlineValidator
 	KYC          KYCStatusReader
 }
 
@@ -134,6 +139,8 @@ type Checkout struct {
 type OrderView struct {
 	ID                     string               `json:"id"`
 	Status                 entity.OrderStatus   `json:"status"`
+	AssetCode              string               `json:"asset_code,omitempty"`
+	AssetIssuer            string               `json:"asset_issuer,omitempty"`
 	FiatAmountMinor        entity.IDR           `json:"-"`
 	AssetAmount            entity.Stroops       `json:"-"`
 	QuoteRate              string               `json:"quote_rate"`
@@ -200,6 +207,11 @@ func (s *OnrampUsecase) Create(ctx context.Context, command Command) (OrderView,
 	}
 	if err := s.dependencies.Destinations.ValidateDestination(command.Destination); err != nil {
 		return OrderView{}, false, ErrInvalidDestination
+	}
+	if s.dependencies.Trustlines != nil {
+		if err := s.dependencies.Trustlines.ValidateCreditAssetTrustline(ctx, command.Destination, KXLMAssetCode, s.config.TreasuryAccount); err != nil {
+			return OrderView{}, false, ErrInvalidDestination
+		}
 	}
 	if command.Amount < s.config.MinIDR || command.Amount > s.config.MaxIDR {
 		return OrderView{}, false, ErrAmountOutOfRange

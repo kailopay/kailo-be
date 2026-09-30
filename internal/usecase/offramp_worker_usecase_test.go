@@ -94,14 +94,14 @@ func (f *depositSinkFake) RecordAssetInvalid(_ context.Context, orderID, hash, r
 func TestDepositScannerRequiresTransactionHashAndKeepsMismatchCorrelation(t *testing.T) {
 	account := "GDEPOSIT"
 	candidates := &depositScanSourceFake{candidates: []OrderView{
-		{ID: "order-valid", AssetAmount: entity.Stroops(40_000_000)},
-		{ID: "order-empty-hash", AssetAmount: entity.Stroops(40_000_000)},
-		{ID: "order-mismatch", AssetAmount: entity.Stroops(60_000_000)},
+		{ID: "order-valid", AssetCode: KXLMAssetCode, AssetIssuer: "GISSUER", AssetAmount: entity.Stroops(40_000_000)},
+		{ID: "order-empty-hash", AssetCode: KXLMAssetCode, AssetIssuer: "GISSUER", AssetAmount: entity.Stroops(40_000_000)},
+		{ID: "order-mismatch", AssetCode: KXLMAssetCode, AssetIssuer: "GISSUER", AssetAmount: entity.Stroops(60_000_000)},
 	}}
 	payments := &depositPaymentsFake{payments: []ObservedPayment{
-		{TransactionHash: "hash-valid", To: account, Amount: entity.Stroops(40_000_000), Memo: OfframpDepositMemo("order-valid"), LedgerAt: time.Now()},
-		{To: account, Amount: entity.Stroops(40_000_000), Memo: OfframpDepositMemo("order-empty-hash"), LedgerAt: time.Now()},
-		{TransactionHash: "hash-mismatch", To: account, Amount: entity.Stroops(40_000_000), Memo: OfframpDepositMemo("order-mismatch"), LedgerAt: time.Now()},
+		{TransactionHash: "hash-valid", To: account, AssetCode: KXLMAssetCode, AssetIssuer: "GISSUER", Amount: entity.Stroops(40_000_000), Memo: OfframpDepositMemo("order-valid"), LedgerAt: time.Now()},
+		{To: account, AssetCode: KXLMAssetCode, AssetIssuer: "GISSUER", Amount: entity.Stroops(40_000_000), Memo: OfframpDepositMemo("order-empty-hash"), LedgerAt: time.Now()},
+		{TransactionHash: "hash-mismatch", To: account, AssetCode: KXLMAssetCode, AssetIssuer: "GISSUER", Amount: entity.Stroops(40_000_000), Memo: OfframpDepositMemo("order-mismatch"), LedgerAt: time.Now()},
 	}}
 	sink := &depositSinkFake{}
 	scanner := DepositScanner{Candidates: candidates, Payments: payments, Repository: sink}
@@ -125,10 +125,10 @@ func TestDepositScannerUsesPersistedMemo(t *testing.T) {
 		memo    = "offlegacy-memo"
 	)
 	candidates := &depositScanSourceFake{candidates: []OrderView{
-		{ID: orderID, StellarMemo: memo, AssetAmount: entity.Stroops(40_000_000)},
+		{ID: orderID, StellarMemo: memo, AssetCode: KXLMAssetCode, AssetIssuer: "GISSUER", AssetAmount: entity.Stroops(40_000_000)},
 	}}
 	payments := &depositPaymentsFake{payments: []ObservedPayment{
-		{TransactionHash: "hash-persisted-memo", To: account, Amount: entity.Stroops(40_000_000), Memo: memo, LedgerAt: time.Now()},
+		{TransactionHash: "hash-persisted-memo", To: account, AssetCode: KXLMAssetCode, AssetIssuer: "GISSUER", Amount: entity.Stroops(40_000_000), Memo: memo, LedgerAt: time.Now()},
 	}}
 	sink := &depositSinkFake{}
 	scanner := DepositScanner{Candidates: candidates, Payments: payments, Repository: sink}

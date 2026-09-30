@@ -121,11 +121,13 @@ Mismatch handling:
 
 ## 8. Off-ramp payout
 
-After an exact XLM deposit is verified, the worker submits an exact-amount
-retirement transfer from the configured deposit account to the all-zero
-public-key sink on Stellar testnet. It persists the transaction hash before submission
+After an exact KXLM deposit from the configured issuer is verified, the
+treasury issuer submits an exact-amount clawback burn from the deposit account
+on Stellar testnet. The worker persists the transaction hash before submission
 and reconciles uncertain outcomes against Stellar before the order proceeds.
-Only confirmed retirement queues the durable payout intent.
+Only a confirmed clawback queues the durable payout intent. Existing
+native-XLM retirement intents continue to reconcile through their recorded
+sink transfers.
 
 The current release hard-codes simulation: it records one deterministic
 `sandbox_bank_transfer` payout row, exact IDR amount, synthetic destination
@@ -133,7 +135,7 @@ reference, and `payout.simulated`, then completes the order atomically. The
 simulator never calls Xendit or a bank and accepts only a non-empty synthetic
 reference within the existing limit. Every response, UI, demo, test record,
 and Completion Report must say no real IDR moved and show the confirmed
-testnet retirement evidence. A future real provider adapter still needs
+testnet clawback evidence. A future real provider adapter still needs
 provider idempotency and unknown-outcome reconciliation before it can complete
 a real payout.
 

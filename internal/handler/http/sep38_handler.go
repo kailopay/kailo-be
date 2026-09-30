@@ -121,7 +121,7 @@ func (h *Sep38Handler) writeQuoteError(c *gin.Context, err error) {
 func (h *Sep38Handler) Info(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"assets": []gin.H{
-			{"asset": usecase.Sep38XLMAsset},
+			{"asset": h.assetIdentifier()},
 			{
 				"asset": usecase.Sep38IDRAsset,
 				"sell_delivery_methods": []gin.H{
@@ -141,7 +141,7 @@ func (h *Sep38Handler) Info(c *gin.Context) {
 func (h *Sep38Handler) Prices(c *gin.Context) {
 	hasSellAsset := strings.TrimSpace(c.Query("sell_asset")) != ""
 	hasBuyAsset := strings.TrimSpace(c.Query("buy_asset")) != ""
-	sellAsset, buyAsset, ok := sep38PairFromQuery(c)
+	sellAsset, buyAsset, ok := h.sep38PairFromQuery(c)
 	if !ok {
 		h.writeError(c, usecase.ErrInvalidSEP38Request)
 		return
@@ -182,20 +182,28 @@ func (h *Sep38Handler) Price(c *gin.Context) {
 	})
 }
 
-func sep38PairFromQuery(c *gin.Context) (string, string, bool) {
+func (h *Sep38Handler) sep38PairFromQuery(c *gin.Context) (string, string, bool) {
 	sellAsset := strings.TrimSpace(c.Query("sell_asset"))
 	buyAsset := strings.TrimSpace(c.Query("buy_asset"))
+	assetID := h.assetIdentifier()
 	switch {
 	case sellAsset == usecase.Sep38IDRAsset && buyAsset == "":
-		buyAsset = usecase.Sep38XLMAsset
-	case sellAsset == usecase.Sep38XLMAsset && buyAsset == "":
+		buyAsset = assetID
+	case sellAsset == assetID && buyAsset == "":
 		buyAsset = usecase.Sep38IDRAsset
-	case sellAsset == "" && buyAsset == usecase.Sep38XLMAsset:
+	case sellAsset == "" && buyAsset == assetID:
 		sellAsset = usecase.Sep38IDRAsset
 	case sellAsset == "" && buyAsset == usecase.Sep38IDRAsset:
-		sellAsset = usecase.Sep38XLMAsset
+		sellAsset = assetID
 	}
 	return sellAsset, buyAsset, sellAsset != "" && buyAsset != ""
+}
+
+func (h *Sep38Handler) assetIdentifier() string {
+	if identified, ok := h.service.(interface{ AssetIdentifier() string }); ok {
+		return identified.AssetIdentifier()
+	}
+	return usecase.Sep38XLMAsset
 }
 
 func (h *Sep38Handler) writeError(c *gin.Context, err error) {

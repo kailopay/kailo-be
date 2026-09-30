@@ -125,12 +125,12 @@ func TestSEP24InfoUsesExplicitAmountUnits(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("decoding response: %v", err)
 	}
-	if payload.Deposit["XLM"]["amount_unit"] != "idr_minor" || payload.Deposit["XLM"]["fiat_currency"] != "IDR" ||
-		payload.Deposit["XLM"]["min_amount"] != float64(10_000) || payload.Deposit["XLM"]["max_amount"] != float64(10_000_000) {
-		t.Fatalf("deposit info = %#v", payload.Deposit["XLM"])
+	if payload.Deposit["KXLM"]["amount_unit"] != "idr_minor" || payload.Deposit["KXLM"]["fiat_currency"] != "IDR" ||
+		payload.Deposit["KXLM"]["min_amount"] != float64(10_000) || payload.Deposit["KXLM"]["max_amount"] != float64(10_000_000) {
+		t.Fatalf("deposit info = %#v", payload.Deposit["KXLM"])
 	}
-	if payload.Withdraw["XLM"]["amount_unit"] != "XLM" || payload.Withdraw["XLM"]["fiat_currency"] != "IDR" {
-		t.Fatalf("withdraw info = %#v", payload.Withdraw["XLM"])
+	if payload.Withdraw["KXLM"]["amount_unit"] != "KXLM" || payload.Withdraw["KXLM"]["fiat_currency"] != "IDR" {
+		t.Fatalf("withdraw info = %#v", payload.Withdraw["KXLM"])
 	}
 }
 
@@ -151,7 +151,7 @@ func TestSEP24DepositCreatesMappedInteractiveResponseFromMultipartForm(t *testin
 	var body bytes.Buffer
 	form := multipart.NewWriter(&body)
 	for key, value := range map[string]string{
-		"asset_code":   "XLM",
+		"asset_code":   "KXLM",
 		"amount_minor": "100000",
 		"account":      "G" + strings.Repeat("A", 55),
 		"memo":         "wallet-memo",

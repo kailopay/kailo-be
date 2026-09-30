@@ -90,7 +90,7 @@ the same retail-user scope and can replay the original order.
     "environment": "sandbox",
     "network": "stellar_testnet",
     "fiat": { "currency": "IDR", "amount_minor": "100000" },
-    "asset": { "code": "XLM", "amount": "40.0000000" },
+    "asset": { "code": "KXLM", "amount": "40.0000000" },
     "quote": {
       "rate": "2500",
       "adjusted_rate": "2500",
@@ -121,9 +121,9 @@ The reserved `.test` address and synthetic values are illustrative; released exa
 
 | Method | Path | Auth | Idempotency | Purpose |
 |---|---|---|---|---|
-| `POST` | `/v1/quotes` | Public | N/A | Preview the current IDR/XLM buy or sell quote without creating an order |
-| `POST` | `/v1/onramps` | Test key or verified retail session | Required | Create IDR-to-native-XLM order and Xendit checkout |
-| `POST` | `/v1/offramps` | Test key or verified retail session | Required | Create XLM-to-IDR order with sandbox deposit instructions |
+| `POST` | `/v1/quotes` | Public | N/A | Preview the current IDR/KXLM buy or sell quote without creating an order |
+| `POST` | `/v1/onramps` | Test key or verified retail session | Required | Create IDR-to-KXLM order and Xendit checkout |
+| `POST` | `/v1/offramps` | Test key or verified retail session | Required | Create KXLM-to-IDR order with sandbox deposit instructions |
 | `GET` | `/v1/orders/{order_id}` | Test key or verified retail session | N/A | Retrieve an order owned by the authenticated principal |
 | `GET` | `/v1/orders` | Test key or verified retail session | N/A | List orders owned by the authenticated principal |
 
@@ -154,7 +154,7 @@ and `retail_session_id`.
 | `PATCH`/`DELETE` | `/v1/developer/wallets/{id}` | Developer session | Update or revoke a wallet profile hint |
 
 Developer dashboard routes derive ownership from the session user and may only
-narrow results with a client owned by that user. Exact IDR and XLM quantities
+narrow results with a client owned by that user. Exact IDR and KXLM quantities
 are serialized as strings. The default immutable financial policy is
 `sandbox-zero-fee-v1`; its revenue figures are estimates and do not represent
 real fiat earnings.
@@ -209,13 +209,13 @@ SEP-24 and federation paths follow the applicable Stellar specifications and are
 | `GET`/`POST` | `/sep24/interactive/{transaction_id}` | Browser token + KailoPay session | N/A | Link the wallet to a retail user and complete the interactive session |
 
 Initiation requests use `multipart/form-data` or the JSON equivalent. Deposit
-requires `asset_code=XLM`, the authenticated wallet account, and positive
+requires `asset_code=KXLM`, the authenticated wallet account, and positive
 sandbox `amount_minor` IDR units unless a firm `quote_id` is supplied; `memo`
-and `payment_method` are optional. Withdrawal requires `asset_code=XLM`, exact
+and `payment_method` are optional. Withdrawal requires `asset_code=KXLM`, exact
 decimal `amount` unless a firm `quote_id` is supplied. Its non-empty
 `destination_token` is collected by the interactive page as a synthetic
 sandbox reference. `/sep24/info`
-labels deposit limits as `idr_minor` and withdrawal limits as `XLM`; this keeps
+labels deposit limits as `idr_minor` and withdrawal limits as `KXLM`; this keeps
 the sandbox's fiat-denominated quote input explicit. Initiation creates a
 durable session; the existing order use cases run only after the browser links a
 KailoPay retail session and approved Persona KYC is present. `sep24_transactions`
@@ -226,20 +226,22 @@ reconciliation.
 Deposit responses also include the sandbox-specific `payment_link_url` when a
 hosted checkout was created. Withdrawal responses do not include this field.
 `/sep24/deposit` and `/sep24/withdraw` are retained as local compatibility
-aliases. The current sell flow remains unchanged: the user sends the exact XLM
-amount to the configured account with the returned memo. After the deposit is
-verified, the worker retires that amount on Stellar testnet and exposes the
-confirmed retirement transaction hash through the existing order response.
-The order then uses the deterministic sandbox payout; its existing response
-shape discloses that no real IDR moved. The worker persists a hash before
-submission and reconciles uncertain outcomes before retrying.
+aliases. The sell route and request field structure remain unchanged; callers
+specify `asset.code=KXLM`. After the user sends the exact KXLM amount with the
+returned memo, the backend verifies code, issuer, amount, destination, and
+transaction hash. The treasury issuer then submits `Clawback` to destroy the
+amount from the deposit account. The existing order response exposes the
+confirmed clawback transaction hash. Payout remains a deterministic sandbox
+simulation and discloses that no real IDR moved. The worker persists the hash
+before submission and reconciles uncertain outcomes before retrying.
 
 ### SEP-38 quote server
 
 The anchor advertises `/sep38` through `ANCHOR_QUOTE_SERVER` in
 `/.well-known/stellar.toml`. These endpoints use the same market-price and
 spread policy as `/v1/quotes`, but expose Stellar's asset-identification format
-(`iso4217:IDR` and `stellar:native`) for wallet and anchor integrations:
+(`iso4217:IDR` and `stellar:KXLM:<issuer_account>`) for wallet and anchor
+integrations:
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
@@ -250,12 +252,12 @@ spread policy as `/v1/quotes`, but expose Stellar's asset-identification format
 | `GET` | `/sep38/quote/{id}` | SEP-10 bearer JWT | Retrieve an unexpired, unconsumed firm quote |
 
 `/sep38/price` requires exactly one amount. IDR values are integer minor units;
-native XLM values use up to seven decimal places. `/v1/quotes` remains the
+KXLM values use up to seven decimal places. `/v1/quotes` remains the
 first-party convenience contract for the web app, while both surfaces call the
 same quote policy and do not reserve liquidity or create an order. Firm quotes
 are persisted for one wallet, expire, and can be consumed once by a matching
-SEP-24 initiation. The `/v1/onramps` and `/v1/offramps` request/response
-contracts are unchanged.
+SEP-24 initiation. The `/v1/onramps` and `/v1/offramps` routes and JSON field
+structures remain unchanged; requests identify the sandbox asset as `KXLM`.
 
 | Method | Path | Purpose |
 |---|---|---|
@@ -277,7 +279,7 @@ contracts are unchanged.
 Validation:
 
 - Positive amount within configured sandbox bounds.
-- `IDR`, native XLM on testnet, and `xendit`, `qris`, or `bri_va`. `xendit`
+- `IDR`, issued KXLM on testnet, and `xendit`, `qris`, or `bri_va`. `xendit`
   opens a hosted checkout with all activated Xendit channels; the other two
   values restrict the hosted checkout to one channel.
 - Valid Stellar account and memo/muxed-account policy.
@@ -293,7 +295,7 @@ reconciliation; KailoPay does not automatically create a replacement checkout.
 
 ```json
 {
-  "asset": { "network": "stellar_testnet", "code": "XLM", "amount": "6.2500000" },
+  "asset": { "network": "stellar_testnet", "code": "KXLM", "amount": "6.2500000" },
   "withdrawal": {
     "currency": "IDR",
     "method": "sandbox_bank_transfer",

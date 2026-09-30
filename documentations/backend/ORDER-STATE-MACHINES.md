@@ -93,23 +93,24 @@ stateDiagram-v2
 | `asset_pending` | Asset received | Testnet transaction successful; asset, issuer, amount, destination, memo match | `asset_received` | Deposit transaction hash |
 | `asset_pending` | Expire order | Deposit window passed and no matching asset received | `expired` | Expiry event |
 | `asset_pending` | Invalid deposit established | A correlated deposit exists but violates required asset/amount rules | `asset_invalid` | Transaction hash and safe mismatch reason |
-| `asset_received` | Queue retirement | No existing retirement intent | `retirement_processing` | Retirement intent and outbox row |
-| `retirement_processing` | Retirement confirmed | Exact XLM deposit is verified; Horizon confirms the retirement payment | `withdrawal_processing` | Confirmed retirement transaction hash and ledger time |
+| `asset_received` | Queue burn | No existing clawback intent | `retirement_processing` | Clawback intent and outbox row |
+| `retirement_processing` | Burn confirmed | Exact KXLM deposit from the configured issuer is verified; Horizon confirms the issuer clawback | `withdrawal_processing` | Confirmed clawback transaction hash and ledger time |
 | `retirement_processing` | Retirement failed | Permanent result established after reconciliation | `retirement_failed` | Attempts and final safe error |
 | `withdrawal_processing` | Withdrawal completed | Durable sandbox payout simulation succeeds | `completed` | Deterministic sandbox payout reference and disclosure |
 | `withdrawal_processing` | Withdrawal failed | Verified permanent provider outcome | `withdrawal_failed` | Safe provider failure code |
 
-The worker requires an exact, successful XLM deposit to the configured account
-with the order's expected amount and memo. It submits that amount from the
-worker-controlled deposit account to the all-zero public-key sink on testnet, saving
-the transaction hash before submission. Unknown or pending outcomes retain the
-same hash and are reconciled against Stellar. A confirmed retirement atomically
+The worker requires an exact, successful KXLM deposit from the configured
+issuer to the deposit account, with the order's expected amount and memo. The
+treasury issuer submits `Clawback` to destroy that amount, saving the
+transaction hash before submission. Unknown or pending outcomes retain the
+same hash and are reconciled against Stellar. A confirmed clawback atomically
 advances the order and queues `payout.simulate_offramp`. The payout worker
 records a deterministic `sandbox_bank_transfer` reference and completes the
-order. Public evidence shows the confirmed retirement hash and discloses that
-no real IDR moved. Historical simulated retirement records remain preserved.
-A future real payout adapter still requires its own provider idempotency,
-reconciliation, and explicit success/failure evidence.
+order. Public evidence shows the confirmed clawback hash and discloses that no
+real IDR moved. Pre-existing native-XLM retirement intents keep their recorded
+sink-transfer behavior and remain reconcilable. A future real payout adapter
+still requires its own provider idempotency, reconciliation, and explicit
+success/failure evidence.
 
 ## 4. Unknown external outcomes
 

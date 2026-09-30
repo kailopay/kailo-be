@@ -361,7 +361,7 @@ Send `POST /v1/offramps` with an `Idempotency-Key` header:
 }
 ```
 
-The intended create response contains `order.stellar_destination.account` and `order.stellar_destination.memo`. The user must send the exact XLM amount to that account with that memo before the deposit expires.
+The intended create response contains `order.stellar_destination.account` and `order.stellar_destination.memo`. The user must send the exact KXLM amount from the configured issuer to that account with that memo before the deposit expires.
 
 The backend maps the configured deposit account to `order.stellar_destination.account` and the order memo to `order.stellar_destination.memo`. Verify both are non-empty or present before enabling the send step; the frontend cannot safely infer the deposit account.
 
@@ -369,15 +369,18 @@ The `destination_token` is a synthetic sandbox reference. It is not a bank accou
 
 For an off-ramp, the relevant states are `asset_pending`, `asset_received`, `asset_invalid`, `retirement_processing`, `withdrawal_processing`, `completed`, `expired`, `retirement_failed`, `withdrawal_failed`, and `cancelled`.
 
-After the exact XLM deposit is verified, the worker submits an exact-amount
-retirement transfer on Stellar testnet and advances the order only after the
-transaction is confirmed. Show the confirmed retirement hash, deterministic
+After the exact KXLM deposit is verified, the treasury issuer submits an
+exact-amount clawback burn on Stellar testnet and advances the order only after
+the transaction is confirmed. Show the confirmed burn hash, deterministic
 payout reference, and disclosure that no real IDR moved. Persisted hashes are
 reconciled before retry.
 
-The backend records `asset_received` before it queues retirement. The stored order state can already be `retirement_processing` when the frontend polls it. Treat `asset_received` as a valid transitional state, not as a state that must appear.
+The backend records `asset_received` before it queues the clawback. The stored
+order state can already be `retirement_processing` when the frontend polls it;
+this historical status name covers the KXLM burn step. Treat `asset_received`
+as a valid transitional state, not as a state that must appear.
 
-For an off-ramp, `order.stellar_destination` identifies the deposit account and memo. `order.deposit_transaction_hash` identifies the user's XLM deposit after the worker accepts it. A newly created order normally does not include `payout`; keep polling until the worker confirms retirement and the simulator adds completed payout evidence. `order.stellar_transaction_hash` contains the retirement hash after confirmation.
+For an off-ramp, `order.stellar_destination` identifies the deposit account and memo. `order.deposit_transaction_hash` identifies the user's KXLM deposit after the worker accepts it. A newly created order normally does not include `payout`; keep polling until the worker confirms the issuer burn and the simulator adds completed payout evidence. `order.stellar_transaction_hash` contains the burn hash after confirmation.
 
 The shared order response includes `payment_method`, but that field is meaningful only for on-ramp orders. Use the off-ramp request's `withdrawal.method` for the selected payout destination; when present, `payout.disclosure` is authoritative and must remain visible.
 
@@ -607,7 +610,9 @@ The frontend or an integration screen can read:
 - `GET /sep38/info`, `/sep38/prices`, and `/sep38/price` for wallet-compatible
   quote calculations.
 
-These routes describe the Stellar testnet and native XLM sandbox flow. They do not advertise a production asset or production payment rail.
+These routes describe the Stellar testnet KXLM sandbox asset. `stellar.toml`
+publishes its issuer account. KXLM is not native XLM, is not redeemable for
+XLM, and has no real-world value.
 
 For federation lookup, send the synthetic name in the `q` query parameter:
 
@@ -671,10 +676,11 @@ Order errors use this shape:
 
 ## Do not build against these assumptions
 
-- Do not describe the on-ramp as issuing a custom token. The backend transfers pre-funded native XLM on Stellar testnet.
-- Do not show the off-ramp as an actual bank payout or on-chain retirement.
-  Simulator completion means a deterministic sandbox record was written; keep
-  the no-on-chain-retirement/no-real-IDR disclosure visible.
+- Describe the on-ramp as issuing KXLM from the configured issuer after payment
+  confirmation. Use the published issuer from `stellar.toml` when identifying
+  the trustline asset.
+- Describe the off-ramp as a KXLM deposit followed by an issuer clawback burn.
+  The bank payout remains simulated; keep the no-real-IDR disclosure visible.
 - Do not assume a successful checkout redirect means the payment was confirmed.
 - Do not call Xendit, Persona, Horizon, or federation signing flows directly from the browser. The backend owns those integrations.
 - Treat developer webhooks as at-least-once delivery. Verify the signature and deduplicate by event ID before applying an event.

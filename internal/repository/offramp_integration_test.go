@@ -20,7 +20,7 @@ func offrampRecord(orderID string, stroops int64, now time.Time) usecase.Offramp
 	return usecase.OfframpCreateRecord{
 		OrderID: orderID, Principal: integrationAPIPrincipal(),
 		IdempotencyKeyHash: "off-keyhash-" + orderID, RequestHash: "off-requesthash-" + orderID,
-		AssetAmount: entity.Stroops(stroops),
+		AssetAmount: entity.Stroops(stroops), AssetIssuer: "GISSUER",
 		Quote: usecase.Quote{FiatAmount: 100_000, AssetAmount: entity.Stroops(stroops),
 			Rate: "2500", AdjustedRate: "2500", SpreadBPS: 0, SourceAt: now, ExpiresAt: now.Add(5 * time.Minute)},
 		WithdrawalMethod: entity.WithdrawalMethodSandboxTransfer,
@@ -192,7 +192,7 @@ func TestRecordAssetReceivedQueuesRetirementAtomically(t *testing.T) {
 	}
 
 	payment := usecase.ObservedPayment{TransactionHash: "dep-hash-" + orderID, From: testDestination(1),
-		To: testDestination(9), Amount: 40_000_000, Memo: usecase.OfframpDepositMemo(orderID),
+		To: testDestination(9), AssetCode: usecase.KXLMAssetCode, AssetIssuer: "GISSUER", Amount: 40_000_000, Memo: usecase.OfframpDepositMemo(orderID),
 		LedgerAt: now.Add(time.Minute)}
 	if err := repo.RecordAssetReceived(ctx, orderID, payment); err != nil {
 		t.Fatalf("RecordAssetReceived() error = %v", err)
@@ -230,7 +230,7 @@ func TestRetirementConfirmQueuesAndCompletesSandboxPayoutIdempotently(t *testing
 		t.Fatalf("CreateOfframp() error = %v", err)
 	}
 	payment := usecase.ObservedPayment{TransactionHash: "dep-hash-" + orderID, From: testDestination(1),
-		To: testDestination(9), Amount: 40_000_000, Memo: usecase.OfframpDepositMemo(orderID), LedgerAt: now}
+		To: testDestination(9), AssetCode: usecase.KXLMAssetCode, AssetIssuer: "GISSUER", Amount: 40_000_000, Memo: usecase.OfframpDepositMemo(orderID), LedgerAt: now}
 	if err := repo.RecordAssetReceived(ctx, orderID, payment); err != nil {
 		t.Fatalf("RecordAssetReceived() error = %v", err)
 	}

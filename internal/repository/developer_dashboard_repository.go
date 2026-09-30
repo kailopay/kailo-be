@@ -95,8 +95,8 @@ func applyDeveloperOrderFilters(query *gorm.DB, filter usecase.DeveloperQuery) *
 	}
 	if filter.Currency == usecase.IDRCurrency {
 		query = query.Where("o.currency = ?", usecase.IDRCurrency)
-	} else if filter.Currency == usecase.NativeXLMAssetCode {
-		query = query.Where("o.asset_code = ?", usecase.NativeXLMAssetCode)
+	} else if filter.Currency != "" {
+		query = query.Where("o.asset_code = ?", filter.Currency)
 	}
 	if filter.Direction != "" {
 		query = query.Where("o.direction = ?", filter.Direction)

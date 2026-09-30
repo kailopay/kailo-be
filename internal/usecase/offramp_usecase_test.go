@@ -168,7 +168,7 @@ func testOfframpServiceWithKYC(t *testing.T, repo *fakeOfframpRepo, kyc KYCStatu
 	}, OfframpServiceConfig{
 		QuotePolicy: QuotePolicy{TTL: 5 * time.Minute, MaxAge: 2 * time.Minute},
 		MinIDR:      10_000, MaxIDR: 10_000_000,
-		DepositAccount: validDestination, DepositExpiry: 24 * time.Hour,
+		DepositAccount: validDestination, AssetIssuer: "GISSUER", DepositExpiry: 24 * time.Hour,
 		NewID: func() (string, error) { return "order-off-1", nil }, Now: func() time.Time { return now },
 	})
 	if err != nil {
@@ -182,7 +182,7 @@ func TestOfframpCreatePersistsDepositInstructions(t *testing.T) {
 	service := testOfframpService(t, repo)
 
 	view, replay, err := service.Create(context.Background(), OfframpCommand{
-		Principal: apiOrderPrincipal("client-1", "owner-1"), IdempotencyKey: "idem-1", AssetNetwork: "stellar_testnet", AssetCode: "XLM", FiatCurrency: "IDR", AssetAmount: "40",
+		Principal: apiOrderPrincipal("client-1", "owner-1"), IdempotencyKey: "idem-1", AssetNetwork: "stellar_testnet", AssetCode: "KXLM", FiatCurrency: "IDR", AssetAmount: "40",
 		WithdrawalMethod: entity.WithdrawalMethodSandboxTransfer, DestinationToken: "demo-token",
 	})
 	if err != nil || replay {
@@ -213,7 +213,7 @@ func TestOfframpCreateReplaysAndRejectsInvalidInput(t *testing.T) {
 	service := testOfframpService(t, repo)
 
 	view, replay, err := service.Create(context.Background(), OfframpCommand{
-		Principal: apiOrderPrincipal("c", "owner-1"), IdempotencyKey: "k", AssetNetwork: "stellar_testnet", AssetCode: "XLM", FiatCurrency: "IDR", AssetAmount: "40",
+		Principal: apiOrderPrincipal("c", "owner-1"), IdempotencyKey: "k", AssetNetwork: "stellar_testnet", AssetCode: "KXLM", FiatCurrency: "IDR", AssetAmount: "40",
 		WithdrawalMethod: entity.WithdrawalMethodSandboxTransfer, DestinationToken: "demo-token"})
 	if err != nil || !replay || view.ID != "order-off-0" {
 		t.Fatalf("replay = %v/%v/%q", err, replay, view.ID)
@@ -223,9 +223,9 @@ func TestOfframpCreateReplaysAndRejectsInvalidInput(t *testing.T) {
 	}
 
 	bad := []OfframpCommand{
-		{Principal: apiOrderPrincipal("c", "owner-1"), IdempotencyKey: "k", AssetNetwork: "stellar_testnet", AssetCode: "XLM", FiatCurrency: "IDR", AssetAmount: "40"},                                                             // wrong method
-		{Principal: apiOrderPrincipal("c", "owner-1"), IdempotencyKey: "k", AssetNetwork: "stellar_testnet", AssetCode: "XLM", FiatCurrency: "IDR", AssetAmount: "nope", WithdrawalMethod: entity.WithdrawalMethodSandboxTransfer}, // bad amount
-		{Principal: apiOrderPrincipal("c", "owner-1"), IdempotencyKey: "k", AssetNetwork: "stellar_testnet", AssetCode: "XLM", FiatCurrency: "IDR", AssetAmount: "40", WithdrawalMethod: entity.WithdrawalMethodSandboxTransfer},   // missing destination
+		{Principal: apiOrderPrincipal("c", "owner-1"), IdempotencyKey: "k", AssetNetwork: "stellar_testnet", AssetCode: "KXLM", FiatCurrency: "IDR", AssetAmount: "40"},                                                             // wrong method
+		{Principal: apiOrderPrincipal("c", "owner-1"), IdempotencyKey: "k", AssetNetwork: "stellar_testnet", AssetCode: "KXLM", FiatCurrency: "IDR", AssetAmount: "nope", WithdrawalMethod: entity.WithdrawalMethodSandboxTransfer}, // bad amount
+		{Principal: apiOrderPrincipal("c", "owner-1"), IdempotencyKey: "k", AssetNetwork: "stellar_testnet", AssetCode: "KXLM", FiatCurrency: "IDR", AssetAmount: "40", WithdrawalMethod: entity.WithdrawalMethodSandboxTransfer},   // missing destination
 	}
 	for _, command := range bad {
 		if _, _, err := service.Create(context.Background(), command); !errors.Is(err, ErrInvalidWithdrawal) {
@@ -237,7 +237,7 @@ func TestOfframpCreateReplaysAndRejectsInvalidInput(t *testing.T) {
 func TestOfframpCreateRejectsUnsupportedNetworkAssetOrCurrency(t *testing.T) {
 	base := OfframpCommand{
 		Principal: apiOrderPrincipal("client-1", "owner-1"), IdempotencyKey: "idem-unsupported", AssetNetwork: "stellar_testnet",
-		AssetCode: "XLM", FiatCurrency: "IDR", AssetAmount: "40", WithdrawalMethod: entity.WithdrawalMethodSandboxTransfer,
+		AssetCode: "KXLM", FiatCurrency: "IDR", AssetAmount: "40", WithdrawalMethod: entity.WithdrawalMethodSandboxTransfer,
 	}
 	cases := []struct {
 		name   string
@@ -264,7 +264,7 @@ func TestOfframpCreateCarriesRetailPrincipalAndIncludesOperationInRequestHash(t 
 	principal := OrderPrincipal{Kind: OrderPrincipalRetailSession, OwnerUserID: "user-1", SessionID: "session-1"}
 
 	view, replay, err := service.Create(context.Background(), OfframpCommand{
-		Principal: principal, IdempotencyKey: "idem-retail-off-1", AssetNetwork: "stellar_testnet", AssetCode: "XLM", FiatCurrency: "IDR", AssetAmount: "40",
+		Principal: principal, IdempotencyKey: "idem-retail-off-1", AssetNetwork: "stellar_testnet", AssetCode: "KXLM", FiatCurrency: "IDR", AssetAmount: "40",
 		WithdrawalMethod: entity.WithdrawalMethodSandboxTransfer, DestinationToken: "demo-token",
 	})
 	if err != nil || replay || view.ID != repo.view.ID {
@@ -277,7 +277,7 @@ func TestOfframpCreateCarriesRetailPrincipalAndIncludesOperationInRequestHash(t 
 	if len(repo.created) != 1 || repo.created[0].Principal != principal {
 		t.Fatalf("created principal = %+v, want %+v", repo.created[0].Principal, principal)
 	}
-	wantHash := orderRequestHash(offrampRequestOperation, "stellar_testnet", "XLM", "400000000", "IDR", "sandbox_bank_transfer", "demo-token")
+	wantHash := orderRequestHash(offrampRequestOperation, "stellar_testnet", "KXLM", "400000000", "IDR", "sandbox_bank_transfer", "demo-token")
 	if repo.findRequestHash != wantHash {
 		t.Fatalf("request hash = %q, want %q", repo.findRequestHash, wantHash)
 	}

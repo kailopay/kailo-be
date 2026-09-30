@@ -52,7 +52,7 @@ func TestLegacyOrderAPIContract(t *testing.T) {
 		{
 			name: "offramp request shape",
 			path: "/v1/offramps",
-			body: `{"asset":{"network":"stellar_testnet","code":"XLM","amount":"25.0000000"},"withdrawal":{"currency":"IDR","method":"sandbox_bank_transfer","destination_token":"sandbox-bank-user-01"}}`,
+			body: `{"asset":{"network":"stellar_testnet","code":"KXLM","amount":"25.0000000"},"withdrawal":{"currency":"IDR","method":"sandbox_bank_transfer","destination_token":"sandbox-bank-user-01"}}`,
 		},
 	}
 

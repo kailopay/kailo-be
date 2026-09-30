@@ -336,7 +336,8 @@ func (s *Sep24Usecase) ListWalletTransactionsFiltered(ctx context.Context, walle
 		if filter.NoOlderThan != nil && view.Order.CreatedAt.After(filter.NoOlderThan.UTC()) {
 			continue
 		}
-		if assetCode != "" && assetCode != "xlm" && assetCode != "native" && assetCode != "stellar:native" {
+		if assetCode != "" && assetCode != strings.ToLower(KXLMAssetCode) &&
+			assetCode != "xlm" && assetCode != "native" && assetCode != "stellar:native" {
 			continue
 		}
 		viewKind := strings.ToLower(view.Kind)
@@ -380,7 +381,7 @@ func validateSep24Start(principal OrderPrincipal, idempotencyKey, assetCode stri
 		return ErrSEP24InvalidRequest
 	}
 	idempotencyKey = strings.TrimSpace(idempotencyKey)
-	if idempotencyKey == "" || len(idempotencyKey) > 240 || strings.TrimSpace(assetCode) != NativeXLMAssetCode {
+	if idempotencyKey == "" || len(idempotencyKey) > 240 || strings.TrimSpace(assetCode) != KXLMAssetCode {
 		return ErrSEP24InvalidRequest
 	}
 	return nil

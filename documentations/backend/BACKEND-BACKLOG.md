@@ -60,7 +60,7 @@ confirmations and separates them from evidence that still needs to be attached.
 | ID | Story | Pri | SP | Target | Dependency | Status |
 |---|---|---:|---:|---|---|---|
 | BE-001 | Probe Xendit/Midtrans sandbox and record provider ADR. | P0 | 3 | Phase 0 | Sandbox accounts | Implemented (Xendit selected) |
-| BE-002 | Define Stellar test asset/accounts/retirement and record ADR. | P0 | 2 | Phase 0 | Testnet access | Implemented by ADR-001 and ADR-003 (native XLM and burn-address retirement) |
+| BE-002 | Define Stellar test asset/accounts/retirement and record ADR. | P0 | 2 | Phase 0 | Testnet access | Updated by ADR-008: issued KXLM and issuer clawback; testnet account provisioning/evidence remains required |
 | BE-003 | Decide off-ramp sandbox evidence fallback and document wording. | P0 | 1 | Phase 0 | BE-001 | Implemented by ADR-003; formal sell evidence remains open |
 | BE-004 | Select Auth0 email login with KailoPay-owned PostgreSQL retail sessions for test-key management. | P0 | 2 | Phase 0 | Product decision | Superseded by ADR-002 self-hosted auth |
 | BE-005 | Decide hosting, public URL topology, and managed secrets. | P0 | 2 | Phase 0 | Hosting access | In Review; app and API URLs are owner-confirmed, deployment and secret-management evidence still needs a release record |
@@ -120,14 +120,14 @@ Acceptance: invalid/mismatched/replayed callback cannot duplicate state/settleme
 
 | ID | Story | Pri | SP | Target | Dependency | Status |
 |---|---|---:|---:|---|---|---|
-| BE-040 | Implement Stellar configuration, network assertion, account/asset validation, and public metadata. | P0 | 3 | Week 1-2 | BE-002, BE-010 | Implemented for native-XLM testnet flow |
+| BE-040 | Implement Stellar configuration, network assertion, account/asset validation, and public metadata. | P0 | 3 | Week 1-2 | BE-002, BE-010 | Implemented for configured KXLM issuer/clawback testnet flow; external issuer flags and trustlines must be provisioned |
 | BE-041 | Implement serialized/account-locked transaction submission and persistent intent/result model. | P0 | 5 | Week 2 | BE-011, BE-040 | Implemented |
-| BE-042 | Implement on-ramp issuance/transfer worker with deterministic correlation. | P0 | 5 | Week 2 | BE-035, BE-041 | Implemented as pre-funded native-XLM transfer |
+| BE-042 | Implement on-ramp issuance/transfer worker with deterministic correlation. | P0 | 5 | Week 2 | BE-035, BE-041 | Implemented as treasury-issued KXLM payment after confirmed sandbox payment |
 | BE-043 | Implement unknown submission reconciliation before retry. | P0 | 5 | Week 2 | BE-041 | Implemented |
 | BE-044 | Generate off-ramp deposit instructions with exact asset/amount/memo and expiry. | P0 | 3 | Week 2 | BE-025, BE-040 | Implemented (including expiry sweep) |
 | BE-045 | Detect/look up and validate off-ramp deposit transaction. | P0 | 5 | Week 2 | BE-044 | Implemented (Horizon payment-history scan) |
-| BE-046 | Implement off-ramp retirement handling and transaction correlation. | P0 | 5 | Week 2 | BE-045, BE-041 | Worker submits exact-amount testnet retirement after deposit verification; persists/reconciles the retirement hash before simulated payout (ADR-007) |
-| BE-047 | Link transaction hashes/explorer metadata to public order result. | P0 | 2 | Week 2-3 | BE-042, BE-046 | Implemented for confirmed on-ramp settlement and off-ramp retirement hashes; formal E2E evidence remains in BE-087 |
+| BE-046 | Implement off-ramp retirement handling and transaction correlation. | P0 | 5 | Week 2 | BE-045, BE-041 | New orders use issuer clawback after exact deposit verification; historical native-XLM sink intents remain reconciled (ADR-008) |
+| BE-047 | Link transaction hashes/explorer metadata to public order result. | P0 | 2 | Week 2-3 | BE-042, BE-046 | Implemented for KXLM issuance, deposit, and clawback hashes; fresh testnet E2E evidence remains in BE-087 |
 | BE-048 | Correct public off-ramp deposit-account serialization. | P0 | 2 | Week 2 | BE-025, BE-044 | Implemented; existing `/v1/offramps` contract is covered by regression tests |
 
 Acceptance: one paid on-ramp order creates one testnet settlement; wrong off-ramp deposits are rejected; exact deposits retain their hash evidence; sell retirement is confirmed on testnet before the disclosed deterministic payout completes; unknown submissions reconcile before retry.

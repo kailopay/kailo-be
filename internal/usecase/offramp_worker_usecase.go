@@ -63,10 +63,10 @@ func (s DepositScanner) ExpireDeposits(ctx context.Context, now time.Time) (int,
 }
 
 // ScanDeposits checks every awaiting order against recent payments to the
-// deposit account. Matching requires successful native payment to the
-// deposit account, exact memo and stroop amount, and a hash not already
-// consumed by another order. Correlated-but-mismatched payments invalidate
-// the order; uncorrelated payments are ignored.
+// deposit account. Matching requires a successful payment with the exact
+// configured asset code and issuer, memo, stroop amount, and an unused hash.
+// Correlated-but-mismatched payments invalidate the order; uncorrelated
+// payments are ignored.
 func (s DepositScanner) ScanDeposits(ctx context.Context, depositAccount string, now time.Time) (int, error) {
 	candidates, err := s.Candidates.FindDepositCandidates(ctx, depositAccount, 100)
 	if err != nil {
@@ -107,6 +107,13 @@ func (s DepositScanner) ScanDeposits(ctx context.Context, depositAccount string,
 				}
 				continue
 			}
+			if payment.AssetCode != order.AssetCode || payment.AssetIssuer != order.AssetIssuer {
+				if mismatchReason == "" {
+					mismatchReason = "deposit asset does not match the configured KXLM issuer"
+					mismatchHash = payment.TransactionHash
+				}
+				continue
+			}
 			match = &pending[index]
 			break
 		}
@@ -129,11 +136,12 @@ func (s DepositScanner) ScanDeposits(ctx context.Context, depositAccount string,
 // reconciled before any other action. Simulation remains available for
 // explicit test configurations; the worker process submits testnet transfers.
 type RetireWorker struct {
-	Repository OfframpWorkerRepository
-	Intents    RetirementIntentReader
-	Network    Network
-	Config     SettlementConfig
-	Simulate   bool
+	Repository    OfframpWorkerRepository
+	Intents       RetirementIntentReader
+	Network       Network
+	LegacyNetwork Network
+	Config        SettlementConfig
+	Simulate      bool
 }
 
 // RetirementIntentReader loads one pending retirement intent by ID.
@@ -149,7 +157,7 @@ func (w RetireWorker) RunOnce(ctx context.Context, intentID string) error {
 		return fmt.Errorf("loading retirement intent: %w", err)
 	}
 	if intent.TransactionHash != "" {
-		if w.Network == nil {
+		if w.networkFor(intent) == nil {
 			return errors.New("stellar network is required to reconcile a retirement hash")
 		}
 		return w.reconcile(ctx, intent.IntentID, intent.TransactionHash)
@@ -157,11 +165,18 @@ func (w RetireWorker) RunOnce(ctx context.Context, intentID string) error {
 	if w.Simulate {
 		return w.Repository.SimulateRetirement(ctx, intent.IntentID, now)
 	}
-	if w.Network == nil {
+	network := w.networkFor(intent)
+	if network == nil {
 		return errors.New("stellar network is required to submit a retirement")
 	}
-	built, buildErr := w.Network.Build(ctx, Transfer{OrderID: intent.OrderID, Source: intent.Source,
-		Destination: RetirementSinkAddress, Amount: intent.Amount, Memo: intent.Memo})
+	destination := intent.Destination
+	if destination == "" && intent.ClawbackFrom == "" {
+		destination = RetirementSinkAddress
+	}
+	transfer := Transfer{OrderID: intent.OrderID, Source: intent.Source, Destination: destination,
+		AssetCode: intent.AssetCode, AssetIssuer: intent.AssetIssuer, ClawbackFrom: intent.ClawbackFrom,
+		Amount: intent.Amount, Memo: intent.Memo}
+	built, buildErr := network.Build(ctx, transfer)
 	if buildErr != nil {
 		return fmt.Errorf("building retirement transaction: %w", buildErr)
 	}
@@ -181,7 +196,7 @@ func (w RetireWorker) RunOnce(ctx context.Context, intentID string) error {
 		}
 		return fmt.Errorf("persisting retirement hash: %w", err)
 	}
-	submission, submitErr := w.Network.Submit(ctx, built)
+	submission, submitErr := network.Submit(ctx, built)
 	if submitErr != nil {
 		return w.reconcile(ctx, intent.IntentID, built.Hash)
 	}
@@ -205,7 +220,15 @@ func (w RetireWorker) RunOnce(ctx context.Context, intentID string) error {
 }
 
 func (w RetireWorker) reconcile(ctx context.Context, intentID, hash string) error {
-	result, err := w.Network.FindByHash(ctx, hash)
+	intent, err := w.Intents.LoadRetirement(ctx, intentID)
+	if err != nil {
+		return fmt.Errorf("loading retirement intent for reconciliation: %w", err)
+	}
+	network := w.networkFor(intent)
+	if network == nil {
+		return errors.New("stellar network is required to reconcile a retirement hash")
+	}
+	result, err := network.FindByHash(ctx, hash)
 	if err != nil {
 		return nil // lease expiry schedules the next reconciliation pass
 	}
@@ -217,4 +240,11 @@ func (w RetireWorker) reconcile(ctx context.Context, intentID, hash string) erro
 	default:
 		return nil // transient: retried on the next lease
 	}
+}
+
+func (w RetireWorker) networkFor(intent RetirementIntent) Network {
+	if intent.ClawbackFrom != "" || w.LegacyNetwork == nil {
+		return w.Network
+	}
+	return w.LegacyNetwork
 }

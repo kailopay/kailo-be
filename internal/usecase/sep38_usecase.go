@@ -13,8 +13,15 @@ import (
 
 const (
 	Sep38IDRAsset = "iso4217:IDR"
-	Sep38XLMAsset = "stellar:native"
+	Sep38XLMAsset = "stellar:native" // compatibility for existing quotes
 )
+
+func Sep38AssetIdentifier(issuer string) string {
+	if strings.TrimSpace(issuer) == "" {
+		return Sep38XLMAsset
+	}
+	return "stellar:" + KXLMAssetCode + ":" + strings.TrimSpace(issuer)
+}
 
 var ErrInvalidSEP38Request = errors.New("invalid sep-38 request")
 
@@ -46,6 +53,7 @@ type Sep38UsecaseConfig struct {
 	QuotePolicy QuotePolicy
 	MinIDR      entity.IDR
 	MaxIDR      entity.IDR
+	AssetIssuer string
 	Now         func() time.Time
 }
 
@@ -66,7 +74,8 @@ func NewSep38Usecase(prices PriceReader, config Sep38UsecaseConfig) (*Sep38Useca
 func (s *Sep38Usecase) IndicativePrice(ctx context.Context, sellAsset, buyAsset string) (Sep38IndicativePrice, error) {
 	sellAsset = strings.TrimSpace(sellAsset)
 	buyAsset = strings.TrimSpace(buyAsset)
-	if !validSEP38Pair(sellAsset, buyAsset) {
+	assetID := Sep38AssetIdentifier(s.config.AssetIssuer)
+	if !validSEP38PairFor(sellAsset, buyAsset, assetID) {
 		return Sep38IndicativePrice{}, ErrInvalidSEP38Request
 	}
 	market, err := s.prices.LatestXLMIDR(ctx)
@@ -82,15 +91,15 @@ func (s *Sep38Usecase) IndicativePrice(ctx context.Context, sellAsset, buyAsset 
 		return Sep38IndicativePrice{}, ErrInvalidPrice
 	}
 	adjusted := new(big.Rat).Mul(rate, new(big.Rat).SetFrac64(int64(10_000+s.config.QuotePolicy.SpreadBPS), 10_000))
-	if sellAsset == Sep38XLMAsset {
+	if sellAsset == assetID {
 		adjusted.Inv(adjusted)
 	}
 	return Sep38IndicativePrice{
 		Price:        decimal(adjusted),
 		SellAsset:    sellAsset,
 		BuyAsset:     buyAsset,
-		BuyDecimals:  sep38Decimals(buyAsset),
-		SellDecimals: sep38Decimals(sellAsset),
+		BuyDecimals:  sep38Decimals(buyAsset, assetID),
+		SellDecimals: sep38Decimals(sellAsset, assetID),
 	}, nil
 }
 
@@ -99,7 +108,8 @@ func (s *Sep38Usecase) Price(ctx context.Context, request Sep38PriceRequest) (Se
 	request.BuyAsset = strings.TrimSpace(request.BuyAsset)
 	request.SellAmount = strings.TrimSpace(request.SellAmount)
 	request.BuyAmount = strings.TrimSpace(request.BuyAmount)
-	if !validSEP38Pair(request.SellAsset, request.BuyAsset) ||
+	assetID := Sep38AssetIdentifier(s.config.AssetIssuer)
+	if !validSEP38PairFor(request.SellAsset, request.BuyAsset, assetID) ||
 		(request.SellAmount == "" && request.BuyAmount == "") ||
 		(request.SellAmount != "" && request.BuyAmount != "") {
 		return Sep38Price{}, ErrInvalidSEP38Request
@@ -187,16 +197,20 @@ func (s *Sep38Usecase) priceXLMToIDR(request Sep38PriceRequest, market MarketPri
 	}, nil
 }
 
-func validSEP38Pair(sellAsset, buyAsset string) bool {
-	return (sellAsset == Sep38IDRAsset && buyAsset == Sep38XLMAsset) ||
-		(sellAsset == Sep38XLMAsset && buyAsset == Sep38IDRAsset)
+func validSEP38PairFor(sellAsset, buyAsset, assetID string) bool {
+	return (sellAsset == Sep38IDRAsset && buyAsset == assetID) ||
+		(sellAsset == assetID && buyAsset == Sep38IDRAsset)
 }
 
-func sep38Decimals(asset string) int {
-	if asset == Sep38XLMAsset {
+func sep38Decimals(asset, assetID string) int {
+	if asset == assetID {
 		return 7
 	}
 	return 0
+}
+
+func (s *Sep38Usecase) AssetIdentifier() string {
+	return Sep38AssetIdentifier(s.config.AssetIssuer)
 }
 
 func parseSEP38IDR(value string) (int64, error) {

@@ -103,7 +103,7 @@ func TestSep24StartDepositCreatesAndMapsOwnedOrder(t *testing.T) {
 	view, err := service.StartDeposit(context.Background(), Sep24DepositCommand{
 		Principal:      principal,
 		IdempotencyKey: "wallet-deposit-1",
-		AssetCode:      NativeXLMAssetCode,
+		AssetCode:      KXLMAssetCode,
 		AmountMinor:    entity.IDR(100_000),
 		Destination:    "G" + "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
 		Memo:           "wallet-memo",
@@ -144,7 +144,7 @@ func TestSep24StartWithdrawCreatesAndMapsOwnedOrder(t *testing.T) {
 	view, err := service.StartWithdraw(context.Background(), Sep24WithdrawCommand{
 		Principal:        principal,
 		IdempotencyKey:   "wallet-withdraw-1",
-		AssetCode:        NativeXLMAssetCode,
+		AssetCode:        KXLMAssetCode,
 		AssetAmount:      "40",
 		DestinationToken: "sandbox-destination",
 	})
@@ -154,7 +154,7 @@ func TestSep24StartWithdrawCreatesAndMapsOwnedOrder(t *testing.T) {
 	if view.ID != "withdraw-order-withdraw-1" || view.Kind != Sep24KindWithdraw || view.Status != "pending_user_transfer_start" {
 		t.Fatalf("view = %+v", view)
 	}
-	if offramp.command.Principal != principal || offramp.command.AssetNetwork != StellarTestnetNetwork || offramp.command.AssetCode != NativeXLMAssetCode {
+	if offramp.command.Principal != principal || offramp.command.AssetNetwork != StellarTestnetNetwork || offramp.command.AssetCode != KXLMAssetCode {
 		t.Fatalf("offramp command = %+v", offramp.command)
 	}
 	if offramp.command.IdempotencyKey != "sep24-withdraw-wallet-withdraw-1" {
@@ -180,7 +180,7 @@ func TestSep24StartWithdrawRejectsMissingDestinationToken(t *testing.T) {
 	_, err = service.StartWithdraw(context.Background(), Sep24WithdrawCommand{
 		Principal:      sep24APIPrincipal(),
 		IdempotencyKey: "wallet-withdraw-missing-destination",
-		AssetCode:      NativeXLMAssetCode,
+		AssetCode:      KXLMAssetCode,
 		AssetAmount:    "40",
 	})
 	if !errors.Is(err, ErrSEP24InvalidRequest) {
@@ -208,7 +208,7 @@ func TestSep24StartPropagatesKYCRequiredBeforeMapping(t *testing.T) {
 	_, err = service.StartDeposit(context.Background(), Sep24DepositCommand{
 		Principal:      principal,
 		IdempotencyKey: "wallet-deposit-kyc",
-		AssetCode:      NativeXLMAssetCode,
+		AssetCode:      KXLMAssetCode,
 		AmountMinor:    entity.IDR(100_000),
 		Destination:    "G" + "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
 	})
@@ -235,7 +235,7 @@ func TestSep24StartRejectsMissingIdempotencyKeyBeforeCreatingOrder(t *testing.T)
 
 	_, err = service.StartDeposit(context.Background(), Sep24DepositCommand{
 		Principal:   sep24RetailPrincipal(),
-		AssetCode:   NativeXLMAssetCode,
+		AssetCode:   KXLMAssetCode,
 		AmountMinor: entity.IDR(100_000),
 		Destination: "G" + "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
 	})
@@ -265,7 +265,7 @@ func TestSep24StartDepositMapsOrderWhenCheckoutOutcomeIsUnknown(t *testing.T) {
 	view, err := service.StartDeposit(context.Background(), Sep24DepositCommand{
 		Principal:      principal,
 		IdempotencyKey: "wallet-deposit-unknown",
-		AssetCode:      NativeXLMAssetCode,
+		AssetCode:      KXLMAssetCode,
 		AmountMinor:    entity.IDR(100_000),
 		Destination:    "G" + "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
 	})

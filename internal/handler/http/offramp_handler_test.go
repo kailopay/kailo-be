@@ -37,7 +37,7 @@ func TestOfframpHandlerMapsKYCRequired(t *testing.T) {
 	handler := NewOfframpHandler(service, nil)
 	router := gin.New()
 	router.POST("/v1/offramps", middleware.RequestID(), middleware.RequireOrderPrincipal(fixedAPIAuthenticator{}, nil, middleware.DefaultSessionCookieName, nil), handler.Create)
-	request := httptest.NewRequest(http.MethodPost, "/v1/offramps", strings.NewReader(`{"asset":{"network":"stellar_testnet","code":"XLM","amount":"25.0000000"},"withdrawal":{"currency":"IDR","method":"sandbox_bank_transfer","destination_token":"sandbox-bank-user-01"}}`))
+	request := httptest.NewRequest(http.MethodPost, "/v1/offramps", strings.NewReader(`{"asset":{"network":"stellar_testnet","code":"KXLM","amount":"25.0000000"},"withdrawal":{"currency":"IDR","method":"sandbox_bank_transfer","destination_token":"sandbox-bank-user-01"}}`))
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Authorization", "Bearer pk_test_public_secret")
 	request.Header.Set("Idempotency-Key", "idem-off-kyc-1")
@@ -60,7 +60,7 @@ func TestOfframpHandlerCreatesRetailSessionOwnedOrder(t *testing.T) {
 	}
 	router := gin.New()
 	router.POST("/v1/offramps", middleware.RequireOrderPrincipal(nil, fakeSessionAuthenticator{user: retailUser}, middleware.DefaultSessionCookieName, []string{"http://localhost:3000"}), handler.Create)
-	body := `{"asset":{"network":"stellar_testnet","code":"XLM","amount":"25.0000000"},"withdrawal":{"currency":"IDR","method":"sandbox_bank_transfer","destination_token":"sandbox-bank-user-01"}}`
+	body := `{"asset":{"network":"stellar_testnet","code":"KXLM","amount":"25.0000000"},"withdrawal":{"currency":"IDR","method":"sandbox_bank_transfer","destination_token":"sandbox-bank-user-01"}}`
 	request := httptest.NewRequest(http.MethodPost, "/v1/offramps", strings.NewReader(body))
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Origin", "http://localhost:3000")
@@ -76,7 +76,7 @@ func TestOfframpHandlerCreatesRetailSessionOwnedOrder(t *testing.T) {
 	if service.command.Principal != wantPrincipal {
 		t.Fatalf("principal = %+v, want %+v", service.command.Principal, wantPrincipal)
 	}
-	if service.command.AssetNetwork != "stellar_testnet" || service.command.AssetCode != "XLM" || service.command.FiatCurrency != "IDR" {
+	if service.command.AssetNetwork != "stellar_testnet" || service.command.AssetCode != "KXLM" || service.command.FiatCurrency != "IDR" {
 		t.Fatalf("asset/currency command = %+v", service.command)
 	}
 	if strings.Contains(response.Body.String(), "payout_simulation") {

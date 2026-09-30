@@ -112,6 +112,7 @@ type Sep24InteractiveConfig struct {
 	SessionTTL         time.Duration
 	Environment        string
 	Network            string
+	AssetIssuer        string
 	TestAutoApproveKYC bool
 	Now                func() time.Time
 	NewID              func() (string, error)
@@ -172,7 +173,7 @@ func (s *Sep24InteractiveUsecase) Start(ctx context.Context, principal SEP10Prin
 		if quoteErr != nil {
 			return Sep24InteractiveView{}, quoteErr
 		}
-		if err := applyInteractiveQuote(&normalized, quote); err != nil {
+		if err := applyInteractiveQuote(&normalized, quote, Sep38AssetIdentifier(s.config.AssetIssuer)); err != nil {
 			return Sep24InteractiveView{}, err
 		}
 	}
@@ -486,7 +487,7 @@ func normalizeInteractiveRequest(account string, request Sep24InteractiveRequest
 	request.DestinationToken = strings.TrimSpace(request.DestinationToken)
 	request.QuoteID = strings.TrimSpace(request.QuoteID)
 	request.IdempotencyKey = strings.TrimSpace(request.IdempotencyKey)
-	if request.Kind != Sep24KindDeposit && request.Kind != Sep24KindWithdraw || request.AssetCode != NativeXLMAssetCode {
+	if request.Kind != Sep24KindDeposit && request.Kind != Sep24KindWithdraw || request.AssetCode != KXLMAssetCode {
 		return Sep24InteractiveRequest{}, ErrSEP24InvalidRequest
 	}
 	if request.IdempotencyKey == "" {
@@ -506,12 +507,12 @@ func normalizeInteractiveRequest(account string, request Sep24InteractiveRequest
 	return request, nil
 }
 
-func applyInteractiveQuote(request *Sep24InteractiveRequest, quote Sep38QuoteView) error {
+func applyInteractiveQuote(request *Sep24InteractiveRequest, quote Sep38QuoteView, assetID string) error {
 	if request == nil || quote.QuoteID == "" {
 		return ErrSEP24InvalidRequest
 	}
 	if request.Kind == Sep24KindDeposit {
-		if quote.SellAsset != Sep38IDRAsset || quote.BuyAsset != Sep38XLMAsset {
+		if quote.SellAsset != Sep38IDRAsset || quote.BuyAsset != assetID {
 			return ErrSEP24InvalidRequest
 		}
 		if request.AmountMinor == 0 {
@@ -525,7 +526,7 @@ func applyInteractiveQuote(request *Sep24InteractiveRequest, quote Sep38QuoteVie
 		}
 		return nil
 	}
-	if quote.SellAsset != Sep38XLMAsset || quote.BuyAsset != Sep38IDRAsset {
+	if quote.SellAsset != assetID || quote.BuyAsset != Sep38IDRAsset {
 		return ErrSEP24InvalidRequest
 	}
 	if request.AssetAmount == "" {

@@ -76,7 +76,7 @@ func (r *OfframpRepository) CreateOfframp(ctx context.Context, record usecase.Of
 			RetailSessionID: ownership.RetailSessionID, WalletAccount: strPtrIfNotEmpty(record.WalletAccount), QuoteID: strPtrIfNotEmpty(record.QuoteID), Direction: "offramp",
 			Status: string(entity.OrderStatusAssetPending), Version: 2,
 			Currency: "IDR", FiatAmountMinor: int64(record.Quote.FiatAmount),
-			AssetCode: "XLM", AssetIssuer: "", Network: r.network,
+			AssetCode: usecase.KXLMAssetCode, AssetIssuer: record.AssetIssuer, Network: r.network,
 			AssetAmount: record.AssetAmount.String(), AssetAmountStroops: int64(record.AssetAmount),
 			QuoteProvider: "coinmarketcap", QuoteSourceAt: record.Quote.SourceAt,
 			QuoteRate: record.Quote.Rate, QuoteAdjustedRate: record.Quote.AdjustedRate,
@@ -203,7 +203,7 @@ func (r *OfframpRepository) RecordAssetReceived(ctx context.Context, orderID str
 		}
 		deposit := entity.StellarTransaction{ID: intentRowID, OrderID: order.ID,
 			IntentID: "stellar-offramp-deposit-" + payment.TransactionHash[:min(24, len(payment.TransactionHash))],
-			Purpose:  "deposit", Network: order.Network, AssetCode: "XLM", Amount: order.AssetAmount,
+			Purpose:  "deposit", Network: order.Network, AssetCode: order.AssetCode, AssetIssuer: order.AssetIssuer, Amount: order.AssetAmount,
 			Source: strPtr(payment.From), Destination: order.StellarSource,
 			Memo: order.StellarMemo, TransactionHash: strPtr(payment.TransactionHash),
 			Status: "confirmed", LedgerAt: &payment.LedgerAt, AttemptCount: 1,
@@ -226,8 +226,8 @@ func (r *OfframpRepository) RecordAssetReceived(ctx context.Context, orderID str
 		}
 		retirement := entity.StellarTransaction{ID: retirementID, OrderID: order.ID,
 			IntentID: "stellar-retire-" + order.ID, Purpose: "retirement", Network: order.Network,
-			AssetCode: "XLM", Amount: order.AssetAmount, Source: order.StellarSource,
-			Destination: strPtr(usecase.RetirementSinkAddress), Memo: order.StellarMemo,
+			AssetCode: order.AssetCode, AssetIssuer: order.AssetIssuer, Amount: order.AssetAmount,
+			Source: strPtr(order.AssetIssuer), Destination: order.StellarSource, Memo: order.StellarMemo,
 			Status: "pending", CreatedAt: now, UpdatedAt: now}
 		if err := tx.Create(&retirement).Error; err != nil {
 			return fmt.Errorf("creating retirement intent: %w", err)
@@ -253,6 +253,7 @@ func (r *OfframpRepository) RecordAssetReceived(ctx context.Context, orderID str
 func validateObservedDeposit(order entity.OrderRecord, payment usecase.ObservedPayment) error {
 	if order.Direction != "offramp" || order.StellarSource == nil || order.StellarMemo == nil ||
 		payment.TransactionHash == "" || payment.To != *order.StellarSource ||
+		payment.AssetCode != order.AssetCode || payment.AssetIssuer != order.AssetIssuer ||
 		payment.Amount != entity.Stroops(order.AssetAmountStroops) || payment.Memo != *order.StellarMemo ||
 		payment.LedgerAt.IsZero() {
 		return errInvalidDepositPayment
@@ -290,9 +291,17 @@ func (r *OfframpRepository) LoadRetirement(ctx context.Context, intentID string)
 	if err != nil {
 		return usecase.RetirementIntent{}, err
 	}
-	intent := usecase.RetirementIntent{IntentID: row.IntentID, OrderID: row.OrderID, Amount: amount}
+	intent := usecase.RetirementIntent{IntentID: row.IntentID, OrderID: row.OrderID, Amount: amount,
+		AssetCode: row.AssetCode, AssetIssuer: row.AssetIssuer}
 	if row.Source != nil {
 		intent.Source = *row.Source
+	}
+	if row.AssetIssuer != "" {
+		if row.Destination != nil {
+			intent.ClawbackFrom = *row.Destination
+		}
+	} else if row.Destination != nil {
+		intent.Destination = *row.Destination
 	}
 	if row.Memo != nil {
 		intent.Memo = *row.Memo
@@ -308,7 +317,7 @@ func (r *OfframpRepository) SaveRetirementHash(ctx context.Context, intentID, ha
 	result := r.db.WithContext(ctx).Model(&entity.StellarTransaction{}).
 		Where("intent_id = ? AND purpose = ? AND status = ? AND transaction_hash IS NULL AND ledger_at IS NULL",
 			intentID, "retirement", "pending").
-		Updates(map[string]any{"destination": usecase.RetirementSinkAddress, "transaction_hash": hash,
+		Updates(map[string]any{"transaction_hash": hash,
 			"status": "submitted", "attempt_count": gorm.Expr("attempt_count + 1"), "updated_at": now.UTC()})
 	if result.Error != nil {
 		return fmt.Errorf("saving retirement transaction hash: %w", result.Error)

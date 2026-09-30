@@ -22,6 +22,7 @@ import (
 // interactive response URL.
 type Sep24Config struct {
 	DepositAccount        string
+	AssetIssuer           string
 	NetworkPassphrase     string
 	TransferServerURL     string
 	QuoteServerURL        string
@@ -85,7 +86,7 @@ func (h *Sep24Handler) StellarToml(c *gin.Context) {
 # Every advertised service is implemented on Stellar TESTNET only. This
 # anchor handles sandbox funds; it never settles real value.
 NETWORK_PASSPHRASE = "%s"
-ACCOUNTS = ["%s"]
+ACCOUNTS = ["%s", "%s"]
 VERSION = "0.1.0"
 TRANSFER_SERVER_SEP24 = "%s"
 ANCHOR_QUOTE_SERVER = "%s"
@@ -94,13 +95,13 @@ WEB_AUTH_ENDPOINT = "%s"
 SIGNING_KEY = "%s"
 DOCUMENTATION = "https://github.com/febry3/kailopay-be"
 [[CURRENCIES]]
-code = "XLM"
-issuer = ""
+code = "%s"
+issuer = "%s"
 status = "test"
-desc = "Native XLM on Stellar testnet (sandbox corridor)."
-`, h.config.NetworkPassphrase, h.config.DepositAccount,
+desc = "KailoPay testnet sandbox asset; not native XLM, not redeemable for XLM, and has no real-world value."
+`, h.config.NetworkPassphrase, h.config.DepositAccount, h.config.AssetIssuer,
 		h.config.TransferServerURL, h.config.QuoteServerURL, h.config.FederationURL,
-		h.config.WebAuthEndpoint, h.config.SigningKey)
+		h.config.WebAuthEndpoint, h.config.SigningKey, usecase.KXLMAssetCode, h.config.AssetIssuer)
 }
 
 // Federation resolves synthetic demo names to the deposit account with the
@@ -126,15 +127,15 @@ func (h *Sep24Handler) Info(c *gin.Context) {
 		depositMax = 100000
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"deposit": gin.H{"XLM": gin.H{
+		"deposit": gin.H{usecase.KXLMAssetCode: gin.H{
 			"enabled": true, "min_amount": depositMin, "max_amount": depositMax,
 			"amount_unit": "idr_minor", "fiat_currency": usecase.IDRCurrency,
 		}},
-		"withdraw": gin.H{"XLM": gin.H{
+		"withdraw": gin.H{usecase.KXLMAssetCode: gin.H{
 			"enabled": true, "min_amount": 1, "max_amount": 100000,
-			"amount_unit": usecase.NativeXLMAssetCode, "fiat_currency": usecase.IDRCurrency,
+			"amount_unit": usecase.KXLMAssetCode, "fiat_currency": usecase.IDRCurrency,
 		}},
-		"fee": gin.H{"XLM": gin.H{"type": "none"}},
+		"fee": gin.H{usecase.KXLMAssetCode: gin.H{"type": "none"}},
 	})
 }
 

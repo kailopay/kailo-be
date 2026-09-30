@@ -12,11 +12,13 @@ import (
 func TestValidateObservedDeposit(t *testing.T) {
 	order := entity.OrderRecord{
 		Direction:          "offramp",
+		AssetCode:          usecase.KXLMAssetCode,
+		AssetIssuer:        "GISSUER",
 		AssetAmountStroops: 40_000_000,
 		StellarSource:      stringPtrForTest("GDEPOSIT"),
 		StellarMemo:        stringPtrForTest("off-order-1"),
 	}
-	valid := usecase.ObservedPayment{TransactionHash: "hash-1", To: "GDEPOSIT", Amount: 40_000_000,
+	valid := usecase.ObservedPayment{TransactionHash: "hash-1", To: "GDEPOSIT", AssetCode: usecase.KXLMAssetCode, AssetIssuer: "GISSUER", Amount: 40_000_000,
 		Memo: "off-order-1", LedgerAt: time.Date(2026, 9, 13, 0, 0, 0, 0, time.UTC)}
 
 	tests := []struct {

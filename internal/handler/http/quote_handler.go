@@ -87,7 +87,7 @@ func publicQuotePreview(preview usecase.QuotePreview) gin.H {
 	return gin.H{
 		"direction": string(preview.Direction), "environment": "sandbox", "network": "stellar_testnet",
 		"fiat":  gin.H{"currency": usecase.IDRCurrency, "amount_minor": strconv.FormatInt(int64(quote.FiatAmount), 10)},
-		"asset": gin.H{"code": usecase.NativeXLMAssetCode, "amount": quote.AssetAmount.String()},
+		"asset": gin.H{"code": usecase.KXLMAssetCode, "amount": quote.AssetAmount.String()},
 		"rate":  quote.Rate, "adjusted_rate": quote.AdjustedRate, "spread_bps": quote.SpreadBPS,
 		"source_at": quote.SourceAt, "expires_at": quote.ExpiresAt,
 	}

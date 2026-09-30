@@ -1,5 +1,9 @@
 # ADR-001: Xendit and Native XLM for the First On-Ramp
 
+> Historical decision. The asset choice was superseded for new orders by
+> [ADR-008](ADR-008-issued-kxlm-and-clawback.md). Existing orders and
+> transaction evidence remain unchanged.
+
 - Status: accepted
 - Date: 2026-08-19
 - Decision owners: KailoPay project owner and backend developer

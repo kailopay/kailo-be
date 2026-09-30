@@ -27,11 +27,14 @@ type Job struct {
 }
 
 type Transfer struct {
-	OrderID     string
-	Source      string
-	Destination string
-	Amount      entity.Stroops
-	Memo        string
+	OrderID      string
+	Source       string
+	Destination  string
+	AssetCode    string
+	AssetIssuer  string
+	ClawbackFrom string
+	Amount       entity.Stroops
+	Memo         string
 }
 
 type Intent struct {

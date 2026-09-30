@@ -420,7 +420,7 @@ func TestOfframpCreationRequiresApprovedKYC(t *testing.T) {
 	service := testOfframpServiceWithKYC(t, repository, &fakeKYCStatusReader{})
 	_, _, err := service.Create(context.Background(), OfframpCommand{
 		Principal: apiOrderPrincipal("client-1", "owner-1"), IdempotencyKey: "idem-kyc", AssetNetwork: StellarTestnetNetwork,
-		AssetCode: NativeXLMAssetCode, FiatCurrency: IDRCurrency, AssetAmount: "40",
+		AssetCode: KXLMAssetCode, FiatCurrency: IDRCurrency, AssetAmount: "40",
 		WithdrawalMethod: entity.WithdrawalMethodSandboxTransfer, DestinationToken: "demo-token",
 	})
 	if !errors.Is(err, ErrKYCRequired) {

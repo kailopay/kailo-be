@@ -264,7 +264,7 @@ func (s *DeveloperDashboardUsecase) normalize(query DeveloperQuery, paginated bo
 	if query.OwnerUserID == "" || query.Cursor != "" && len(query.Cursor) > 512 {
 		return DeveloperQuery{}, ErrInvalidDeveloperQuery
 	}
-	if query.Currency != "" && query.Currency != IDRCurrency && query.Currency != NativeXLMAssetCode {
+	if query.Currency != "" && query.Currency != IDRCurrency && query.Currency != NativeXLMAssetCode && query.Currency != KXLMAssetCode {
 		return DeveloperQuery{}, ErrInvalidDeveloperQuery
 	}
 	if query.Direction != "" && query.Direction != "onramp" && query.Direction != "offramp" {

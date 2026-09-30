@@ -16,7 +16,7 @@ func TestBuildSandboxFinancialSnapshotUsesExactZeroFeePolicy(t *testing.T) {
 		Environment:        "test",
 		Network:            StellarTestnetNetwork,
 		Currency:           IDRCurrency,
-		AssetCode:          NativeXLMAssetCode,
+		AssetCode:          KXLMAssetCode,
 		AssetAmount:        "12.3456789",
 		AssetAmountStroops: 123456789,
 		GrossAmountMinor:   987654321,
@@ -48,9 +48,9 @@ func TestBuildSandboxFinancialSnapshotRejectsInvalidInput(t *testing.T) {
 		name  string
 		input FinancialSnapshotInput
 	}{
-		{name: "missing order", input: FinancialSnapshotInput{SnapshotID: "financial-1", Direction: "onramp", Environment: "test", Network: StellarTestnetNetwork, Currency: IDRCurrency, AssetCode: NativeXLMAssetCode, AssetAmount: "1", AssetAmountStroops: 10, GrossAmountMinor: 1, CreatedAt: time.Now()}},
-		{name: "unsupported direction", input: FinancialSnapshotInput{SnapshotID: "financial-1", OrderID: "order-1", Direction: "transfer", Environment: "test", Network: StellarTestnetNetwork, Currency: IDRCurrency, AssetCode: NativeXLMAssetCode, AssetAmount: "1", AssetAmountStroops: 10, GrossAmountMinor: 1, CreatedAt: time.Now()}},
-		{name: "zero asset", input: FinancialSnapshotInput{SnapshotID: "financial-1", OrderID: "order-1", Direction: "onramp", Environment: "test", Network: StellarTestnetNetwork, Currency: IDRCurrency, AssetCode: NativeXLMAssetCode, AssetAmount: "0", AssetAmountStroops: 0, GrossAmountMinor: 1, CreatedAt: time.Now()}},
+		{name: "missing order", input: FinancialSnapshotInput{SnapshotID: "financial-1", Direction: "onramp", Environment: "test", Network: StellarTestnetNetwork, Currency: IDRCurrency, AssetCode: KXLMAssetCode, AssetAmount: "1", AssetAmountStroops: 10, GrossAmountMinor: 1, CreatedAt: time.Now()}},
+		{name: "unsupported direction", input: FinancialSnapshotInput{SnapshotID: "financial-1", OrderID: "order-1", Direction: "transfer", Environment: "test", Network: StellarTestnetNetwork, Currency: IDRCurrency, AssetCode: KXLMAssetCode, AssetAmount: "1", AssetAmountStroops: 10, GrossAmountMinor: 1, CreatedAt: time.Now()}},
+		{name: "zero asset", input: FinancialSnapshotInput{SnapshotID: "financial-1", OrderID: "order-1", Direction: "onramp", Environment: "test", Network: StellarTestnetNetwork, Currency: IDRCurrency, AssetCode: KXLMAssetCode, AssetAmount: "0", AssetAmountStroops: 0, GrossAmountMinor: 1, CreatedAt: time.Now()}},
 	}
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {

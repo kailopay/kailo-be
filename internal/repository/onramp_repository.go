@@ -19,6 +19,10 @@ const onrampCreateOperation = "onramp.create"
 
 const webhookDeliveryTopic = "webhook.deliver"
 
+// KXLM is issued by the treasury, so reservations cover native-XLM network
+// fees instead of reserving an equal quantity of native XLM as inventory.
+const kxlmIssueFeeReserve entity.Stroops = 10_000
+
 type OnrampRepository struct {
 	db              *gorm.DB
 	tx              txManager
@@ -71,7 +75,7 @@ func (r *OnrampRepository) ReserveAndCreate(ctx context.Context, record usecase.
 			return err
 		}
 		available := entity.Stroops(treasury.ObservedBalanceStroops - treasury.ReservedStroops - treasury.OperatingBufferStroops)
-		if available < record.Quote.AssetAmount {
+		if available < kxlmIssueFeeReserve {
 			return usecase.ErrInsufficientLiquidity
 		}
 
@@ -79,7 +83,7 @@ func (r *OnrampRepository) ReserveAndCreate(ctx context.Context, record usecase.
 			ID: record.OrderID, ClientID: ownership.ClientID, CreatedByUserID: ownership.CreatedByUserID,
 			RetailSessionID: ownership.RetailSessionID, WalletAccount: strPtrIfNotEmpty(record.WalletAccount), QuoteID: strPtrIfNotEmpty(record.QuoteID),
 			Direction: "onramp", Status: string(entity.OrderStatusCreated), Version: 1,
-			Currency: "IDR", FiatAmountMinor: int64(record.Quote.FiatAmount), AssetCode: "XLM", AssetIssuer: "",
+			Currency: "IDR", FiatAmountMinor: int64(record.Quote.FiatAmount), AssetCode: usecase.KXLMAssetCode, AssetIssuer: r.treasuryAccount,
 			Network: r.network, AssetAmount: record.Quote.AssetAmount.String(), AssetAmountStroops: int64(record.Quote.AssetAmount),
 			QuoteProvider: "coinmarketcap", QuoteSourceAt: record.Quote.SourceAt, QuoteRate: record.Quote.Rate,
 			QuoteAdjustedRate: record.Quote.AdjustedRate, QuoteSpreadBPS: record.Quote.SpreadBPS, QuoteExpiresAt: record.Quote.ExpiresAt,
@@ -100,14 +104,14 @@ func (r *OnrampRepository) ReserveAndCreate(ctx context.Context, record usecase.
 			return err
 		}
 		reservation := entity.TreasuryReservation{ID: reservationID, TreasuryID: treasury.ID, OrderID: order.ID,
-			AmountStroops: int64(record.Quote.AssetAmount), Status: "reserved", ExpiresAt: record.Quote.ExpiresAt,
+			AmountStroops: int64(kxlmIssueFeeReserve), Status: "reserved", ExpiresAt: record.Quote.ExpiresAt,
 			CreatedAt: record.CreatedAt, UpdatedAt: record.CreatedAt}
 		if err := tx.Create(&reservation).Error; err != nil {
 			return fmt.Errorf("creating treasury reservation: %w", err)
 		}
 		if err := tx.Model(&entity.TreasuryAccount{}).Where("id = ?", treasury.ID).
-			Update("reserved_stroops", gorm.Expr("reserved_stroops + ?", record.Quote.AssetAmount)).Error; err != nil {
-			return fmt.Errorf("reserving treasury balance: %w", err)
+			Update("reserved_stroops", gorm.Expr("reserved_stroops + ?", kxlmIssueFeeReserve)).Error; err != nil {
+			return fmt.Errorf("reserving issuer fee balance: %w", err)
 		}
 		if err := appendOrderEvent(tx, order.ID, 1, "order.created", "", string(entity.OrderStatusCreated), record.CreatedAt); err != nil {
 			return err
@@ -271,7 +275,7 @@ func (r *OnrampRepository) ConfirmPaymentAndEnqueue(ctx context.Context, confirm
 		}
 		intentID := "stellar-onramp-" + order.ID
 		stellar := entity.StellarTransaction{ID: intentRowID, OrderID: order.ID, IntentID: intentID, Purpose: "transfer", Network: order.Network,
-			AssetCode: "XLM", Amount: order.AssetAmount, Source: order.StellarSource, Destination: order.StellarDestination,
+			AssetCode: order.AssetCode, AssetIssuer: order.AssetIssuer, Amount: order.AssetAmount, Source: order.StellarSource, Destination: order.StellarDestination,
 			Memo: order.StellarMemo, Status: "pending", CreatedAt: now, UpdatedAt: now}
 		if err := tx.Create(&stellar).Error; err != nil {
 			return fmt.Errorf("creating settlement intent: %w", err)
@@ -418,6 +422,7 @@ func (r *OnrampRepository) releaseFailedOrder(ctx context.Context, orderID strin
 
 func baseOrderView(order entity.OrderRecord) usecase.OrderView {
 	view := usecase.OrderView{ID: order.ID, Status: entity.OrderStatus(order.Status),
+		AssetCode: order.AssetCode, AssetIssuer: order.AssetIssuer,
 		FiatAmountMinor: entity.IDR(order.FiatAmountMinor), AssetAmount: entity.Stroops(order.AssetAmountStroops),
 		QuoteRate: order.QuoteRate, QuoteAdjustedRate: order.QuoteAdjustedRate,
 		QuoteSpreadBPS: order.QuoteSpreadBPS, QuoteSourceAt: order.QuoteSourceAt, QuoteExpiresAt: order.QuoteExpiresAt,

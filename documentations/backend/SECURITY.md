@@ -154,11 +154,13 @@ Rules:
 - Fail startup when required secrets are missing or obviously invalid.
 - `SEP24_TEST_AUTO_APPROVE_KYC=true` is accepted only with `APP_ENV=test` and
   the Stellar testnet passphrase; it is not a request-controlled bypass.
-- The off-ramp worker requires exact verified XLM deposits and sends the
-  accepted amount from the configured deposit account to the all-zero
-  public-key retirement sink on Stellar testnet. `OFFRAMP_DEPOSIT_SECRET` is required only by the
-  worker and must match `OFFRAMP_DEPOSIT_ACCOUNT`. The payout simulator never
-  contacts a bank; public evidence must disclose that no real IDR moved.
+- The off-ramp worker requires exact verified KXLM deposits from the configured
+  issuer and uses the issuer's testnet key to claw back (burn) the accepted
+  amount from the deposit account. `STELLAR_TREASURY_SECRET` is worker-only and
+  must match `STELLAR_TREASURY_ACCOUNT`. Existing native-XLM retirement intents
+  may still use `OFFRAMP_DEPOSIT_SECRET`, which must match
+  `OFFRAMP_DEPOSIT_ACCOUNT`. The payout simulator never contacts a bank; public
+  evidence must disclose that no real IDR moved.
 - Never echo secrets during startup or health checks.
 - Rotate exposed secrets and document testnet account replacement.
 - CI runs the pinned Gitleaks CLI against the Git commit range introduced by

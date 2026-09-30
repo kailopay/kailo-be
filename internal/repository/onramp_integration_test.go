@@ -181,7 +181,7 @@ func TestReserveAndCreateRejectsInsufficientLiquidity(t *testing.T) {
 	ctx := context.Background()
 	record := testCreateRecord("00000000-0000-4000-8000-0000000000a2", entity.PaymentMethodQRIS, 100_000, 900_000_000_000, time.Now().UTC().Add(5*time.Minute))
 
-	err := store.onramp.ReserveAndCreate(ctx, record, 1_000_000_000)
+	err := store.onramp.ReserveAndCreate(ctx, record, 5_000)
 	if err != usecase.ErrInsufficientLiquidity {
 		t.Fatalf("ReserveAndCreate() error = %v, want ErrInsufficientLiquidity", err)
 	}
@@ -309,7 +309,7 @@ func TestSharedOrderViewIncludesOfframpSettlementDetails(t *testing.T) {
 	depositHash := "deposit-hash-" + orderID
 	if err := store.db.Create(&entity.StellarTransaction{
 		ID: depositID, OrderID: orderID, IntentID: "stellar-offramp-deposit-" + orderID,
-		Purpose: "deposit", Network: "stellar_testnet", AssetCode: "XLM", Amount: "400000000",
+		Purpose: "deposit", Network: "stellar_testnet", AssetCode: usecase.KXLMAssetCode, AssetIssuer: "GISSUER", Amount: "400000000",
 		TransactionHash: &depositHash, Status: "confirmed", AttemptCount: 1, CreatedAt: now, UpdatedAt: now,
 	}).Error; err != nil {
 		t.Fatalf("creating deposit evidence: %v", err)

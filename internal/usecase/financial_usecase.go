@@ -39,7 +39,7 @@ func BuildSandboxFinancialSnapshot(input FinancialSnapshotInput) (entity.OrderFi
 	if strings.TrimSpace(input.SnapshotID) == "" || strings.TrimSpace(input.OrderID) == "" ||
 		(input.Direction != "onramp" && input.Direction != "offramp") ||
 		input.Environment != "test" || input.Network != StellarTestnetNetwork ||
-		input.Currency != IDRCurrency || input.AssetCode != NativeXLMAssetCode ||
+		input.Currency != IDRCurrency || input.AssetCode != KXLMAssetCode ||
 		strings.TrimSpace(input.AssetAmount) == "" || input.AssetAmountStroops <= 0 ||
 		input.GrossAmountMinor <= 0 || input.QuoteSpreadBPS < 0 || input.QuoteSpreadBPS > 10000 ||
 		input.CreatedAt.IsZero() {

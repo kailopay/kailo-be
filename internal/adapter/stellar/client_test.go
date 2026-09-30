@@ -117,7 +117,7 @@ func TestFindByHashVerifiesReturnedTransaction(t *testing.T) {
 	}
 }
 
-func TestRecentPaymentsParsesNativePaymentsWithMemos(t *testing.T) {
+func TestRecentPaymentsParsesNativeAndCreditPaymentsWithMemos(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/accounts/GDEPOSIT/payments":
@@ -127,10 +127,13 @@ func TestRecentPaymentsParsesNativePaymentsWithMemos(t *testing.T) {
 			_, _ = fmt.Fprint(w, `{"_embedded":{"records":[
 				{"type":"payment","transaction_hash":"hash-1","from":"GUSER","to":"GDEPOSIT","asset_type":"native","amount":"40.0000000"},
 				{"type":"payment","transaction_hash":"hash-2","from":"GUSER","to":"GOTHER","asset_type":"credit_alphanum4","amount":"1.0000000"},
+				{"type":"payment","transaction_hash":"hash-4","from":"GUSER","to":"GDEPOSIT","asset_type":"credit_alphanum4","asset_code":"KXLM","asset_issuer":"GISSUER","amount":"40.0000000"},
 				{"type":"create_account","transaction_hash":"hash-3","asset_type":"native"}
 			]}}`)
 		case r.URL.Path == "/transactions/hash-1":
 			_, _ = fmt.Fprint(w, `{"memo":"offorder-1","successful":true,"created_at":"2026-08-24T01:00:00Z"}`)
+		case r.URL.Path == "/transactions/hash-4":
+			_, _ = fmt.Fprint(w, `{"memo":"offorder-2","successful":true,"created_at":"2026-08-24T01:01:00Z"}`)
 		default:
 			http.NotFound(w, r)
 		}
@@ -145,12 +148,17 @@ func TestRecentPaymentsParsesNativePaymentsWithMemos(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RecentPayments() error = %v", err)
 	}
-	if len(payments) != 1 {
-		t.Fatalf("payments = %d, want only the native payment", len(payments))
+	if len(payments) != 2 {
+		t.Fatalf("payments = %d, want native and KXLM payments", len(payments))
 	}
 	payment := payments[0]
 	if payment.TransactionHash != "hash-1" || payment.To != "GDEPOSIT" || payment.Amount != 400_000_000 ||
 		payment.Memo != "offorder-1" || payment.LedgerAt.IsZero() {
 		t.Fatalf("payment = %+v", payment)
+	}
+	creditPayment := payments[1]
+	if creditPayment.TransactionHash != "hash-4" || creditPayment.To != "GDEPOSIT" || creditPayment.AssetCode != "KXLM" ||
+		creditPayment.AssetIssuer != "GISSUER" || creditPayment.Amount != 400_000_000 || creditPayment.Memo != "offorder-2" {
+		t.Fatalf("credit payment = %+v", creditPayment)
 	}
 }

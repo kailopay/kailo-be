@@ -9,6 +9,7 @@ type StellarTransaction struct {
 	Purpose         string  `gorm:"type:text;not null;uniqueIndex:idx_stellar_order_purpose,priority:2"`
 	Network         string  `gorm:"type:text;not null"`
 	AssetCode       string  `gorm:"type:text;not null"`
+	AssetIssuer     string  `gorm:"type:text;not null;default:''"`
 	Amount          string  `gorm:"type:numeric(30,18);not null"`
 	Source          *string `gorm:"type:text"`
 	Destination     *string `gorm:"type:text"`

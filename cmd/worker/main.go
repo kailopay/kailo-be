@@ -89,7 +89,8 @@ func run(ctx context.Context) error {
 	httpClient := &http.Client{Timeout: cfg.Week1.Stellar.Timeout}
 	network, err := stellaradapter.New(stellaradapter.Config{HorizonURL: cfg.Week1.Stellar.HorizonURL,
 		NetworkPassphrase: cfg.Week1.Stellar.NetworkPassphrase, TreasurySecret: treasurySecret,
-		HTTPClient: httpClient, TransactionTimeout: cfg.Week1.Worker.SubmissionTimeout})
+		ExpectedSignerAddress: cfg.Week1.Stellar.TreasuryAccount,
+		HTTPClient:            httpClient, TransactionTimeout: cfg.Week1.Worker.SubmissionTimeout})
 	if err != nil {
 		return fmt.Errorf("creating Stellar client: %w", err)
 	}
@@ -120,7 +121,7 @@ func run(ctx context.Context) error {
 		logger.InfoContext(ctx, "requeued unsubmitted off-ramp retirements for on-chain submission", slog.Int64("count", requeued))
 	}
 	retireWorker := usecase.RetireWorker{Repository: offrampRepo, Intents: offrampRepo,
-		Network: retirementNetwork, Simulate: false, Config: usecase.SettlementConfig{
+		Network: network, LegacyNetwork: retirementNetwork, Simulate: false, Config: usecase.SettlementConfig{
 			LeaseDuration: cfg.Week1.Worker.LeaseDuration, RetryDelay: cfg.Week1.Worker.RetryDelay, Now: time.Now}}
 	payoutWorker, err := usecase.NewSandboxPayoutWorker(offrampRepo,
 		usecase.SandboxPayoutMode(cfg.Week1.Offramp.PayoutMode), time.Now)
@@ -147,7 +148,8 @@ func run(ctx context.Context) error {
 		converted := make([]usecase.ObservedPayment, 0, len(observed))
 		for _, payment := range observed {
 			converted = append(converted, usecase.ObservedPayment{TransactionHash: payment.TransactionHash,
-				From: payment.From, To: payment.To, Amount: payment.Amount, Memo: payment.Memo, LedgerAt: payment.LedgerAt})
+				From: payment.From, To: payment.To, AssetCode: payment.AssetCode, AssetIssuer: payment.AssetIssuer,
+				Amount: payment.Amount, Memo: payment.Memo, LedgerAt: payment.LedgerAt})
 		}
 		return converted, nil
 	})

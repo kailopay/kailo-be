@@ -1,5 +1,9 @@
 # ADR-007: On-chain off-ramp XLM retirement
 
+> Historical decision. [ADR-008](ADR-008-issued-kxlm-and-clawback.md)
+> supersedes sink payments for new sell orders. Existing native-XLM intents
+> continue to use the behavior documented here.
+
 - Status: Accepted
 - Date: 2026-09-29
 - Supersedes: ADR-006 retirement simulation only; ADR-006's simulated payout remains active

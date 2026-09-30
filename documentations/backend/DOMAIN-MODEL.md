@@ -4,7 +4,7 @@
 
 The current order slice supports both an API-client principal and a verified
 retail-session principal. Either principal requests an exact quote, reserves
-pre-funded treasury stroops for an on-ramp, and receives XLM only after
+native-XLM issuer fees for an on-ramp, and receives KXLM only after
 authenticated payment reconciliation. Retail orders are owned by the user and
 the creating session; API orders are owned by the API client. `TreasuryReservation`
 prevents the same wallet inventory from backing multiple checkouts.
@@ -131,10 +131,10 @@ Invariants:
 - Creating an order requires an approved KYC inquiry for the owning user, regardless of whether the principal is an API client or a retail session.
 - State changes use optimistic versioning and a legal transition table.
 - A completed on-ramp has a reconciled payment and successful Stellar transaction.
-- A completed off-ramp has an exactly verified XLM deposit, a confirmed
-  testnet retirement (or a preserved historical retirement outcome), and
-  durable sandbox payout evidence. Public evidence identifies confirmed
-  retirement and discloses that no real IDR moved.
+- A completed off-ramp has an exactly verified KXLM deposit from the configured
+  issuer, a confirmed testnet clawback (or a preserved historical native-XLM
+  retirement outcome), and durable sandbox payout evidence. Public evidence
+  identifies the on-chain result and discloses that no real IDR moved.
 - A failure never erases previously recorded external evidence.
 
 ### 3.4 Order event

@@ -1,5 +1,9 @@
 # Backend Implementation Phases
 
+> This plan records the original delivery sequence. ADR-008 supersedes the
+> original native-XLM asset and sink-retirement decisions for new orders; see
+> `KXLM-TESTNET-SETUP.md` for current issuer and trustline prerequisites.
+
 | Field | Value |
 |---|---|
 | Delivery window | 30 calendar days |

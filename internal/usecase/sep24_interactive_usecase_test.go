@@ -21,7 +21,7 @@ func TestSEP24InteractiveStartDoesNotCreateOrderAndStoresOnlyBrowserTokenHash(t 
 
 	view, err := service.Start(context.Background(), SEP10Principal{Account: "GACCOUNT"}, Sep24InteractiveRequest{
 		Kind:           Sep24KindDeposit,
-		AssetCode:      NativeXLMAssetCode,
+		AssetCode:      KXLMAssetCode,
 		AmountMinor:    10000,
 		IdempotencyKey: "request-1",
 	})
@@ -54,7 +54,7 @@ func TestSEP24InteractiveLinksUserRequiresKYCAndIsIdempotent(t *testing.T) {
 	kyc := &interactiveKYCFake{}
 	service := newInteractiveService(t, repository, transfers, kyc)
 	view, err := service.Start(context.Background(), SEP10Principal{Account: "GACCOUNT"}, Sep24InteractiveRequest{
-		Kind: Sep24KindWithdraw, AssetCode: NativeXLMAssetCode, AssetAmount: "1.25", IdempotencyKey: "withdraw-1",
+		Kind: Sep24KindWithdraw, AssetCode: KXLMAssetCode, AssetAmount: "1.25", IdempotencyKey: "withdraw-1",
 	})
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)
@@ -96,7 +96,7 @@ func TestSEP24InteractiveExpiredSessionCannotLoad(t *testing.T) {
 	service := newInteractiveService(t, repository, &interactiveTransfersFake{}, &interactiveKYCFake{})
 	service.config.Now = func() time.Time { return now }
 	view, err := service.Start(context.Background(), SEP10Principal{Account: "GACCOUNT"}, Sep24InteractiveRequest{
-		Kind: Sep24KindDeposit, AssetCode: NativeXLMAssetCode, AmountMinor: 1,
+		Kind: Sep24KindDeposit, AssetCode: KXLMAssetCode, AmountMinor: 1,
 	})
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)
@@ -140,7 +140,7 @@ func TestSEP24InteractiveTestAutoApprovalRequiresTestEnvironmentAndCompletes(t *
 	if err != nil {
 		t.Fatalf("NewSEP24InteractiveUsecase() error = %v", err)
 	}
-	view, err := service.Start(context.Background(), SEP10Principal{Account: "GACCOUNT"}, Sep24InteractiveRequest{Kind: Sep24KindDeposit, AssetCode: NativeXLMAssetCode, AmountMinor: 1})
+	view, err := service.Start(context.Background(), SEP10Principal{Account: "GACCOUNT"}, Sep24InteractiveRequest{Kind: Sep24KindDeposit, AssetCode: KXLMAssetCode, AmountMinor: 1})
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}

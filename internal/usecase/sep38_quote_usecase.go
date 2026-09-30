@@ -56,6 +56,7 @@ type Sep38QuoteConfig struct {
 	QuotePolicy QuotePolicy
 	MinIDR      entity.IDR
 	MaxIDR      entity.IDR
+	AssetIssuer string
 	Now         func() time.Time
 	NewID       func() (string, error)
 }
@@ -89,7 +90,8 @@ func (s *Sep38QuoteUsecase) Create(ctx context.Context, principal SEP10Principal
 	request.BuyAmount = strings.TrimSpace(request.BuyAmount)
 	request.SellDeliveryMethod = strings.TrimSpace(request.SellDeliveryMethod)
 	request.BuyDeliveryMethod = strings.TrimSpace(request.BuyDeliveryMethod)
-	if !validSEP38Pair(request.SellAsset, request.BuyAsset) ||
+	assetID := Sep38AssetIdentifier(s.config.AssetIssuer)
+	if !validSEP38PairFor(request.SellAsset, request.BuyAsset, assetID) ||
 		(request.SellAmount == "") == (request.BuyAmount == "") {
 		return Sep38QuoteView{}, ErrInvalidSEP38Request
 	}
@@ -155,7 +157,7 @@ func (s *Sep38QuoteUsecase) Create(ctx context.Context, principal SEP10Principal
 	row := entity.SEP38Quote{
 		ID: id, QuoteID: quoteID, WalletAccount: strings.TrimSpace(principal.Account),
 		SellAsset: request.SellAsset, BuyAsset: request.BuyAsset,
-		SellAmount: quoteSellAmount(request, quote), BuyAmount: quoteBuyAmount(request, quote),
+		SellAmount: quoteSellAmount(request, quote, assetID), BuyAmount: quoteBuyAmount(request, quote, assetID),
 		Price: quote.Rate, SpreadBPS: quote.SpreadBPS,
 		DeliveryMethod: quoteDeliveryMethod(request), ExpiresAt: quote.ExpiresAt,
 		CreatedAt: now, UpdatedAt: now,
@@ -190,9 +192,9 @@ func (s *Sep38QuoteUsecase) Consume(ctx context.Context, principal SEP10Principa
 	return s.dependencies.Quotes.Consume(ctx, strings.TrimSpace(principal.Account), strings.TrimSpace(quoteID), s.config.Now().UTC())
 }
 
-func quoteSellAmount(request Sep38QuoteRequest, quote Quote) string {
+func quoteSellAmount(request Sep38QuoteRequest, quote Quote, assetID string) string {
 	if request.SellAmount != "" {
-		if request.SellAsset == Sep38XLMAsset {
+		if request.SellAsset == assetID {
 			amount, err := parseDecimalStroops(request.SellAmount)
 			if err == nil {
 				return amount.String()
@@ -200,15 +202,15 @@ func quoteSellAmount(request Sep38QuoteRequest, quote Quote) string {
 		}
 		return request.SellAmount
 	}
-	if request.SellAsset == Sep38XLMAsset {
+	if request.SellAsset == assetID {
 		return quote.AssetAmount.String()
 	}
 	return strconv.FormatInt(int64(quote.FiatAmount), 10)
 }
 
-func quoteBuyAmount(request Sep38QuoteRequest, quote Quote) string {
+func quoteBuyAmount(request Sep38QuoteRequest, quote Quote, assetID string) string {
 	if request.BuyAmount != "" {
-		if request.BuyAsset == Sep38XLMAsset {
+		if request.BuyAsset == assetID {
 			amount, err := parseDecimalStroops(request.BuyAmount)
 			if err == nil {
 				return amount.String()

@@ -1,21 +1,19 @@
 # Stellar Anchor Integration
 
-> The Week 1 settlement foundation sends native XLM from a pre-funded Stellar
-> testnet distribution wallet after Xendit payment reconciliation. The Week 2
-> slice adds off-ramp and the authenticated SEP-24/federation surfaces on top
-> of the same order and settlement invariants.
+> The sandbox uses an issued Stellar testnet asset, KXLM. Confirmed on-ramp
+> payments cause the treasury issuer to issue KXLM to the user's trustline;
+> verified off-ramp deposits are destroyed with the issuer's clawback
+> operation. Fiat payout remains simulated.
 
 ## 1. Scope and network
 
-All `v0.1.0` operations use **Stellar testnet**. The release demonstrates:
+All operations use **Stellar testnet**. The release demonstrates:
 
-- A native-XLM corridor. KailoPay does not issue a custom Stellar asset.
-- On-ramp transfer of pre-funded native XLM from the treasury after confirmed
-  sandbox payment; this is distribution, not asset issuance.
-- Off-ramp receipt and exact validation followed by a confirmed native-XLM
-  payment to the retirement sink. This retires the received XLM from KailoPay's
-  usable balance; Stellar does not protocol-burn native XLM.
-- On-ramp settlement, off-ramp deposit, and retirement transaction hashes linked
+- The issued KXLM credit asset, identified by both its code and issuer account.
+- KXLM issuance from the treasury issuer after confirmed sandbox payment.
+- Exact KXLM off-ramp deposit verification followed by issuer-authorized
+  `Clawback`, which destroys the specified issued balance on Stellar.
+- On-ramp issuance, off-ramp deposit, and burn/clawback transaction hashes linked
   to orders.
 - Canonical SEP-10-authenticated SEP-24 deposit and withdrawal flows for classic
   Stellar wallets, including retail-session linking and Persona approval.
@@ -24,21 +22,25 @@ All `v0.1.0` operations use **Stellar testnet**. The release demonstrates:
   compliance decision.
 - Public `stellar.toml` and federation configuration/service.
 
-Mainnet, production custody, reserves, liquidity, and regulated issuance are Future scope.
+KXLM is a testnet demonstration asset. It is not native XLM, is not redeemable
+for XLM, and has no claim of backing or real-world value. Fiat payout is a
+sandbox simulation; no real IDR moves.
 
 ## 2. Account and asset roles
 
-The `v0.1.0` model intentionally uses native XLM:
+The sandbox KXLM model uses these roles:
 
-- No asset issuer or issuer key is involved; native XLM has no issuer.
-- The pre-funded treasury account signs on-ramp transfers to customer wallets.
-- The off-ramp deposit account receives XLM and signs the retirement transfer.
-  Its worker-only secret must match the configured public account.
-- XLM does not require a trustline. The deposit still requires the exact amount,
-  destination, memo, and a unique transaction hash.
-- Issuing a credit asset and burning it with issuer controls is outside this
-  release. It would change the asset and wallet requirements and is not part of
-  the current FE/API flow.
+- The configured treasury account is both the KXLM issuer and the signing
+  account for issuance and clawback. Its worker-only secret must match the
+  configured public account.
+- The issuer must have `AUTH_REVOCABLE` and `AUTH_CLAWBACK_ENABLED` set before
+  customer or deposit-account trustlines are created.
+- Customer destination accounts and the off-ramp deposit account must each
+  have an authorized KXLM trustline with clawback enabled.
+- The off-ramp deposit account receives KXLM but does not sign its burn. The
+  issuer claws back the verified amount from that account.
+- Native XLM remains necessary for account reserves and transaction fees. It
+  is not the asset being bought or sold.
 
 Public account IDs may be documented; secret seeds are never stored in
 PostgreSQL, source, logs, screenshots, or evidence.
@@ -48,9 +50,9 @@ PostgreSQL, source, logs, screenshots, or evidence.
 ```ts
 interface StellarSettlement {
   validateAccount(input: AccountInput): Promise<AccountValidation>;
-  transferNativeXLM(input: OnrampTransferInput): Promise<SubmissionResult>;
+  issueKXLM(input: OnrampTransferInput): Promise<SubmissionResult>;
   findDeposit(input: DepositLookup): Promise<DepositResult>;
-  retireNativeXLM(input: RetirementInput): Promise<SubmissionResult>;
+  clawbackKXLM(input: RetirementInput): Promise<SubmissionResult>;
   findTransaction(input: TransactionLookup): Promise<TransactionResult>;
 }
 ```
@@ -62,7 +64,8 @@ The adapter owns Horizon/RPC/SDK types, sequence handling, fee configuration, tr
 1. Verified payment moves order to `payment_confirmed`.
 2. In the same database transaction, create a unique settlement intent and outbox message.
 3. Worker validates the destination Stellar account.
-4. Worker builds a native-XLM payment using the configured testnet network passphrase.
+4. Worker builds a KXLM credit-asset payment from the configured issuer using
+   the configured testnet network passphrase.
 5. Include a deterministic order correlation value in a memo or documented alternative.
 6. Sign only inside the settlement adapter using injected testnet secret material.
 7. Submit and persist the result.
@@ -71,12 +74,12 @@ The adapter owns Horizon/RPC/SDK types, sequence handling, fee configuration, tr
 
 Exactly one active settlement intent per order is enforced in PostgreSQL.
 
-## 5. Off-ramp deposit and retirement
+## 5. Off-ramp deposit and burn
 
 Deposit instructions include:
 
 - Off-ramp deposit account.
-- Native XLM (no asset issuer).
+- KXLM plus its configured issuer account.
 - Exact amount.
 - Required memo/order correlation or muxed-account mechanism.
 - Expiry and testnet warning.
@@ -85,27 +88,27 @@ A deposit is accepted only when:
 
 - Transaction is successful on testnet.
 - Destination is the configured account.
-- The payment uses native XLM.
+- The payment uses KXLM from the configured issuer.
 - Amount matches the order exactly in stroops.
 - Memo/muxed/correlation identifies the order.
 - Transaction hash has not been assigned to another order.
 
-After acceptance, persist a retirement intent. The worker builds a native-XLM
-payment for the exact verified amount from the configured deposit account to
-the all-zero public-key retirement sink. It stores the transaction hash
-before submission. Unknown and pending outcomes are reconciled against Stellar
-using that hash; a confirmed retirement advances the order and queues the
-payout simulation. A sequence-conflict response proves the transaction was not
-applied, so that hash is cleared and rebuilt on a later attempt. Historical
-hashes remain subject to reconciliation and are never replaced with simulated
-evidence.
+After acceptance, persist a clawback intent. The treasury issuer builds a
+Stellar `Clawback` operation for the exact verified KXLM amount held by the
+deposit account. It stores the transaction hash before submission. Unknown and
+pending outcomes are reconciled against Stellar using that hash; a confirmed
+clawback advances the order and queues the payout simulation. A sequence
+conflict proves the transaction was not applied, so that hash is cleared and
+rebuilt on a later attempt. Pre-existing native-XLM retirement intents retain
+their recorded sink-transfer behavior and are reconciled by the legacy deposit
+signer.
 
 Unexpected/wrong deposits are not silently credited. Record safe evidence and follow the sandbox exception procedure.
 
 ## 5.1 Testnet payout simulator
 
 The current release hard-codes the worker-owned sandbox payout adapter. After
-exact deposit verification and confirmed testnet retirement, the worker leases a
+exact deposit verification and confirmed testnet clawback, the worker leases a
 `payout.simulate_offramp` outbox job, creates one deterministic
 `sandbox_bank_transfer` payout reference, records `payout.simulated`, and
 advances the order to `completed`.
@@ -113,14 +116,14 @@ advances the order to `completed`.
 The simulator accepts any non-empty synthetic destination reference within the
 existing 200-character limit. It does not validate, contact, or transfer to a
 bank account, and every public payout/SEP-24 response says no real IDR moved.
-For confirmed retirements, `stellar_retirement_transaction_id` exposes the
-retirement hash alongside the deposit's `stellar_transaction_id`, with a
+For confirmed KXLM clawbacks, `stellar_retirement_transaction_id` exposes the
+clawback hash alongside the deposit's `stellar_transaction_id`, with a
 matching disclosure. The payout remains simulated and has no runtime disabled
 mode.
 
 ## 6. Sequence numbers and concurrent submissions
 
-Stellar source-account sequence numbers make concurrent submission risky. For `v0.1.0` use one of:
+Stellar source-account sequence numbers make concurrent submission risky. Use one of:
 
 - A single serialized settlement queue per signing account, recommended for the sandbox.
 - Strict account-level database/advisory lock around transaction build and submission.
@@ -163,13 +166,13 @@ Minimum behavior:
 
 - Both initiation endpoints require `Idempotency-Key` and accept the standard
   `multipart/form-data` request shape as well as the JSON equivalent.
-- Deposit requests support `asset_code=XLM`, `account`, `memo`, and the
+- Deposit requests support `asset_code=KXLM`, `account`, `memo`, and the
   sandbox-specific `amount_minor` IDR input required by the quote workflow.
-- Withdrawal requests support `asset_code=XLM`, the exact XLM `amount`, and an
+- Withdrawal requests support `asset_code=KXLM`, the exact KXLM `amount`, and an
   optional `quote_id`. The interactive page collects a non-empty synthetic
   `destination_token`; it never accepts or contacts a real bank account.
 - `/sep24/info` labels deposit bounds as `idr_minor` and withdrawal bounds as
-  `XLM`; the distinction is intentional because deposit quotes are fiat
+  `KXLM`; the distinction is intentional because deposit quotes are fiat
   denominated in this sandbox.
 - Initiation creates a durable interactive session before any order exists. The
   browser URL contains only a short-lived opaque token; the server stores its
@@ -203,15 +206,16 @@ spread, freshness checks, and exact amount arithmetic as the first-party
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/sep38/info` | List `iso4217:IDR` and `stellar:native` plus delivery methods |
+| `GET` | `/sep38/info` | List `iso4217:IDR` and `stellar:KXLM:<issuer>` plus delivery methods |
 | `GET` | `/sep38/prices?sell_asset=...&buy_asset=...` | Return an indicative pair price |
 | `GET` | `/sep38/price?...&sell_amount=...` or `buy_amount=...` | Calculate an amount-specific result |
 | `POST` | `/sep38/quote` | Create a SEP-10 wallet-owned firm quote |
 | `GET` | `/sep38/quote/{id}` | Retrieve an unexpired, unconsumed firm quote |
 
 For `/sep38/price`, send exactly one of `sell_amount` or `buy_amount`. IDR is
-represented as integer minor units and native XLM has up to seven decimal
-places. These endpoints calculate prices only: they do not reserve liquidity,
+represented as integer minor units and KXLM has up to seven decimal
+places. KXLM's SEP-38 identifier includes its issuer account. These endpoints
+calculate prices only: they do not reserve liquidity,
 create an order, or replace the SEP-24 transaction-initiation flow. Firm quotes
 are separate, short-lived records owned by the SEP-10 wallet and can be
 consumed once by a matching SEP-24 initiation.
@@ -288,7 +292,7 @@ Requirements:
 
 - Public testnet account and asset configuration.
 - Successful on-ramp transaction hash and explorer link.
-- Successful off-ramp deposit hash, confirmed retirement hash, and simulated
+- Successful off-ramp deposit hash, confirmed burn/clawback hash, and simulated
   payout evidence with a no-real-IDR disclosure.
 - Order-to-transaction correlation visible in safe logs/database evidence.
 - Public valid `stellar.toml`.

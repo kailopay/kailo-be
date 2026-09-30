@@ -61,7 +61,7 @@ func (s *QuotePreviewUsecase) Preview(ctx context.Context, command QuotePreviewC
 	command.AssetCode = strings.TrimSpace(command.AssetCode)
 	command.AssetAmount = strings.TrimSpace(command.AssetAmount)
 	command.Direction = QuoteDirection(strings.TrimSpace(string(command.Direction)))
-	if command.FiatCurrency != IDRCurrency || command.AssetNetwork != StellarTestnetNetwork || command.AssetCode != NativeXLMAssetCode {
+	if command.FiatCurrency != IDRCurrency || command.AssetNetwork != StellarTestnetNetwork || command.AssetCode != KXLMAssetCode {
 		return QuotePreview{}, ErrInvalidQuoteRequest
 	}
 

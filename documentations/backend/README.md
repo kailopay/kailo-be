@@ -74,7 +74,7 @@ integration client for the public API, not a second backend runtime.
 - Hashed test API keys using the `pk_test_` prefix.
 - PostgreSQL persistence, migrations, order events, and external-reference correlation.
 - One payment gateway adapter for sandbox QRIS, bank transfer/virtual account, and callbacks. Off-ramp payout is simulated and never moves real IDR.
-- Stellar testnet native-XLM transfer, exact off-ramp deposit verification, and confirmed retirement-sink transfer with a public transaction hash.
+- Stellar testnet KXLM issuance after confirmed buy payment, exact issuer-aware sell-deposit verification, and confirmed issuer clawback burn with public transaction hashes. Historical native-XLM retirement intents remain supported.
 - SEP-10 classic-wallet authentication, wallet-owned SEP-24 interactive deposit
   and withdrawal linking, Persona-backed sandbox KYC status gate, firm SEP-38
   quotes, public `stellar.toml`, and federation configuration.
@@ -98,7 +98,7 @@ integration client for the public API, not a second backend runtime.
 ## Week 3 developer integration surface
 
 An integrating developer uses a session-authenticated dashboard surface to
-operate applications that exchange IDR and Stellar testnet XLM through the
+operate applications that exchange IDR and Stellar testnet KXLM through the
 existing API-key-authenticated order routes. The Week 3 backend routes are:
 
 - `GET /v1/developer/overview`, `/analytics`, `/revenue/summary`,
@@ -150,8 +150,8 @@ Material design changes require an ADR and synchronized updates to affected docu
 ## Decisions required before implementation
 
 - ~~Select Xendit or Midtrans after confirming exact sandbox capabilities.~~ Resolved by ADR-001: use Xendit Payment Sessions.
-- ~~Confirm test asset code, precision, issuer/distributor accounts, and retirement method.~~ Native XLM and exact deposits are defined by ADR-001/003; ADR-007 enables on-chain retirement after deposit verification.
-- ~~Agree acceptable off-ramp evidence when the selected gateway cannot execute a true sandbox payout.~~ ADR-006 and ADR-007 define confirmed testnet retirement followed by deterministic simulated payout evidence; disclose that no real IDR moved.
+- ~~Confirm test asset code, precision, issuer/distributor accounts, and retirement method.~~ ADR-008 selects issued KXLM and issuer clawback. Testnet issuer flags and trustlines must be provisioned as described in `KXLM-TESTNET-SETUP.md`.
+- ~~Agree acceptable off-ramp evidence when the selected gateway cannot execute a true sandbox payout.~~ ADR-006 and ADR-008 define confirmed KXLM clawback followed by deterministic simulated payout evidence; disclose that no real IDR moved.
 - Select deployment topology, public hostnames, and managed-secret mechanism.
 - ~~Select a KYC provider and gate policy~~ Resolved by ADR-004: Persona sandbox
   status gate; only `approved` unlocks API-key and order creation.
