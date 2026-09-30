@@ -67,17 +67,14 @@ for the linked transactions, demos, and remaining evidence.
 - [x] Stellar testnet adapter and settlement worker are present.
 - [x] Funded Stellar testnet treasury account: `GDGLOWQIRDAURHIXNJUDEON43AMMZWOWER3LDAVEIDDDFFVGV5CZSEE7`
   with `10000.0000000` native XLM observed from Horizon on 2026-09-09.
-- [x] Owner-provided buy flow transaction proving settlement transfer: [Stellar Testnet Explorer](https://stellar.expert/explorer/testnet/tx/45c1d2d17d33359d67afce199039f2b216bd4767ce06c0427c794cc344801b3e).
+- [x] Verified on-ramp settlement: [Stellar Testnet transaction](https://stellar.expert/explorer/testnet/tx/b4106f0c9fecc7d7a00b7715e5a99d2e156dfdb11b29c7954a8edb1bcb8f1065). Horizon confirms a successful `24.1411618` native-XLM payment from the recorded treasury to the customer wallet on 2026-09-29.
 
 ## Sell flow evidence
 
-- [ ] Confirmed off-ramp retirement transaction hash and explorer link. The
-  owner-provided [sell flow URL](https://stellar.expert/explorer/testnet/tx/21189560457244672#21189560457244673)
-  contains numeric IDs rather than a 64-character Stellar transaction hash, so
-  it does not verify the deposit or the backend retirement transaction.
-- [ ] Capture the deposit hash, confirmed retirement hash, order reference, and
-  payout-simulation disclosure together after deploying the on-chain retirement
-  worker.
+- [x] Verified sell deposit: [Stellar Testnet transaction](https://stellar.expert/explorer/testnet/tx/5ebd7e80ebad47de8becf74d271537944a95d40ed1965ddc3ced608c9fccd93a). Horizon confirms a successful `35.0000000` native-XLM payment to the off-ramp deposit account on 2026-09-30.
+- [x] Verified on-chain retirement: [Stellar Testnet transaction](https://stellar.expert/explorer/testnet/tx/1b7b8c3a23e248bdac3ef5a16f414472c65513530909269e4892d17f0691ce3e). Five seconds after the deposit, the deposit account sent exactly `35.0000000` native XLM to the retirement sink with the same memo.
+- [x] The earlier [30 XLM payment](https://stellar.expert/explorer/testnet/tx/45c1d2d17d33359d67afce199039f2b216bd4767ce06c0427c794cc344801b3e) is also a sell deposit, not buy evidence; its memo starts with `off` and it has the same deposit destination.
+- [ ] Attach the authenticated order reference and sanitized webhook delivery record alongside these public transaction links and the payout-simulation disclosure.
 
 ## Demo video links (owner-provided)
 
