@@ -78,7 +78,7 @@ design.
 | Real payout rail | Out of sandbox scope | Sell orders complete through the disclosed sandbox payout; no bank transfer or real IDR is claimed. Production disbursement remains a roadmap item. |
 | Demo recording | Three video URLs provided by owner | [Buy](https://youtu.be/jvUxssZjSzM) · [sell](https://youtu.be/fBq_dOv1aGc) · [developer/user dashboard](https://youtu.be/CEVcd4mjYMk). The links are recorded as owner-provided evidence; video contents have not been independently reviewed. |
 | Final evidence matrix | Draft only | Confirm each evidence link and mark each deliverable Present, Partial, or Missing. |
-| Final security and regression gate | Local format, vet, build, and race suite passed; GitHub Actions on the release commit is pending | Run and record CI build, vet, unit/PostgreSQL race tests, and secret scan before tagging. |
+| Final security and regression gate | Local format, vet, build, and race suite passed; GitHub Actions build/vet/unit tests, PostgreSQL integration tests, and secret scan passed before tagging | See the [GitHub Actions runs](https://github.com/kailopay/kailo-be/actions) for the release commit. |
 | `v0.1.0` release tag | Pending publication | Record the tag and GitHub release URL after publication. |
 
 ## Week 4 closeout

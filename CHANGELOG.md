@@ -18,8 +18,8 @@ integration testing; it is not suitable for real funds.
 ### Release checks
 
 - `gofmt -l .`, `go vet ./...`, `go build ./...`, and `go test -race ./...` passed.
-- GitHub Actions runs the PostgreSQL 18 integration suite and secret scan;
-  their results on the release commit are required before publishing `v0.1.0`.
+- GitHub Actions build/vet/unit tests, PostgreSQL 18 integration tests, and
+  secret scan passed on the release commit before publishing `v0.1.0`.
 - Public GET checks returned HTTP 200 for the app, `/docs/`,
   `/.well-known/stellar.toml`, `/federation?q=alice%2Akailopay`, `/sep24/info`,
   and `/livez`.
