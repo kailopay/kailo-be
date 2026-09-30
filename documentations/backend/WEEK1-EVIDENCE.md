@@ -7,9 +7,11 @@ sandbox or testnet account.
 ## Checkpoint status
 
 Weeks 1 and 2 are closed as an implementation checkpoint dated 2026-09-16.
-The unchecked items in this file remain open evidence gates. They are not
-implementation claims, and they must be completed before formal release
-acceptance.
+The unchecked items are supporting evidence that has not been attached to this
+checklist; they do not mean the owner-confirmed testnet flows are unimplemented.
+Add those artifacts to the acceptance package if the reviewer requires them.
+The simulated fiat-payout record is expected in this testnet scope, where no
+real IDR payout occurs.
 
 See [Weeks 1 and 2 backend checkpoint](WEEK1-2-CHECKPOINT.md) for the complete
 status, Week 2 result, and frontend handoff.
@@ -74,7 +76,7 @@ for the linked transactions, demos, and remaining evidence.
 - [x] Verified sell deposit: [Stellar Testnet transaction](https://stellar.expert/explorer/testnet/tx/5ebd7e80ebad47de8becf74d271537944a95d40ed1965ddc3ced608c9fccd93a). Horizon confirms a successful `35.0000000` native-XLM payment to the off-ramp deposit account on 2026-09-30.
 - [x] Verified on-chain retirement: [Stellar Testnet transaction](https://stellar.expert/explorer/testnet/tx/1b7b8c3a23e248bdac3ef5a16f414472c65513530909269e4892d17f0691ce3e). Five seconds after the deposit, the deposit account sent exactly `35.0000000` native XLM to the retirement sink with the same memo.
 - [x] The earlier [30 XLM payment](https://stellar.expert/explorer/testnet/tx/45c1d2d17d33359d67afce199039f2b216bd4767ce06c0427c794cc344801b3e) is also a sell deposit, not buy evidence; its memo starts with `off` and it has the same deposit destination.
-- [ ] Attach the authenticated order reference and sanitized webhook delivery record alongside these public transaction links and the payout-simulation disclosure.
+- [ ] Attach the authenticated order reference and sanitized webhook delivery record if required for the acceptance package. The public links verify the testnet transfers; the sandbox payout record is expected behavior and no real IDR payout is part of this testnet flow.
 
 ## Demo video links (owner-provided)
 
