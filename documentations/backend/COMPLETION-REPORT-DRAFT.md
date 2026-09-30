@@ -86,7 +86,7 @@ design.
 
 | Evidence reference | Transaction type and direction | Testnet transaction |
 |---|---|---|
-| L11 | Sell deposit: customer wallet to the off-ramp deposit account, `30.0000000` native XLM. This is not buy evidence. | [45c1d2d17d33359d67afce199039f2b216bd4767ce06c0427c794cc344801b3e](https://stellar.expert/explorer/testnet/tx/45c1d2d17d33359d67afce199039f2b216bd4767ce06c0427c794cc344801b3e) |
+| L11 | Sell deposit: customer wallet to the off-ramp deposit account, `30.0000000` native XLM. This is not buy evidence; the separate buy is [b4106f0c…](https://stellar.expert/explorer/testnet/tx/b4106f0c9fecc7d7a00b7715e5a99d2e156dfdb11b29c7954a8edb1bcb8f1065). | [45c1d2d17d33359d67afce199039f2b216bd4767ce06c0427c794cc344801b3e](https://stellar.expert/explorer/testnet/tx/45c1d2d17d33359d67afce199039f2b216bd4767ce06c0427c794cc344801b3e) |
 | L12 | Sell deposit: customer wallet to the off-ramp deposit account, `35.0000000` native XLM. | [5ebd7e80ebad47de8becf74d271537944a95d40ed1965ddc3ced608c9fccd93a](https://stellar.expert/explorer/testnet/tx/5ebd7e80ebad47de8becf74d271537944a95d40ed1965ddc3ced608c9fccd93a) |
 | Retirement after L12 (separate transaction) | Off-ramp deposit account to the retirement sink, exactly `35.0000000` native XLM, five seconds after L12. This is a distinct hash, not the L12 deposit hash. | [1b7b8c3a23e248bdac3ef5a16f414472c65513530909269e4892d17f0691ce3e](https://stellar.expert/explorer/testnet/tx/1b7b8c3a23e248bdac3ef5a16f414472c65513530909269e4892d17f0691ce3e) |
 | Buy on-ramp settlement | Treasury to customer wallet, `24.1411618` native XLM. | [b4106f0c9fecc7d7a00b7715e5a99d2e156dfdb11b29c7954a8edb1bcb8f1065](https://stellar.expert/explorer/testnet/tx/b4106f0c9fecc7d7a00b7715e5a99d2e156dfdb11b29c7954a8edb1bcb8f1065) |
